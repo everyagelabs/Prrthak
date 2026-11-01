@@ -1,0 +1,45 @@
+'use strict';
+
+const accountPreferenceKey='prthak-display-preferences-v1';
+function accountReadPreferences(){try{const raw=window.localStorage?.getItem(accountPreferenceKey);if(raw&&raw.length<=1024){const value=JSON.parse(raw);return {compact_tables:value?.compact_tables===true,reduce_motion:value?.reduce_motion===true};}}catch{}return {compact_tables:false,reduce_motion:false};}
+let accountPreferences=accountReadPreferences();
+function accountApplyPreferences(){document.body.classList.toggle('display-compact-tables',accountPreferences.compact_tables);document.body.classList.toggle('display-reduce-motion',accountPreferences.reduce_motion);}
+function accountName(){return String(state.user?.display_name || state.user?.email || (state.authType==='demo'?'Demo administrator':state.authType==='token'?'Role-token session':'Sign in required'));}
+function accountProvider(){return state.authType==='demo'?'Synthetic demo':state.authType==='session'?'Microsoft Entra ID':state.authType==='token'?'Shared role token':'Not signed in';}
+function accountInitials(name){return name.trim().split(/\s+/).filter(Boolean).slice(0,2).map(word=>word.match(/[\p{L}\p{N}]/u)?.[0] || '').join('').toLocaleUpperCase() || '?';}
+function accountMenuItems(){return Array.from($('#account-menu-panel').querySelectorAll('[role="menuitem"]:not([disabled])'));}
+function renderAccountMenu(){
+  accountApplyPreferences();const name=accountName(),role=`${state.authType==='demo'?'Demo · ':''}${accessRoleLabel(state.role)}`,trigger=$('#account-menu-toggle'),panel=$('#account-menu-panel');
+  $('#identity-name').textContent=name;$('#identity-avatar').textContent=accountInitials(name);$('#role-label').textContent=role;trigger.disabled=!state.authType;trigger.setAttribute('aria-label',`Account: ${name}, ${role}`);
+  if(!state.authType)state.accountMenuOpen=false;const activeAction=document.activeElement?.dataset?.action;
+  const html=`<div class="account-menu-identity" role="presentation"><strong>${h(name)}</strong><span>${h(role)} · ${h(accountProvider())}</span></div><button role="menuitem" tabindex="-1" data-action="account-profile">My profile</button><button role="menuitem" tabindex="-1" data-action="account-preferences">Display preferences</button>${canManageUsers()?'<button role="menuitem" tabindex="-1" data-action="account-users">Manage users</button>':''}${state.authType==='demo'?'<p class="account-menu-note">Demo workspace. No authenticated session to sign out.</p>':state.authType?`<button role="menuitem" tabindex="-1" class="account-signout" data-action="account-signout">${state.authType==='token'?'Disconnect token session':'Sign out'}</button>`:''}`;
+  if(panel.innerHTML!==html){panel.innerHTML=html;if(state.accountMenuOpen&&activeAction){const next=accountMenuItems().find(item=>item.dataset.action===activeAction);(next || accountMenuItems()[0])?.focus();}}
+  panel.hidden=!state.accountMenuOpen;trigger.setAttribute('aria-expanded',String(!!state.accountMenuOpen));
+}
+function closeAccountMenu(restoreFocus=false){state.accountMenuOpen=false;$('#account-menu-panel').hidden=true;$('#account-menu-toggle').setAttribute('aria-expanded','false');if(restoreFocus)$('#account-menu-toggle').focus();}
+function openAccountMenu(last=false){if(!state.authType)return;state.accountMenuOpen=true;renderAccountMenu();const items=accountMenuItems();(last?items.at(-1):items[0])?.focus();}
+function showAccountProfile(){
+  if(!state.authType)return;closeAccountMenu();const user=state.user || {},entra=state.authType==='session';
+  showModal('My profile',`<div class="modal-body account-profile">${state.authType==='demo'?'<div class="inline-notice">Synthetic demo identity. No Microsoft directory account or authenticated sign-out is claimed.</div>':entra?'<div class="inline-notice">Your Entra-managed identity is read-only here. Approved Super Admins manage workspace access in Users & access.</div>':'<div class="inline-notice warning">A shared role token is not an individual Entra identity. Disconnecting removes this tab’s token; it does not revoke that token on the controller.</div>'}<dl class="detail-grid"><div><dt>Display name</dt><dd>${h(accountName())}</dd></div><div><dt>Workspace role</dt><dd>${h(accessRoleLabel(state.role))}${state.authType==='demo'?' · Demo':''}</dd></div><div><dt>Identity provider</dt><dd>${h(accountProvider())}</dd></div>${user.email?`<div><dt>Email</dt><dd>${h(user.email)}</dd></div>`:''}${entra&&user.object_id?`<div><dt>Entra object ID</dt><dd>${h(user.object_id)}</dd></div>`:''}${entra&&user.tenant_id?`<div><dt>Tenant</dt><dd>${h(user.tenant_id)}</dd></div>`:''}</dl><p class="help-text">Display preferences affect this browser only. They do not change your identity, permissions, server configuration or security policy.</p></div><div class="modal-footer"><button class="button secondary" data-action="close-modal">Close</button></div>`,'YOUR WORKSPACE IDENTITY');state.accountDialogOpen=true;
+}
+function showAccountPreferences(){
+  closeAccountMenu();showModal('Display preferences',`<form id="account-preferences-form"><div class="modal-body">${errorSlot}<p class="help-text">Saved on this browser. No account details, credentials or permissions are stored with these preferences.</p><label class="account-preference"><input type="checkbox" name="compact_tables" ${accountPreferences.compact_tables?'checked':''}><span><strong>Compact tables</strong><small>Use less vertical space in inventory and review tables.</small></span></label><label class="account-preference"><input type="checkbox" name="reduce_motion" ${accountPreferences.reduce_motion?'checked':''}><span><strong>Reduce motion</strong><small>Stop decorative motion and transitions, including topology pulses.</small></span></label><p class="help-text">Your device’s reduced-motion setting continues to apply.</p></div><div class="modal-footer"><button type="button" class="button secondary" data-action="close-modal">Cancel</button><button type="button" class="button secondary" data-action="account-preferences-reset">Restore defaults</button><button class="button primary" type="submit">Save preferences</button></div></form>`,'BROWSER DISPLAY ONLY');state.accountDialogOpen=true;
+}
+function accountSavePreferences(value){accountPreferences={compact_tables:value.compact_tables===true,reduce_motion:value.reduce_motion===true};accountApplyPreferences();try{if(!window.localStorage)throw new Error('Storage unavailable');window.localStorage.setItem(accountPreferenceKey,JSON.stringify(accountPreferences));return true;}catch{return false;}}
+function accountPreferencesSubmit(event){event.preventDefault();const values=new FormData(event.target),saved=accountSavePreferences({compact_tables:values.get('compact_tables')==='on',reduce_motion:values.get('reduce_motion')==='on'});closeModal();toast(saved?'Display preferences saved on this browser.':'Preferences applied for this page. Browser storage is unavailable.');}
+async function accountAction(button){
+  const action=button.dataset.action;if(action==='account-toggle'){if(state.accountMenuOpen)closeAccountMenu(true);else openAccountMenu();return;}
+  if(action==='account-preferences-reset'){const saved=accountSavePreferences({compact_tables:false,reduce_motion:false});showAccountPreferences();toast(saved?'Default display preferences restored.':'Defaults applied for this page. Browser storage is unavailable.');return;}
+  if(action==='account-profile')return showAccountProfile();if(action==='account-preferences')return showAccountPreferences();
+  if(action==='account-users'){if(!canManageUsers())return;closeAccountMenu();navigate('access');return;}
+  if(action==='account-signout'){if(!state.authType||state.authType==='demo')return;closeAccountMenu();return dashboardLogout();}
+}
+function accountOutsideClick(event){if(state.accountMenuOpen&&!event.target.closest?.('#account-menu'))closeAccountMenu();}
+function accountMenuKeydown(event){
+  const trigger=event.target.closest?.('#account-menu-toggle'),inside=event.target.closest?.('#account-menu-panel');
+  if(state.accountDialogOpen&&event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation?.();closeModal();return;}
+  if(trigger&&['ArrowDown','ArrowUp','Enter',' '].includes(event.key)){event.preventDefault();event.stopImmediatePropagation?.();if(['ArrowDown','ArrowUp'].includes(event.key))openAccountMenu(event.key==='ArrowUp');else if(state.accountMenuOpen)closeAccountMenu(true);else openAccountMenu();return;}
+  if(!state.accountMenuOpen)return;if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation?.();closeAccountMenu(true);return;}if(event.key==='Tab'){closeAccountMenu();return;}
+  if(inside&&['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();event.stopImmediatePropagation?.();const items=accountMenuItems(),index=items.indexOf(document.activeElement);let next=event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:-1)+items.length)%items.length;items[next]?.focus();}
+}
+document.addEventListener('click',accountOutsideClick);document.addEventListener('keydown',accountMenuKeydown);

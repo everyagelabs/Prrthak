@@ -1,0 +1,10 @@
+FROM ubuntu:26.04
+
+# Disposable network-namespace acceptance only. The runner publishes no host
+# ports, mounts no credentials/socket and grants capabilities inside its own
+# namespace. This image is not a production controller or endpoint installer.
+RUN apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=20 update \
+ && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=20 install -y --no-install-recommends \
+      ca-certificates dbus firewalld iproute2 ipset nftables openssh-server python3 \
+ && rm -rf /var/lib/apt/lists/* \
+ && mkdir -p /run/sshd

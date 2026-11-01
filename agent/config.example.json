@@ -1,0 +1,22 @@
+{
+  "controller_url": "https://controller.example.internal:8787",
+  "state_dir": "/var/lib/seg-agent",
+  "ca_cert": "/etc/seg-agent/controller-ca.crt",
+  "endpoint_ca_cert": "",
+  "certificate": "/var/lib/seg-agent/agent.crt",
+  "private_key": "/var/lib/seg-agent/agent.key",
+  "enrollment_token_file": "/etc/seg-agent/enrollment-token",
+  "interval_seconds": 60,
+  "request_timeout_seconds": 15,
+  "zone": "",
+  "enforce": false,
+  "management_sources": [
+    "10.20.0.0/24"
+  ],
+  "max_spool_batches": 500,
+  "discovery_interval_seconds": 900,
+  "allow_firewall_changes": false,
+  "unexpected_port_monitor_enabled": false,
+  "probe_log_rate_per_second": 5,
+  "learning_auto_allow": false
+}

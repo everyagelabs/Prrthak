@@ -1,0 +1,38 @@
+[Unit]
+Description=Prṛthak (पृथक्) endpoint discovery and policy agent
+Documentation=file:/usr/share/doc/seg-agent/README.md
+After=network-online.target firewalld.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=-/etc/seg-agent/bootstrap.env
+ExecStart=/usr/local/bin/seg-agent --config /etc/seg-agent/config.json
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+StateDirectory=seg-agent
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/seg-agent
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+# root is needed for journal/process discovery and firewalld D-Bus authorization.
+# UFW/zone migration is never automatic. Managed enforcement defaults off.
+# Opt-in enforcement requires two-confirmed policy, management witness and
+# an independent transient systemd rollback timer in a separate cgroup.
+# Supported imported-rule writes require local opt-in and a confirmed controller plan.
+
+[Install]
+WantedBy=multi-user.target

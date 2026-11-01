@@ -1,0 +1,37 @@
+# Syntax validated with official haproxy:2.8-alpine (2.8.31); revalidate target build/trust.
+# TEMPLATE: HAProxy 2.8+ with OpenSSL support. Validate on the target package.
+# Replace documentation IPs, stable DNS name and CA path before installation.
+# Data traffic is raw TCP/TLS passthrough: no TLS termination, PROXY protocol,
+# forwarded client-cert header, or backend data-channel "ssl" option.
+global
+    log stdout format raw local0
+    maxconn 20000
+    ssl-default-server-options ssl-min-ver TLSv1.2
+
+defaults
+    log global
+    mode tcp
+    option tcplog
+    timeout connect 5s
+    timeout client 75s
+    timeout server 75s
+    timeout check 5s
+
+frontend prthak_tls_passthrough
+    bind :443
+    default_backend prthak_controllers
+
+backend prthak_controllers
+    mode tcp
+    balance leastconn
+    option httpchk
+    # Only these separate health-check connections originate TLS at HAProxy.
+    http-check connect ssl sni prthak.example.internal alpn http/1.1
+    http-check send meth GET uri /readyz ver HTTP/1.1 hdr Host prthak.example.internal hdr Connection close
+    http-check expect status 200
+    default-server inter 5s fastinter 2s downinter 5s fall 3 rise 2 check-ssl verify required ca-file /etc/haproxy/prthak-controller-ca.pem verifyhost prthak.example.internal
+    # Each site/cloud controller reaches the same two PostgreSQL writer endpoints.
+    server dc1-a 192.0.2.11:8787 check
+    server dc2-a 198.51.100.11:8787 check
+    server dc3-a 203.0.113.11:8787 check
+    server cloud-a 192.0.2.41:8787 check

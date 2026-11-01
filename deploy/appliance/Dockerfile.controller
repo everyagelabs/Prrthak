@@ -1,0 +1,3 @@
+FROM prthak-controller:appliance-base
+COPY controller_entrypoint.py /opt/prthak/controller_entrypoint.py
+ENTRYPOINT ["python3", "/opt/prthak/controller_entrypoint.py"]

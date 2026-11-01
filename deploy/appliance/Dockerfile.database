@@ -1,0 +1,17 @@
+FROM postgres:16-trixie@sha256:1beaa3084eee2676f20a9cd9928f0bf2c5bf674f8e49f81017912183d377c61c
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates \
+    && rm -rf /var/lib/apt/lists/* && python3 -m venv /opt/patroni \
+    && rm -f /usr/local/bin/gosu
+RUN /opt/patroni/bin/pip install --no-cache-dir --upgrade 'pip==26.2.2' 'setuptools==84.1.0' \
+    && /opt/patroni/bin/pip install --no-cache-dir 'patroni[etcd3,psycopg3]>=4.1,<5'
+COPY bootstrap_roles.py /opt/prthak/bootstrap_roles.py
+COPY rotation_helper.py /opt/prthak/rotation_helper.py
+COPY restore_helper.py /opt/prthak/restore_helper.py
+RUN /opt/patroni/bin/python -m pip uninstall -y pip setuptools wheel \
+    && /opt/patroni/bin/python -c 'import importlib.util, patroni.dcs.etcd3, psycopg; assert all(importlib.util.find_spec(name) is None for name in ("pip", "setuptools", "wheel"))' \
+    && /opt/patroni/bin/patroni --version
+RUN chmod 0700 /var/lib/postgresql/data
+USER postgres
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/opt/patroni/bin/patroni", "/config/patroni.json"]

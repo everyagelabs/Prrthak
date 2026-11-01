@@ -1,0 +1,44 @@
+# The official PostgreSQL 16 image supplies matching pg_dump/pg_restore clients.
+# Its Debian Trixie Python meets the controller's Python 3.10+ requirement.
+# The controller entrypoint below does not run the inherited database entrypoint.
+FROM postgres:16-trixie@sha256:1beaa3084eee2676f20a9cd9928f0bf2c5bf674f8e49f81017912183d377c61c
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends python3 python3-venv openssl openssh-client ca-certificates \
+    && apt-mark manual postgresql-client-16 libpq5 tzdata \
+    && apt-get purge -y postgresql-16 \
+    && apt-get autoremove -y --purge \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --uid 10001 --create-home segment \
+    && python3 -m venv /opt/prthak/venv \
+    && rm -f /usr/local/bin/gosu
+ENV PATH="/opt/prthak/venv/bin:/usr/lib/postgresql/16/bin:${PATH}" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PRTHAK_REQUIRE_INTEGRITY=1
+WORKDIR /app
+COPY controller/requirements.txt /app/controller/requirements.txt
+RUN python3 -m pip install --no-cache-dir --disable-pip-version-check --upgrade 'pip==26.2.2' 'setuptools==84.1.0' \
+    && python3 -m pip install --no-cache-dir --disable-pip-version-check -r controller/requirements.txt \
+    && python3 -c 'import cryptography, jwt, psycopg' \
+    && pg_dump --version \
+    && pg_restore --version \
+    && ssh -V
+# Runtime modules only; development tests/fixtures are not image contents.
+COPY controller/*.py /app/controller/
+COPY dashboard /app/dashboard
+COPY deploy/cluster/node_helper.py /app/deploy/cluster/node_helper.py
+COPY deploy/runtime-integrity.json /opt/prthak-integrity/runtime-integrity.json
+COPY deploy/release-public-trust.json /opt/prthak-integrity/public-trust.json
+COPY controller/runtime_integrity.py /opt/prthak-integrity/runtime_verify.py
+COPY deploy/verify_runtime_entrypoint.py /opt/prthak-integrity/launch.py
+RUN python3 -m pip uninstall -y pip setuptools wheel \
+    && python3 -c 'import importlib.util, controller.app, cryptography, jwt, psycopg, gunicorn; assert all(importlib.util.find_spec(name) is None for name in ("pip", "setuptools", "wheel"))' \
+    && python3 -m controller --help > /dev/null
+RUN mkdir -p /data && chown segment:segment /data
+USER segment
+EXPOSE 8787 8788 8789
+VOLUME ["/data"]
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["python3", "/opt/prthak-integrity/launch.py"]
+CMD ["--listen", "0.0.0.0:8787", "--data-dir", "/data"]

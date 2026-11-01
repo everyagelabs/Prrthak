@@ -1,0 +1,16 @@
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+# Private test image only. Package post-install scripts must not start services
+# or create a default PostgreSQL cluster in the image.
+RUN printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d \
+    && chmod 755 /usr/sbin/policy-rc.d \
+    && mkdir -p /etc/postgresql-common \
+    && printf 'create_main_cluster = false\n' > /etc/postgresql-common/createcluster.conf \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-16 patroni python3-etcd python3-psycopg2 etcd-server etcd-client openssl iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+RUN python3 -c 'import patroni.dcs.etcd3, psycopg2, yaml' \
+    && patroni --version \
+    && /usr/lib/postgresql/16/bin/postgres --version \
+    && etcd --version
+CMD ["python3", "-c", "print('Private database daemon test image; no services started')"]

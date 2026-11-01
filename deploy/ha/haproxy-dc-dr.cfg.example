@@ -1,0 +1,36 @@
+# Syntax validated with official haproxy:2.8-alpine (2.8.31); revalidate target build/trust.
+# TEMPLATE: DC/DR ingress profile; controller/DB readiness is still mandatory.
+# HAProxy 2.8+ with OpenSSL. Replace all documentation addresses and trust paths.
+# Normal TLS passes through unchanged to the selected controller.
+global
+    log stdout format raw local0
+    maxconn 20000
+    ssl-default-server-options ssl-min-ver TLSv1.2
+
+defaults
+    log global
+    mode tcp
+    option tcplog
+    timeout connect 5s
+    timeout client 75s
+    timeout server 75s
+    timeout check 5s
+
+frontend prthak_tls_passthrough
+    bind :443
+    default_backend prthak_dc_dr
+
+backend prthak_dc_dr
+    mode tcp
+    balance leastconn
+    option allbackups
+    option httpchk
+    http-check connect ssl sni prthak.example.internal alpn http/1.1
+    http-check send meth GET uri /readyz ver HTTP/1.1 hdr Host prthak.example.internal hdr Connection close
+    http-check expect status 200
+    default-server inter 5s fastinter 2s downinter 5s fall 3 rise 2 check-ssl verify required ca-file /etc/haproxy/prthak-controller-ca.pem verifyhost prthak.example.internal
+    server dc-a 192.0.2.11:8787 check
+    server dc-b 192.0.2.12:8787 check
+    # Backup controllers receive ingress only when no normal DC server is ready.
+    server dr-a 198.51.100.21:8787 check backup
+    server dr-b 198.51.100.22:8787 check backup

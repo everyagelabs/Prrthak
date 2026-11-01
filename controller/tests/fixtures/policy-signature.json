@@ -1,0 +1,43 @@
+{
+  "at": 1800000010,
+  "fixture": "Public synthetic signature; never a production trust key",
+  "policy": {
+    "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "enforcement": {
+      "approval_id": "cross-language-approval",
+      "approved_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "approved_version": 7,
+      "authorized": true,
+      "confirmation_count": 2,
+      "expires_at": "2027-01-15T08:00:00+00:00"
+    },
+    "generated_at": "2026-10-30T10:00:00+00:00",
+    "learning_sessions": [],
+    "mode": "enforce",
+    "server_id": "cross-language-endpoint",
+    "services": [
+      {
+        "mode": "enforce",
+        "port": 8443,
+        "protocol": "tcp",
+        "sources": [
+          "10.20.0.0/16",
+          "2001:db8::/64"
+        ]
+      }
+    ],
+    "signature": {
+      "algorithm": "Ed25519",
+      "key_id": "a3915d16720d3184d3392fd32363f44d",
+      "payload": "eyJkZXBsb3ltZW50X2lkIjoiMTIzNDU2NzgtMTIzNC01Njc4LTEyMzQtNTY3ODEyMzQ1Njc4IiwiZG9tYWluIjoicHJ0aGFrLXBvbGljeS1hc3NpZ25tZW50LXYxIiwiZXhwaXJlc19hdCI6MTgwMDAwMTgwMCwiaXNzdWVkX2F0IjoxODAwMDAwMDAwLCJwb2xpY3kiOnsiZGlnZXN0IjoiYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsImVuZm9yY2VtZW50Ijp7ImFwcHJvdmFsX2lkIjoiY3Jvc3MtbGFuZ3VhZ2UtYXBwcm92YWwiLCJhcHByb3ZlZF9kaWdlc3QiOiJhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwiYXBwcm92ZWRfdmVyc2lvbiI6NywiYXV0aG9yaXplZCI6dHJ1ZSwiY29uZmlybWF0aW9uX2NvdW50IjoyLCJleHBpcmVzX2F0IjoiMjAyNy0wMS0xNVQwODowMDowMCswMDowMCJ9LCJnZW5lcmF0ZWRfYXQiOiIyMDI2LTEwLTMwVDEwOjAwOjAwKzAwOjAwIiwibGVhcm5pbmdfc2Vzc2lvbnMiOltdLCJtb2RlIjoiZW5mb3JjZSIsInNlcnZlcl9pZCI6ImNyb3NzLWxhbmd1YWdlLWVuZHBvaW50Iiwic2VydmljZXMiOlt7Im1vZGUiOiJlbmZvcmNlIiwicG9ydCI6ODQ0MywicHJvdG9jb2wiOiJ0Y3AiLCJzb3VyY2VzIjpbIjEwLjIwLjAuMC8xNiIsIjIwMDE6ZGI4OjovNjQiXX1dLCJ2ZXJzaW9uIjo3fX0=",
+      "signature": "ci5pDSHIyj+P+/eoe7eHUUMn+dunJcU0akWwnPt1YMTTamp/P8DM2JSt8nI0as1+BRa49zye6dtk0G39qlwoDw=="
+    },
+    "version": 7
+  },
+  "trust": {
+    "deployment_id": "12345678-1234-5678-1234-567812345678",
+    "keys": {
+      "a3915d16720d3184d3392fd32363f44d": "/I7N8V8Q7DkG8H3XtkAC7MwQjOgF7PpJIf/9NL+7sMY="
+    }
+  }
+}

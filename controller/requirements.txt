@@ -1,0 +1,8 @@
+# Complete controller integrations; the basic SQLite/token-mode demo uses stdlib.
+psycopg[binary]>=3.2,<4
+# Entra ID OIDC signature verification (required when Entra is configured).
+PyJWT[crypto]>=2.10,<3
+# Platform vault, sealed controller joins and managed cluster certificate work.
+cryptography>=44
+# Production HTTP parser, bounded threaded workers and native TLS transport.
+gunicorn>=25.3,<26

@@ -1,0 +1,155 @@
+name: Pilot validation
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pilot-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Install isolated controller dependencies
+        run: python -m pip install -r controller/requirements.txt
+      - name: Controller regressions
+        run: python -m unittest discover -s controller/tests -v
+      - name: Dashboard regressions
+        run: node --test dashboard/tests/*.test.*
+      - name: Agent races and static checks
+        working-directory: agent
+        run: |
+          go test -race ./...
+          go vet ./...
+      - name: Native helper and integration fixtures
+        run: |
+          make build-native-agent
+          SEG_AGENT_BINARY="$PWD/.local/bin/seg-agent" python -m unittest discover -s tests -v
+      - name: Source syntax
+        run: make check
+      - name: Check staged source for private credentials and runtime files
+        run: python scripts/source-secret-check.py
+      - name: Preserve exact source identity
+        run: |
+          mkdir -p .local/ci
+          git rev-parse HEAD > .local/ci/source-commit.txt
+          git diff --exit-code
+  source-security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Audit Python dependencies and preserve every static finding
+        run: |
+          mkdir -p .local/ci
+          python -m pip install 'bandit==1.9.4' 'pip-audit==2.10.1'
+          python -m bandit -r controller deploy scripts -f json -o .local/ci/bandit.json --exit-zero
+          python -c 'import json; findings=json.load(open(".local/ci/bandit.json"))["results"]; assert not any(f["issue_severity"]=="HIGH" for f in findings), "Review high-severity static findings"'
+          python -m pip_audit -r controller/requirements.txt --format json --output .local/ci/pip-audit.json
+      - name: Audit Go dependencies and standard library
+        working-directory: agent
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          govulncheck ./...
+      - name: Preserve source-security evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: source-security-${{ github.sha }}
+          path: .local/ci/*.json
+          retention-days: 14
+  image-assessment:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [regression, source-security]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Build only public controller and database image contexts
+        run: |
+          docker build -f deploy/Dockerfile.controller -t prthak-controller:appliance-base .
+          docker build -f deploy/appliance/Dockerfile.controller -t prthak-ci-controller deploy/appliance
+          docker build -f deploy/appliance/Dockerfile.database -t prthak-ci-database deploy/appliance
+      - name: Verify signed startup before application imports
+        run: printf '{}\n' | docker run --rm -i --network none --read-only prthak-ci-controller --validate-initial-env
+      - name: Scan all appliance images without exposing the Docker socket
+        env:
+          PRTHAK_SCANNER: aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+        run: |
+          mkdir -p .local/ci/images
+          docker pull haproxy:3.2-trixie@sha256:de853dd229e0f13e0104b288a487e1e12eb3965618f9b88f49ef8d5a6d83c001
+          docker pull gcr.io/etcd-development/etcd:v3.6.16@sha256:b29d816b546a1966fe7034a33b34e231fa98c47ce4d2883f70b0555020b22132
+          docker tag haproxy:3.2-trixie@sha256:de853dd229e0f13e0104b288a487e1e12eb3965618f9b88f49ef8d5a6d83c001 prthak-ci-router
+          docker tag gcr.io/etcd-development/etcd:v3.6.16@sha256:b29d816b546a1966fe7034a33b34e231fa98c47ce4d2883f70b0555020b22132 prthak-ci-etcd
+          for component in controller database router etcd; do
+            docker image save -o ".local/ci/images/$component.tar" "prthak-ci-$component"
+            docker run --rm -v "$PWD/.local/ci/images:/scan" "$PRTHAK_SCANNER" image --no-progress --scanners vuln --format json --output "/scan/$component.json" --input "/scan/$component.tar"
+            rm ".local/ci/images/$component.tar"
+          done
+      - name: Fail on available high or critical fixes while retaining unfixed advisories
+        run: |
+          python3 -c 'import glob,json; rows=[(p,v) for p in glob.glob(".local/ci/images/*.json") for r in json.load(open(p)).get("Results",[]) for v in (r.get("Vulnerabilities") or [])]; pending=[(p,v["VulnerabilityID"]) for p,v in rows if v.get("Severity") in ("HIGH","CRITICAL") and v.get("FixedVersion")]; print("All advisories:",len(rows),"Available high/critical fixes:",len(pending)); assert not pending,pending'
+      - name: Preserve complete appliance advisories
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: appliance-vulnerabilities-${{ github.sha }}
+          path: .local/ci/images/*.json
+          retention-days: 14
+  tagged-build:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [regression, source-security, image-assessment]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - run: python -m pip install -r controller/requirements.txt
+      - name: Build from the exact tagged source
+        run: |
+          make build-agent
+          python scripts/package-agent.py
+          python scripts/package-controller.py
+          git rev-parse HEAD > dist/SOURCE-COMMIT.txt
+          printf '%s\n' "$GITHUB_REF_NAME" > dist/SOURCE-TAG.txt
+          git diff --exit-code
+      - name: Publish unsigned build candidates for external signing
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: prthak-${{ github.ref_name }}-unsigned-candidates
+          path: dist/
+          retention-days: 14

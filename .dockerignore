@@ -1,0 +1,29 @@
+# Only public application sources enter the controller image build context.
+# In particular, never send .local credentials, vaults, PKI or database files.
+**
+!controller/
+!controller/**
+!dashboard/
+!dashboard/**
+!deploy/
+!deploy/Dockerfile.controller
+!deploy/runtime-integrity.json
+!deploy/release-public-trust.json
+!deploy/verify_runtime_entrypoint.py
+!deploy/cluster/
+!deploy/cluster/node_helper.py
+!deploy/appliance/
+!deploy/appliance/**
+**/__pycache__/
+**/*.pyc
+**/.env
+**/.env.*
+!**/.env.example
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.sqlite*
+**/*.db
+controller/tests/
+dashboard/tests/

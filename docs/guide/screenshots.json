@@ -1,0 +1,512 @@
+{
+  "access": {
+    "path": "docs/guide/images/users-access.png",
+    "title": "Users & access: three fictional identities",
+    "provenance": "Actual QA demo screen, synthetic records; no directory connection.",
+    "historical": true
+  },
+  "grant": {
+    "path": "docs/guide/images/grant-user.png",
+    "title": "Grant application access: staged form",
+    "provenance": "Actual QA form with a fictional identity and Admin selected; not submitted.",
+    "historical": true
+  },
+  "signin": {
+    "path": "docs/guide/images/entra-sign-in.png",
+    "title": "Microsoft sign-in entry point in Prṛthak",
+    "provenance": "Actual app login UI on local QA; no Microsoft request or MFA was performed.",
+    "viewport": [
+      330,
+      88,
+      620,
+      545
+    ],
+    "historical": true
+  },
+  "addserver": {
+    "path": "docs/guide/images/add-server.png",
+    "title": "Add pending server: staged reservation form",
+    "provenance": "Actual QA form, fictional example; no real host was enrolled.",
+    "historical": true
+  },
+  "install": {
+    "path": "docs/guide/images/install-agent.png",
+    "title": "Install agent: onboarding instructions",
+    "provenance": "Actual app instructions in the local synthetic demo.",
+    "historical": true
+  },
+  "servers": {
+    "path": "docs/guide/images/servers.png",
+    "title": "Server inventory",
+    "provenance": "Actual local demo with synthetic server records.",
+    "historical": true
+  },
+  "overview": {
+    "path": "docs/guide/images/overview.png",
+    "title": "Infrastructure overview and topology",
+    "provenance": "Actual local demo with synthetic endpoints/observations.",
+    "historical": true
+  },
+  "csv": {
+    "path": "docs/guide/images/csv-review.jpg",
+    "title": "CSV assignment review",
+    "provenance": "Actual staged local synthetic QA review; illustrative addresses.",
+    "historical": true
+  },
+  "subnet": {
+    "path": "docs/guide/images/subnet-review.jpg",
+    "title": "Subnet location mapping review",
+    "provenance": "Actual staged local synthetic QA review; illustrative networks.",
+    "historical": true
+  },
+  "locations": {
+    "path": "docs/guide/images/locations.png",
+    "title": "Location catalogue",
+    "provenance": "Actual local demo: saved synthetic DC/cloud catalogue.",
+    "historical": true
+  },
+  "policies": {
+    "path": "output/screenshots/platform06/learned-approval-queue.jpg",
+    "title": "0.6 existing synthetic Payments Web policy rows",
+    "provenance": "Actual CUA 0.6 main synthetic Payments Web card, with exact 80/tcp and 443/tcp rows and source-tag selectors. The complete original shows two matching endpoints and Enforcement requested: desired intent, not verified firewall application. No policy was changed for the capture.",
+    "viewport": [
+      99,
+      123,
+      531,
+      159
+    ],
+    "historical": false
+  },
+  "rollouts": {
+    "path": "output/screenshots/platform06/managed-rollout-reviews.jpg",
+    "title": "0.6 managed rollout review with cancelled lab validation",
+    "provenance": "Actual CUA 0.6 main synthetic demo. The prior Lab UI validation protection-gate entry is Cancelled with 0/2 confirmations and no agent outcome. No live change or approval was made.",
+    "viewport": [
+      83,
+      503,
+      562,
+      166
+    ],
+    "historical": false
+  },
+  "traffic": {
+    "path": "docs/guide/images/traffic.png",
+    "title": "Traffic intelligence",
+    "provenance": "Actual local demo: historical synthetic observations and explicit collection windows.",
+    "viewport": [
+      237,
+      442,
+      1014,
+      278
+    ],
+    "historical": true
+  },
+  "service-groups": {
+    "path": "docs/guide/images/service-groups.png",
+    "title": "Reusable service/port groups in version 0.3",
+    "provenance": "Actual 0.3 local demo UI; three synthetic catalogue entries; existing policies were not rewritten.",
+    "historical": true
+  },
+  "auto-learning": {
+    "path": "docs/guide/images/auto-learning.png",
+    "title": "Automatic per-endpoint learning discovery in version 0.3",
+    "provenance": "Actual 0.3 local demo dialog with selected synthetic endpoints and cached preview; no real collection started.",
+    "historical": true
+  },
+  "port-source-policy": {
+    "path": "docs/guide/images/port-source-policy.png",
+    "title": "Policy service-group row and source server groups",
+    "provenance": "Actual 0.3 local demo form; unsaved Web group example with two source groups selected; no real policy or firewall write.",
+    "historical": true
+  },
+  "auto-learning-active": {
+    "path": "docs/guide/images/auto-learning-active.png",
+    "title": "Automatic learning: confirmed synthetic per-host scopes",
+    "provenance": "Actual 0.3 local demo Traffic view: billing 22/8443 versus cloud orders 2022/8080. Synthetic acknowledged scopes, not evidence of real endpoint instrumentation. Session stopped after capture.",
+    "historical": true
+  },
+  "learning-actions": {
+    "path": "docs/guide/images/learning-actions.png",
+    "title": "Exact-port learning filter and cached preview",
+    "provenance": "Actual isolated 0.4 QA form; synthetic endpoints and a cached preview limited to 443/tcp. This frame does not show auto-allow consent.",
+    "viewport": [
+      355,
+      150,
+      570,
+      445
+    ],
+    "historical": true
+  },
+  "learning-auto-consent": {
+    "path": "docs/guide/images/learning-auto-consent.png",
+    "title": "Explicit automatic allowance choice and consent",
+    "provenance": "Actual isolated 0.4 QA form after valid 443/tcp preview refresh: auto-allow choice and consent checked for synthetic qa-billing-02, offline/waiting. Unsaved staged form; no session start or endpoint application.",
+    "viewport": [
+      355,
+      200,
+      570,
+      375
+    ],
+    "historical": true
+  },
+  "learning-evidence": {
+    "path": "docs/guide/images/learning-evidence.png",
+    "title": "Observed exact source/service evidence",
+    "provenance": "Actual isolated 0.4 QA table: synthetic 10.50.10.21 and .22 to Nginx 443/tcp, with counts 3 and 1. Sampled observations, not successful connections.",
+    "viewport": [
+      355,
+      245,
+      570,
+      290
+    ],
+    "historical": true
+  },
+  "learning-review": {
+    "path": "docs/guide/images/learning-review.png",
+    "title": "Exact two-host source allowance review",
+    "provenance": "Actual isolated 0.4 QA freezes current Billing QA members and 10.50.10.21/32 to 443/tcp only. The reviewed action created desired intent for fake hosts, not real firewall rules.",
+    "viewport": [
+      355,
+      142,
+      570,
+      440
+    ],
+    "historical": true
+  },
+  "learned-policies": {
+    "path": "docs/guide/images/learned-policies.png",
+    "title": "Learned allow policies with honest blocked status",
+    "provenance": "Actual isolated 0.4 QA. All generated/reviewed fixture policies are blocked: no real endpoint firewall is connected. The inline figure focuses the auto-generated card; the gallery retains the complete screen.",
+    "viewport": [
+      235,
+      1315,
+      510,
+      310
+    ],
+    "historical": true
+  },
+  "platform-backups": {
+    "path": "docs/guide/images/platform-backups.png",
+    "title": "Database backups on the main synthetic demo",
+    "provenance": "Actual CUA capture at 664x827. One main-demo database backup was created and verified; no endpoint or firewall changes.",
+    "viewport": [
+      83,
+      382,
+      562,
+      48
+    ],
+    "historical": true
+  },
+  "platform-demo-review": {
+    "path": "docs/guide/images/platform-demo-review.png",
+    "title": "Demo cleanup: retained policy names and typed confirmation",
+    "provenance": "Actual CUA review at 664x827. All five edited/legacy main-demo policies are explicitly retained. Confirmation is blank; no deletion was performed.",
+    "viewport": [
+      42,
+      509,
+      578,
+      127
+    ],
+    "historical": true
+  },
+  "platform-demo-counts": {
+    "path": "docs/guide/images/platform-demo-counts.png",
+    "title": "Demo cleanup: exact eligible synthetic counts",
+    "provenance": "Actual CUA staged review at 664x827. Fourteen hosts remain in the main demo; the review selected no policies for cleanup. No deletion was performed.",
+    "historical": true
+  },
+  "platform-database": {
+    "path": "docs/guide/images/platform-database.png",
+    "title": "Dedicated database HA: staged wizard and inactive storage",
+    "provenance": "Actual CUA demo capture at 664x827. Saved configuration is None; running storage is SQLite. Remote operations are blocked and no cluster is provisioned.",
+    "viewport": [
+      83,
+      580,
+      563,
+      225
+    ],
+    "historical": true
+  },
+  "platform-database-full": {
+    "path": "docs/guide/images/platform-database-full.png",
+    "title": "Complete dedicated database installer form",
+    "provenance": "Actual full-page CUA capture, 664px wide. Blank/staged nodes, SSH and watchdog fields; no private keys or remote installation.",
+    "historical": true
+  },
+  "platform-controller-join": {
+    "path": "docs/guide/images/platform-controller-join.png",
+    "title": "DR join: existing peer and bound controller identity fields",
+    "provenance": "Actual CUA staged form at 664x827. Inputs are placeholders; no code was submitted and demo mode blocks remote joining.",
+    "viewport": [
+      100,
+      77,
+      528,
+      170
+    ],
+    "historical": true
+  },
+  "platform-controller-join-full": {
+    "path": "docs/guide/images/platform-controller-join-full.png",
+    "title": "Complete controller HA and DR join screen",
+    "provenance": "Actual full-page CUA capture, 664px wide. The main demo remains standalone SQLite; remote joining is blocked.",
+    "historical": true
+  },
+  "platform-deployment-choices": {
+    "path": "docs/guide/images/platform-deployment-choices.png",
+    "title": "Create a cluster and Join this DR controller choices",
+    "provenance": "Actual full-page CUA demo overview, 664px wide. Create/Join entry points are shown; no deployment operation was requested.",
+    "historical": true
+  },
+  "platform05-overview": {
+    "path": "output/screenshots/platform05/platform05-overview.png",
+    "title": "Platform settings overview in 0.5",
+    "provenance": "Actual 1280px native-viewport full-page CUA capture of the main synthetic demo. Cluster not connected, manager unavailable, no deployment operation. No real HA health is fabricated.",
+    "viewport": [
+      237,
+      278,
+      1015,
+      365
+    ],
+    "historical": true
+  },
+  "platform05-appliance": {
+    "path": "output/screenshots/platform05/platform05-appliance.png",
+    "title": "Same-appliance cluster setup in 0.5",
+    "provenance": "Actual main-demo 0.5 Cluster settings form. Blank/staged fields and disabled live operations; no cluster or replication change was applied.",
+    "viewport": [
+      250,
+      428,
+      990,
+      330
+    ],
+    "historical": true
+  },
+  "platform05-membership": {
+    "path": "output/screenshots/platform05/platform05-membership.png",
+    "title": "Join existing cluster by peer IP and shared password",
+    "provenance": "Actual main-demo 0.5 Join form. Peer URL is a placeholder, password blank, review disabled. No password was sent and no controller joined.",
+    "viewport": [
+      250,
+      478,
+      990,
+      265
+    ],
+    "historical": true
+  },
+  "platform05-storage": {
+    "path": "output/screenshots/platform05/platform05-storage.png",
+    "title": "Reviewed storage mount/path controls",
+    "provenance": "Actual main-demo 0.5 Storage screen. The proposed path is placeholder text and the review action is disabled. No storage copy, mount or service stop occurred.",
+    "viewport": [
+      250,
+      488,
+      985,
+      150
+    ],
+    "historical": true
+  },
+  "platform05-schedule": {
+    "path": "output/screenshots/platform05/platform05-schedule.png",
+    "title": "Automatic backup schedule and retention controls",
+    "provenance": "Actual main-demo 0.5 Backups screen, schedule disabled at revision0, no next/last run reported. The one listed archive is an earlier verified local demo backup; no production schedule was enabled.",
+    "viewport": [
+      252,
+      310,
+      790,
+      305
+    ],
+    "historical": true
+  },
+  "platform05-certificates": {
+    "path": "output/screenshots/platform05/platform05-certificates.png",
+    "title": "Certificate source and PEM chain controls",
+    "provenance": "Actual main-demo 0.5 Certificates form. No current HTTPS certificate is configured on the loopback demo. All private fields are blank; no certificate was submitted or applied.",
+    "viewport": [
+      250,
+      610,
+      985,
+      255
+    ],
+    "historical": true
+  },
+  "platform05-services": {
+    "path": "output/screenshots/platform05/platform05-services.png",
+    "title": "Reported appliance services with no invented health",
+    "provenance": "Actual main-demo 0.5 Services screen. No installed manager service state was reported and no operation was requested. Empty state is intentional; no successful live service action is claimed.",
+    "viewport": [
+      250,
+      365,
+      985,
+      168
+    ],
+    "historical": true
+  },
+  "platform05-polling": {
+    "path": "output/screenshots/platform05/platform05-polling.png",
+    "title": "Central polling defaults and observed endpoint status",
+    "provenance": "Actual main-demo 0.5 full-page CUA after the draft-retention fix. An unsaved Billing tag override (30s/300s) previews 3 of 14 synthetic endpoints. Saved defaults remain 60s/900s; no endpoint settings were applied. The draft survived several automatic refreshes.",
+    "viewport": [
+      250,
+      310,
+      985,
+      405
+    ],
+    "historical": true
+  },
+  "platform05-polling-viewport": {
+    "path": "output/screenshots/platform05/platform05-polling-viewport.png",
+    "title": "Saved global polling defaults with unsaved draft",
+    "viewport": [
+      250,
+      310,
+      985,
+      250
+    ],
+    "provenance": "Actual 1280px native CUA of the main 0.5 demo. Unsaved Billing example: application=billing, control 30s/discovery 300s, 3 of 14 affected. Saved defaults remain 60s/900s; synthetic endpoints require an agent upgrade. No settings apply or firewall action.",
+    "historical": true
+  },
+  "platform05-polling-override": {
+    "path": "output/screenshots/platform05/platform05-polling-override.png",
+    "title": "Unsaved Billing tag override30s/300s",
+    "viewport": [
+      270,
+      243,
+      960,
+      390
+    ],
+    "provenance": "Actual 1280px native CUA of the main 0.5 demo. Unsaved Billing example: application=billing, control 30s/discovery 300s, 3 of 14 affected. Saved defaults remain 60s/900s; synthetic endpoints require an agent upgrade. No settings apply or firewall action.",
+    "historical": true
+  },
+  "platform05-polling-impact": {
+    "path": "output/screenshots/platform05/platform05-polling-impact.png",
+    "title": "Exact Billing impact preview3of14",
+    "viewport": [
+      265,
+      442,
+      965,
+      262
+    ],
+    "provenance": "Actual 1280px native CUA of the main 0.5 demo. Unsaved Billing example: application=billing, control 30s/discovery 300s, 3 of 14 affected. Saved defaults remain 60s/900s; synthetic endpoints require an agent upgrade. No settings apply or firewall action.",
+    "historical": true
+  },
+  "platform06-notifications": {
+    "path": "output/screenshots/platform06/notifications.jpg",
+    "title": "0.6 reviewed notification configuration disabled in demo",
+    "provenance": "Actual CUA 0.6 main synthetic demo. Master delivery disabled, no saved destinations or delivery history; no provider was contacted.",
+    "viewport": [
+      252,
+      348,
+      984,
+      264
+    ],
+    "historical": false
+  },
+  "platform06-notification-channel": {
+    "path": "output/screenshots/platform06/notification-channel.jpg",
+    "title": "0.6 unsaved blank HTTPS notification channel",
+    "provenance": "Actual CUA 0.6 main demo staged form. URL/secret fields blank, master delivery disabled, no preview/apply/test or external send.",
+    "historical": false
+  },
+  "platform06-certificates": {
+    "path": "output/screenshots/platform06/endpoint-signing-trust.jpg",
+    "title": "0.6 endpoint identity renewal and overlap controls",
+    "provenance": "Actual 664px CUA viewport on the 0.6 synthetic demo. No endpoint certificate identities are registered. Blank PEM/password fields contain no private material; no certificate operation occurred.",
+    "viewport": [
+      84,
+      386,
+      561,
+      203
+    ],
+    "historical": false
+  },
+  "platform06-certificates-full": {
+    "path": "output/screenshots/platform06/certificates-signing.jpg",
+    "title": "0.6 HTTPS, endpoint, public-signing and internal identity sections",
+    "provenance": "Actual full CUA 0.6 main demo. No real certificate rows, no HTTPS replacement or internal-node mutation. Public demo signing trust only; all private material blank.",
+    "historical": false
+  },
+  "platform06-signing-download": {
+    "path": "output/screenshots/platform06/endpoint-signing-trust.jpg",
+    "title": "0.6 public assignment-signing trust download control",
+    "provenance": "Actual CUA 0.6 demo viewport. Public trust download button is shown; no private signing key is returned.",
+    "viewport": [
+      98,
+      621,
+      528,
+      49
+    ],
+    "historical": false
+  },
+  "platform06-recovery": {
+    "path": "output/screenshots/platform06/recovery.jpg",
+    "title": "0.6 independent database recovery blocked in demo",
+    "provenance": "Actual 664px full-page CUA main synthetic demo. Recovery disabled, archive/reason not submitted, no restore or main-data change.",
+    "viewport": [
+      98,
+      539,
+      530,
+      177
+    ],
+    "historical": false
+  },
+  "platform06-approvals": {
+    "path": "output/screenshots/platform06/learned-approval-queue.jpg",
+    "title": "0.6 empty learned-access independent approval queue",
+    "provenance": "Actual CUA current 0.6 main synthetic Policies view. Zero learned policies and zero pending reviews; exact independent-Entra guidance is visible. No approval or live policy change was manufactured.",
+    "viewport": [
+      83,
+      569,
+      562,
+      145
+    ],
+    "historical": false
+  },
+  "platform06-subnet": {
+    "path": "output/screenshots/platform06/subnet-exception-review.jpg",
+    "title": "0.6 staged subnet mapping with overlap explanation",
+    "provenance": "Actual CUA Add subnet mapping form on the main synthetic demo. Example 10.241.7.0/24, Mumbai selected; Preview mapping still shown. Unsaved/unapplied, not an actual DC reassignment.",
+    "viewport": [
+      43,
+      251,
+      576,
+      77
+    ],
+    "historical": false
+  },
+  "platform06-subnet-ownership": {
+    "path": "output/screenshots/platform06/subnet-ownership-guidance.jpg",
+    "title": "0.6 exact CIDR/IP/DC ownership and longest-prefix guidance",
+    "provenance": "Actual CUA 0.6 main synthetic Locations page. No subnet mappings are saved; explanatory /8-/16-/24 examples are guidance, not applied configuration. Main data unchanged.",
+    "viewport": [
+      102,
+      620,
+      529,
+      93
+    ],
+    "historical": false
+  },
+  "platform06-firewall-filter": {
+    "path": "output/screenshots/platform06/firewall-billing-port.jpg",
+    "title": "0.6 Billing and exact-port firewall inventory filter",
+    "provenance": "Actual CUA 0.6 main synthetic Firewall view. Application billing plus 8443/tcp shows two logical rules: an explicit port allowance on two matching endpoints and a read-only broad zone target affecting three. Current demo records are unchanged; no firewall edit was submitted.",
+    "historical": false
+  },
+  "platform06-application-port": {
+    "path": "output/screenshots/platform06/application-port-review.jpg",
+    "title": "0.6 reviewed local application-port proposal",
+    "provenance": "Actual CUA 0.6 main synthetic demo review: current 8787, proposed 9443, exact local bind/revision/new-address and dependency warnings. Apply is disabled in demo. No apply occurred; main remains 8787, and polling, agent URLs and Entra settings are unchanged.",
+    "viewport": [
+      40,
+      241,
+      580,
+      180
+    ],
+    "historical": false
+  },
+  "platform06-application-port-settings": {
+    "path": "output/screenshots/platform06/application-port-settings.jpg",
+    "title": "0.6 current local application port and unsaved 9443 draft",
+    "provenance": "Actual CUA 0.6 main synthetic Services panel: current/desired/verified 8787, with 9443 entered only as an unsaved draft. The current address remains labelled current; neutral application-listener copy accurately covers HTTP demo. No port or external configuration changed.",
+    "historical": false
+  }
+}

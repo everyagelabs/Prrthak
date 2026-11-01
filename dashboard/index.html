@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#e40000">
+  <meta name="description" content="Prṛthak — server microsegmentation, policy management, and temporary traffic learning.">
+  <title>Prṛthak · Microsegmentation</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/account.css">
+  <link rel="stylesheet" href="/risk.css">
+  <link rel="stylesheet" href="/topology.css">
+  <link rel="stylesheet" href="/firewall.css">
+  <link rel="stylesheet" href="/managed.css">
+  <link rel="stylesheet" href="/locations.css">
+  <link rel="stylesheet" href="/metadata.css">
+  <link rel="stylesheet" href="/access.css">
+  <script src="/locations.js" defer></script>
+  <script src="/filters.js" defer></script>
+  <script src="/topology.js" defer></script>
+  <script src="/routing.js" defer></script>
+  <script src="/services.js" defer></script>
+  <script src="/firewall.js" defer></script>
+  <script src="/firewall-page.js" defer></script>
+  <script src="/managed.js" defer></script>
+  <script src="/managed-page.js" defer></script>
+  <script src="/locations-page.js" defer></script>
+  <script src="/metadata-page.js" defer></script>
+  <script src="/access-page.js" defer></script>
+  <script src="/server-lifecycle-page.js" defer></script>
+  <script src="/service-groups-page.js" defer></script>
+  <script src="/learning-page.js" defer></script>
+  <script src="/hit-monitoring-page.js" defer></script>
+  <script src="/recommendations.js" defer></script>
+  <script src="/approvals-page.js" defer></script>
+  <script src="/recommendations-page.js" defer></script>
+  <script src="/platform.js" defer></script>
+  <script src="/settings-setup-page.js" defer></script>
+  <script src="/settings-page.js" defer></script>
+  <script src="/settings-ha-page.js" defer></script>
+  <script src="/settings-appliance-page.js" defer></script>
+  <script src="/settings-certificates-page.js" defer></script>
+  <script src="/settings-agents-page.js" defer></script>
+  <script src="/settings-notifications-page.js" defer></script>
+  <script src="/settings-endpoint-certificates-page.js" defer></script>
+  <script src="/settings-recovery-page.js" defer></script>
+  <script src="/settings-application-port-page.js" defer></script>
+  <script src="/policy-catalogue-page.js" defer></script>
+  <script src="/account-menu.js" defer></script>
+  <script src="/agent-installation.js" defer></script>
+  <script src="/risk-page.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <a class="brand" href="/overview" aria-label="Prṛthak · पृथक् overview"><img class="brand-logo-full" src="/assets/prthak-wordmark.svg" alt="Prṛthak · पृथक्"><img class="brand-logo-compact" src="/assets/prthak-monogram.svg" alt="" aria-hidden="true"></a>
+      <div class="workspace"><span class="workspace-icon" lang="hi">पृ</span><span>Prṛthak workspace<small>Precise access. Protected servers.</small></span><span class="workspace-chevron">⌄</span></div>
+      <div class="nav-caption">WORKSPACE</div>
+      <nav id="navigation"></nav>
+      <div class="sidebar-bottom"><div class="agent-note"><span class="connection-dot"></span><span id="connection-label">Connecting to controller</span></div><button class="nav-item" id="setup-button" type="button"><span id="setup-icon"></span>Agent setup<span class="nav-arrow">↗</span></button></div>
+    </aside>
+    <div class="workspace-main">
+      <header class="topbar"><div class="breadcrumb"><span id="breadcrumb-icon"></span><span>Workspace</span><span class="slash">/</span><strong id="breadcrumb-page">Overview</strong></div><div class="topbar-tools"><span class="last-updated" id="last-updated">Waiting for first sync</span><div class="topbar-client"><img class="topbar-client-logo" src="/assets/airtel-payments-bank.png" alt="Airtel Payments Bank"><span>Security operations</span></div><span class="controller-badge"><span class="connection-dot"></span>Controller <span id="controller-version">v0.5.0</span></span><button id="refresh-button" class="icon-button" type="button" title="Refresh workspace" aria-label="Refresh workspace"></button><div class="account-menu" id="account-menu"><button id="account-menu-toggle" class="account-trigger" type="button" data-action="account-toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu-panel" aria-label="Account"><span class="topbar-avatar" id="identity-avatar" aria-hidden="true">?</span><span class="account-trigger-label"><span id="identity-name">Sign in required</span><small id="role-label">Read Only</small></span><span class="account-trigger-chevron" aria-hidden="true">⌄</span></button><div id="account-menu-panel" class="account-dropdown" role="menu" aria-label="Account menu" hidden></div></div></div></header>
+      <div id="demo-banner" class="demo-banner" hidden><span class="demo-symbol">◇</span><strong>Demo workspace</strong><span>·</span><span>Synthetic endpoints and traffic included. Live changes require explicit agent opt-in and reviewed authorization.</span><span class="demo-pill">LOCAL PREVIEW</span></div>
+      <main id="main" tabindex="-1">
+        <section class="page-heading"><div><div class="eyebrow">NETWORK SECURITY</div><h1 id="page-title">Infrastructure overview</h1><p id="page-description">Precise access. Protected servers.</p></div><div class="heading-actions"><button class="button secondary" id="enroll-button" type="button"></button><button class="button primary" id="learn-button" type="button"></button></div></section>
+        <div class="capability-banner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg><span><strong>Managed enforcement.</strong> Admin changes publish directly. Agents apply eligible changes after local firewall opt-ins and safety checks.</span></div>
+        <nav id="view-tabs" class="view-tabs" aria-label="Section links" hidden></nav>
+        <div id="global-error" class="error-banner" role="alert" hidden></div>
+        <section id="view-content" aria-live="polite"><div class="loading-state"><div class="spinner"></div><h2>Connecting to your workspace</h2><p>Loading inventory, policies, and learning sessions.</p></div></section>
+      </main>
+      <footer class="page-footer"><span><strong>Prṛthak <span lang="hi">पृथक्</span></strong><span class="footer-version">v<span id="footer-version">0.7.0</span></span><span class="footer-cadence">Agent defaults: discovery 15 min · control 30 sec</span></span><span class="copyright">© 2026 EveryAge Labs Private Limited. All rights reserved.</span></footer>
+    </div>
+  </div>
+  <dialog id="modal" aria-labelledby="modal-title"><div class="modal-header"><div><span class="eyebrow" id="modal-eyebrow">WORKSPACE</span><h2 id="modal-title"></h2></div><button class="icon-button" id="modal-close" type="button" aria-label="Close dialog">×</button></div><div id="modal-content"></div></dialog>
+  <div id="drawer-backdrop" class="drawer-backdrop" hidden></div><aside id="server-drawer" class="server-drawer" aria-labelledby="drawer-title" hidden></aside>
+  <div class="toast-container" id="toasts" aria-live="polite"></div>
+</body>
+</html>

@@ -1,0 +1,224 @@
+[
+  {
+    "page": 1,
+    "title": "Prerequisites first",
+    "content_height": 577.4,
+    "free_space": 52.0
+  },
+  {
+    "page": 2,
+    "title": "Open only the documented paths",
+    "content_height": 623.1,
+    "free_space": 6.3
+  },
+  {
+    "page": 3,
+    "title": "Install the same appliance at each site",
+    "content_height": 561.7,
+    "free_space": 67.7
+  },
+  {
+    "page": 4,
+    "title": "Connect Microsoft Entra ID",
+    "content_height": 531.5,
+    "free_space": 97.9
+  },
+  {
+    "page": 5,
+    "title": "Understand the two identity paths",
+    "content_height": 617.4,
+    "free_space": 12.0
+  },
+  {
+    "page": 6,
+    "title": "Grant access with exactly three roles",
+    "content_height": 612.3,
+    "free_space": 17.1
+  },
+  {
+    "page": 7,
+    "title": "Install the endpoint agent",
+    "content_height": 615.9,
+    "free_space": 13.5
+  },
+  {
+    "page": 8,
+    "title": "Know the installed files and intervals",
+    "content_height": 616.5,
+    "free_space": 12.9
+  },
+  {
+    "page": 9,
+    "title": "Onboard automatically or reserve first",
+    "content_height": 581.6,
+    "free_space": 47.8
+  },
+  {
+    "page": 10,
+    "title": "Assign locations, tags and groups centrally",
+    "content_height": 590.5,
+    "free_space": 38.9
+  },
+  {
+    "page": 11,
+    "title": "Review CSV and subnet assignments",
+    "content_height": 596.9,
+    "free_space": 32.5
+  },
+  {
+    "page": 12,
+    "title": "Resolve subnet overlaps and duplicate addresses",
+    "content_height": 531.1,
+    "free_space": 75.3
+  },
+  {
+    "page": 13,
+    "title": "Reuse service/port groups",
+    "content_height": 521.8,
+    "free_space": 107.6
+  },
+  {
+    "page": 14,
+    "title": "Align each policy row with its sources",
+    "content_height": 595.1,
+    "free_space": 34.3
+  },
+  {
+    "page": 15,
+    "title": "Discover each endpoint before learning",
+    "content_height": 598.0,
+    "free_space": 31.4
+  },
+  {
+    "page": 16,
+    "title": "Choose learning behavior and exact ports",
+    "content_height": 519.1,
+    "free_space": 110.3
+  },
+  {
+    "page": 17,
+    "title": "Enable the separate learned overlay",
+    "content_height": 565.0,
+    "free_space": 64.4
+  },
+  {
+    "page": 18,
+    "title": "Operate learned allow policies",
+    "content_height": 555.8,
+    "free_space": 73.6
+  },
+  {
+    "page": 19,
+    "title": "Review observed access and export evidence",
+    "content_height": 504.5,
+    "free_space": 124.9
+  },
+  {
+    "page": 20,
+    "title": "Require two individual reviewers",
+    "content_height": 585.8,
+    "free_space": 43.6
+  },
+  {
+    "page": 21,
+    "title": "Verify packages and assignment signatures",
+    "content_height": 604.2,
+    "free_space": 25.1
+  },
+  {
+    "page": 22,
+    "title": "Prepare large source groups safely",
+    "content_height": 566.9,
+    "free_space": 62.5
+  },
+  {
+    "page": 23,
+    "title": "Enforce a normal managed bundle",
+    "content_height": 615.0,
+    "free_space": 14.4
+  },
+  {
+    "page": 24,
+    "title": "Operate HA, health and recovery",
+    "content_height": 609.3,
+    "free_space": 20.1
+  },
+  {
+    "page": 25,
+    "title": "Validate, record evidence, then pilot",
+    "content_height": 613.7,
+    "free_space": 15.7
+  },
+  {
+    "page": 26,
+    "title": "Back up data and review demo cleanup",
+    "content_height": 535.3,
+    "free_space": 94.1
+  },
+  {
+    "page": 27,
+    "title": "Schedule verified database backups",
+    "content_height": 452.5,
+    "free_space": 176.9
+  },
+  {
+    "page": 28,
+    "title": "Create or join the controller cluster",
+    "content_height": 424.9,
+    "free_space": 204.5
+  },
+  {
+    "page": 29,
+    "title": "Place voters and route clients by site",
+    "content_height": 531.4,
+    "free_space": 98.0
+  },
+  {
+    "page": 30,
+    "title": "Control services and move stopped storage",
+    "content_height": 465.1,
+    "free_space": 164.3
+  },
+  {
+    "page": 31,
+    "title": "Change the application port safely",
+    "content_height": 620.5,
+    "free_space": 8.9
+  },
+  {
+    "page": 32,
+    "title": "Review TLS and replication credentials",
+    "content_height": 447.4,
+    "free_space": 182.0
+  },
+  {
+    "page": 33,
+    "title": "Manage polling and reported addresses",
+    "content_height": 518.0,
+    "free_space": 111.4
+  },
+  {
+    "page": 34,
+    "title": "Manage endpoint and node certificates",
+    "content_height": 565.0,
+    "free_space": 64.4
+  },
+  {
+    "page": 35,
+    "title": "Review external alert destinations",
+    "content_height": 552.0,
+    "free_space": 77.4
+  },
+  {
+    "page": 36,
+    "title": "Recover a reviewed database archive",
+    "content_height": 567.0,
+    "free_space": 62.4
+  },
+  {
+    "page": 37,
+    "title": "Record the recovery and release boundary",
+    "content_height": 463.7,
+    "free_space": 165.7
+  }
+]
