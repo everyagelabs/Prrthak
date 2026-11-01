@@ -8,12 +8,13 @@
 - pip-audit 2.10.1 found no known advisories in the eight resolved controller dependencies. The deployed dependency set must be reassessed when rebuilt.
 - govulncheck 1.9.0 found no known affected vulnerabilities in the project's Go source/compiled agent with Go 1.27.3.
 - Local adversarial HTTPS tests cover individual role checks, CSRF, exact mutation scope, mTLS identity, real listener isolation, stale/revoked authority, direct Admin changes and rollback/recovery fencing. These do not replace external testing of an installed bank environment.
+- Linux CI exposed a command-lease file-close/startup race in the first candidate. Candidate `.2` uses an independently owned CLOEXEC descriptor, retains the inherited lock until process-tree drain and adds concurrent-close/start-error regressions. See B4 in the remediation map and the selected tag’s CI results.
 - Signed startup, installed manager-byte checks and a deliberately modified application were exercised in disposable containers. Modified application code was rejected before its import marker could execute.
 - Staged source is checked for complete credential/private-key patterns and prohibited runtime paths. No private state is included in release contexts. This pattern check is not a general data-loss-prevention guarantee.
 
 ## Complete appliance image assessment
 
-The scan retains all vulnerability rows, including unpatched and unknown-severity advisories. Rows may repeat the same advisory across packages/binaries; they are not a count of independently exploitable attacks.
+The counts below describe the local Linux/ARM64 image build; the selected tag’s CI artifacts record its own build and advisories. The scan retains all vulnerability rows, including unpatched and unknown-severity advisories. Rows may repeat the same advisory across packages/binaries; they are not a count of independently exploitable attacks.
 
 | Image | Advisory rows | Critical | High | Rows with a listed fix |
 | --- | ---: | ---: | ---: | ---: |
@@ -32,4 +33,4 @@ CI keeps complete image reports. It gates available high/critical fixes; unknown
 
 The release signer is a development authority outside the source/Documents tree, not an organizational offline/HSM signer. Public trust must be independently approved and delivered. Online policy signing remains a controller trust boundary. See [release integrity](release-integrity.md).
 
-Use the [review remediation map](review-remediation-0.7.md) for B1–B3, M1–M8 and S1–S6. The 20-server pilot should begin with inventory/monitoring and complete the deferred native lockout, kernel, systemd and firewalld checks before enforcement. Review remaining vendor findings and organization-specific regulatory evidence with the deployment/security owner.
+Use the [review remediation map](review-remediation-0.7.md) for B1–B4, M1–M8 and S1–S6. The 20-server pilot should begin with inventory/monitoring and complete the deferred native lockout, kernel, systemd and firewalld checks before enforcement. Review remaining vendor findings and organization-specific regulatory evidence with the deployment/security owner.

@@ -43,7 +43,13 @@ func fencedCommand(ctx context.Context, lease *os.File, name string, args ...str
 	cmd := exec.CommandContext(ctx, executable, append([]string{commandSupervisorArgument, name}, args...)...)
 	cmd.Env = append(os.Environ(), commandSupervisorParent+"="+strconv.Itoa(os.Getpid()), commandSupervisorLease+"=0")
 	if lease != nil {
-		cmd.ExtraFiles = []*os.File{lease}
+		owned, err := duplicateCommandLease(lease)
+		if err != nil {
+			return nil, fmt.Errorf("retain command enforcement lease: %w", err)
+		}
+		// This object belongs to the command. The owner may Close its own
+		// *os.File concurrently without racing StartProcess's Fd access.
+		cmd.ExtraFiles = []*os.File{owned}
 		cmd.Env = append(cmd.Env, commandSupervisorLease+"=1")
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGTERM}
@@ -53,11 +59,54 @@ func fencedCommand(ctx context.Context, lease *os.File, name string, args ...str
 	return cmd, nil
 }
 
+func duplicateCommandLease(lease *os.File) (*os.File, error) {
+	raw, err := lease.SyscallConn()
+	if err != nil {
+		return nil, err
+	}
+	descriptor := -1
+	var duplicateErr error
+	// Control keeps the original descriptor alive against concurrent Close.
+	// Atomic CLOEXEC avoids leaking the new reference into unrelated execs.
+	err = raw.Control(func(source uintptr) {
+		for {
+			duplicate, _, errno := syscall.Syscall(syscall.SYS_FCNTL, source, syscall.F_DUPFD_CLOEXEC, 3)
+			if errno == syscall.EINTR {
+				continue
+			}
+			if errno != 0 {
+				duplicateErr = errno
+			} else {
+				descriptor = int(duplicate)
+			}
+			return
+		}
+	})
+	if err != nil || duplicateErr != nil {
+		if descriptor >= 0 {
+			_ = syscall.Close(descriptor)
+		}
+		if err != nil {
+			return nil, err
+		}
+		return nil, duplicateErr
+	}
+	return os.NewFile(uintptr(descriptor), "command-enforcement-lease"), nil
+}
+
 func runFencedCommand(cmd *exec.Cmd) error {
 	// Linux delivers Pdeathsig when the thread which created the helper exits.
 	// Keep that runtime thread alive for the whole owned command lifetime.
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
+	// fencedCommand gives each ExtraFiles entry independent ownership. Close
+	// on every Run result, including failed/canceled Start, after the helper
+	// has drained its tree. Close only: LOCK_UN would unlock inherited copies.
+	defer func() {
+		for _, owned := range cmd.ExtraFiles {
+			_ = owned.Close()
+		}
+	}()
 	return cmd.Run()
 }
 

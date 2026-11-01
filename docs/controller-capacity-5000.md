@@ -18,6 +18,8 @@ Profile: 5,000 virtual certificate identities; 2 workers × 32 threads; 64 concu
 
 Reproduce with `scripts/benchmark-mtls-fleet.py --authorization-mode single-admin --change-policy --control-interval-seconds 30 --poll-window-seconds 30` plus the isolated PostgreSQL/profile flags described below (separate every option and its value with a space). The fixture asserts both complete delivery and current exact authorization. Production hardware and network acceptance remain required.
 
+Candidate `v0.7.0-pilot.2` subsequently fixes Linux endpoint command-lease ownership. All 62 controller source hashes recorded by this capacity fixture still match that candidate; this workload measures controller delivery and receipts.
+
 ## Historical development result · 31 October 2026
 
 31 October 2026. The requested local capacity target passes on the frozen source/configuration below. DC deployment, native endpoint OS validation, WAN/quorum behavior and production acceptance remain deferred. This is delivery of versioned, signed policy intent and receipts; native firewalld application is outside this workload.

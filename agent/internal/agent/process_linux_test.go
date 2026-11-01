@@ -199,6 +199,153 @@ func TestManagedLeaseSurvivesOwnerCloseUntilTreeDrained(t *testing.T) {
 	unlockManaged(acquired)
 }
 
+func TestFencedCommandOwnsLeaseBeforeStartAndReleasesAfterRun(t *testing.T) {
+	directory := t.TempDir()
+	lock, err := managedLock(directory, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlockManaged(lock)
+	cmd, err := fencedCommand(context.Background(), lock, "/bin/sh", "-c", "test -e /proc/self/fd/3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cmd.ExtraFiles) != 1 || cmd.ExtraFiles[0] == lock {
+		t.Fatal("command reused owner's file object")
+	}
+	owned := cmd.ExtraFiles[0]
+	t.Cleanup(func() { _ = owned.Close() })
+	flags, _, errno := syscall.Syscall(syscall.SYS_FCNTL, owned.Fd(), syscall.F_GETFD, 0)
+	if errno != 0 || flags&syscall.FD_CLOEXEC == 0 {
+		t.Fatal("parent duplicate can leak into unrelated exec", errno)
+	}
+	unlockManaged(lock)
+	if acquired, err := managedLock(directory, true); err == nil {
+		unlockManaged(acquired)
+		t.Fatal("unstarted command lost its lease reference")
+	}
+	if err := runFencedCommand(cmd); err != nil {
+		t.Fatal("command could not start after owner closed", err)
+	}
+	if _, err := owned.Stat(); !errors.Is(err, os.ErrClosed) {
+		t.Fatal("parent command descriptor was not closed", err)
+	}
+	acquired, err := managedLock(directory, true)
+	if err != nil {
+		t.Fatal("finished command retained its lease", err)
+	}
+	unlockManaged(acquired)
+}
+
+func TestFencedCommandFailedStartReleasesOwnedLease(t *testing.T) {
+	directory := t.TempDir()
+	lock, err := managedLock(directory, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlockManaged(lock)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cmd, err := fencedCommand(ctx, lock, "/bin/true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owned := cmd.ExtraFiles[0]
+	t.Cleanup(func() { _ = owned.Close() })
+	unlockManaged(lock)
+	cancel()
+	if err := runFencedCommand(cmd); !errors.Is(err, context.Canceled) {
+		t.Fatal("canceled Start did not fail", err)
+	}
+	if _, err := owned.Stat(); !errors.Is(err, os.ErrClosed) {
+		t.Fatal("failed Start leaked its descriptor", err)
+	}
+	acquired, err := managedLock(directory, true)
+	if err != nil {
+		t.Fatal("failed Start retained lease", err)
+	}
+	unlockManaged(acquired)
+}
+
+func TestFencedCommandConcurrentLeaseCloseFailsClosed(t *testing.T) {
+	for iteration := 0; iteration < 64; iteration++ {
+		directory := t.TempDir()
+		lock, err := managedLock(directory, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		start := make(chan struct{})
+		closed := make(chan struct{})
+		go func() { <-start; unlockManaged(lock); close(closed) }()
+		close(start)
+		cmd, err := fencedCommand(ctx, lock, "/usr/bin/touch", filepath.Join(directory, "must-not-run"))
+		<-closed
+		cancel()
+		if err != nil {
+			// RawConn.Control can return the poller's private closed-file
+			// error, rather than os.ErrClosed. Either must fail before any
+			// command is returned; the lock/marker checks below stay exact.
+			if cmd != nil {
+				t.Fatal("closing source returned a partially fenced command", err)
+			}
+		} else {
+			if len(cmd.ExtraFiles) != 1 || cmd.ExtraFiles[0] == lock {
+				t.Fatal("concurrent close yielded an unfenced command")
+			}
+			if acquired, err := managedLock(directory, true); err == nil {
+				unlockManaged(acquired)
+				t.Fatal("constructed command lacks live lease")
+			}
+			if err := runFencedCommand(cmd); !errors.Is(err, context.Canceled) {
+				t.Fatal("canceled command executed", err)
+			}
+			if _, err := cmd.ExtraFiles[0].Stat(); !errors.Is(err, os.ErrClosed) {
+				t.Fatal("canceled command leaked descriptor", err)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(directory, "must-not-run")); !os.IsNotExist(err) {
+			t.Fatal("closed/canceled command executed without authority")
+		}
+		acquired, err := managedLock(directory, true)
+		if err != nil {
+			t.Fatal("concurrent close retained lease", err)
+		}
+		unlockManaged(acquired)
+	}
+}
+
+func TestFencedCommandExecutableStartFailureClosesOwnedLease(t *testing.T) {
+	directory := t.TempDir()
+	lock, err := managedLock(directory, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlockManaged(lock)
+	cmd, err := fencedCommand(context.Background(), lock, "/bin/true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owned := cmd.ExtraFiles[0]
+	t.Cleanup(func() { _ = owned.Close() })
+	unlockManaged(lock)
+	cmd.Path = filepath.Join(directory, "nonexistent-supervisor")
+	if err := runFencedCommand(cmd); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("missing executable did not fail Start", err)
+	}
+	if _, err := owned.Stat(); !errors.Is(err, os.ErrClosed) {
+		t.Fatal("failed exec leaked its owned descriptor", err)
+	}
+	acquired, err := managedLock(directory, true)
+	if err != nil {
+		t.Fatal("failed exec retained lease", err)
+	}
+	unlockManaged(acquired)
+	if invalid, err := fencedCommand(context.Background(), lock, "/bin/true"); err == nil || invalid != nil {
+		t.Fatal("closed owner produced an unfenced command", err)
+	}
+}
+
 type fenceCompensationRunner struct {
 	t         *testing.T
 	directory string
