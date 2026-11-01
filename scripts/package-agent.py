@@ -23,6 +23,7 @@ for arch in ('amd64', 'arm64'):
              (root / 'agent' / 'config.example.json', 'agent/config.example.json'),
              (root / 'agent' / 'README.md', 'agent/README.md'),
              (root / 'docs' / 'managed-enforcement.md', 'docs/managed-enforcement.md'),
+             (root / 'docs' / 'whole-server-default-deny.md', 'docs/whole-server-default-deny.md'),
              (root / 'docs' / 'linux-validation.md', 'docs/linux-validation.md'),
              (root / 'docs' / 'scale-validation.md', 'docs/scale-validation.md'),
              (root / 'docs' / 'ipset-enforcement.md', 'docs/ipset-enforcement.md'),

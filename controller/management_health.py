@@ -108,11 +108,13 @@ class ManagementHealth:
                 checks.append(self._ssh(target, port, deadline))
             # A policy/tag/IP/config change during network I/O revokes the proof.
             current = verify()
-            if any(current.get(key) != approved.get(key) for key in (*identity_fields, "ips", "ssh_ports", "management_sources")):
+            context_fields=("approval_id", "intent", "approval_proof", "host_default_deny_ack", "host_default_deny_revision", "host_default_deny_configuration_digest") if approved.get("host_default_deny_ack") else ()
+            if any(current.get(key) != approved.get(key) for key in (*identity_fields, "ips", "ssh_ports", "management_sources", *context_fields)):
                 raise ManagementHealthUnavailable("The approved endpoint changed during its management health check")
             return {key: approved[key] for key in identity_fields} | {
                 "nonce": nonce, "checked_at": stamp(), "controller_ok": True,
                 "status": "healthy", "ssh_checks": checks,
+                **{key:approved[key] for key in context_fields if key in approved},
             }
         finally:
             self.slots.release()

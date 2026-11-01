@@ -36,6 +36,7 @@ type Config struct {
 	RequestTimeoutSeconds        int                    `json:"request_timeout_seconds"`
 	Zone                         string                 `json:"zone"`
 	Enforce                      bool                   `json:"enforce"`
+	AllowHostDefaultDeny         bool                   `json:"allow_host_default_deny,omitempty"`
 	AllowFirewallChanges         bool                   `json:"allow_firewall_changes"`
 	AllowSingleAdminPilot        bool                   `json:"allow_single_admin_pilot,omitempty"`
 	SingleAdminPilotScope        *SingleAdminPilotScope `json:"single_admin_pilot_scope,omitempty"`
@@ -144,6 +145,9 @@ func parsePrefix(s string) (netip.Prefix, error) {
 	return netip.ParsePrefix(s)
 }
 func ValidatePolicy(p *Policy) error {
+	if p.HostDefaultDeny && p.Mode != "enforce" {
+		return errors.New("whole-server default deny requires an enforce-mode bundle")
+	}
 	if p.Version < 0 || p.Digest == "" {
 		return errors.New("invalid policy identity")
 	}

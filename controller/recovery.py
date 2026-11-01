@@ -425,7 +425,7 @@ def _overlay_safety(db, safety, recovery_id):
     source_servers = {row[0]: json.loads(row[1]) for row in safety["servers"]}
     restored = {value["id"]: value for value in _json_rows(db, "servers")}
     certificate_fields = ("certificate_registry", "certificate_not_after", "certificate_fingerprint", "certificate_revoked")
-    known_endpoint_fields = (*certificate_fields, "_managed_rules_active", "_last_managed_applied_version", "last_good_version", "last_good_digest", "managed_enforcement", "applied_version")
+    known_endpoint_fields = (*certificate_fields, "_managed_rules_active", "_host_default_deny_active", "host_default_deny_state", "_managed_receipt_cursor", "_host_default_deny_owned_cleanup_required", "_last_managed_applied_version", "last_good_version", "last_good_digest", "managed_enforcement", "applied_version")
     for identifier, source in source_servers.items():
         if identifier in retired:
             continue

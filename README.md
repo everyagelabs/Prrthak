@@ -4,9 +4,11 @@
 
 Prṛthak discovers servers and their real listening services, shows permitted source-to-service access, learns observed source/port relationships, and lets administrators review and apply firewalld changes centrally. The selected server is the destination: an access policy specifies **service/port + allowed sources**, without a separate destination field.
 
-**Pilot candidate: [v0.7.0-pilot.3](https://github.com/everyagelabs/Prrthak/tree/v0.7.0-pilot.3).** The final local 5,000-identity test delivered a real Admin edit in **31.947 seconds**, including publication and a full 30-second poll window ([scope and evidence](docs/controller-capacity-5000.md)). Code workflows and isolated test evidence are separate from operational acceptance. The real 20-server pilot, native RHEL/Ubuntu matrix, live Entra tenant, DC/WAN failover and hardware-fencing checks remain pending. This repository does not claim production certification or a vulnerability-free application.
+**Pilot candidate: [v0.8.0-pilot.1](https://github.com/everyagelabs/Prrthak/tree/v0.8.0-pilot.1).** Whole-server default deny is an explicit GUI workflow with a fresh manual downtime acknowledgement per push; ordinary per-port policy saves keep their direct Admin flow. See [the feature workflow](docs/whole-server-default-deny.md). Capacity and exact test scope are recorded in the [release evidence](docs/controller-capacity-5000.md). Native RHEL/Ubuntu, live Entra, DC/WAN and hardware-fencing acceptance remain deployment gates; this is a pilot candidate.
 
 Private repository: [everyagelabs/Prrthak](https://github.com/everyagelabs/Prrthak). Product owner: **EveryAge Labs Private Limited**.
+
+[0.8 release behavior and validation](docs/release-0.8.0-pilot.1.md) · [Whole-server default-deny workflow](docs/whole-server-default-deny.md).
 
 ## What was requested, and how it works
 
@@ -19,7 +21,7 @@ The numbered register retains the original requirements and later explicit reque
 | R01 | A standalone project with Prṛthak branding and the requested red/white appearance | A separate controller, dashboard and endpoint-agent repository, with the bilingual product mark and a consistent interface. |
 | R02 | Automatic enrollment and central inventory | A private GUI-generated setup file supplies a one-use enrollment token and public trust material. The agent creates its key locally, enrolls and reports inventory. |
 | R03 | Discover actual services/ports and later changes | Socket, process and systemd discovery identifies services such as SSH on **2022**, rather than assuming port 22. New/changed listeners generate alerts. Fleet discovery defaults to **900 seconds**; an explicit 1–20-server pilot preset uses **60 seconds**. |
-| R04 | Allowed sources per service; destination implicit | Each target receives an effective inbound TCP/UDP source/port policy. Whole-host default deny, egress and arbitrary forwarding policies are outside this adapter. |
+| R04 | Allowed sources per service; destination implicit | Each target receives an effective inbound TCP/UDP source/port policy. Optional whole-server default deny adds an explicitly acknowledged host-ingress fallback; outbound and forwarded/container segmentation remain outside this adapter. |
 | R05 | One policy for a group or matching tags | Static groups, dynamic groups and tag selectors resolve the target endpoints. Membership changes produce new desired policy versions and preserve the review boundary. |
 | R06 | Reusable service groups and aligned source sets | A row can reference several saved ports and its own source CIDRs, source tags and source groups. Separate rows keep different source/port relationships separate. |
 | R07 | Existing/common firewalld rules, broad openings, modify/remove/deny review | Runtime/permanent inventory and exact bulk previews support services, ports, validated rich rules, bounded INPUT direct rules and local port redirects. Permanent zone-target replacement is staged explicitly; it does **not** change the runtime target or reload firewalld. Unsupported routing/NAT, bindings and ambiguous contexts remain read-only. |
@@ -61,6 +63,7 @@ The numbered register retains the original requirements and later explicit reque
 | R38 | Application groups such as Platform, Billing and Payments | Saved static/dynamic application groups support inventory browsing, target/source selection, policies and scoped operations. Future matching enrolled servers can join dynamic groups. |
 | R39 | Protect installed code and trace releases to Git | Compiled agents, restricted read-only containers, pinned image identities, detached Ed25519 signatures and startup integrity checks reject changed release bytes. Root/Git owners retain authority; this is not complete source encryption. See [release integrity](docs/release-integrity.md). |
 | R40 | Risk & compliance findings with reasons and recommendations | A customizable catalogue starts with **29 source-backed risky-port rules**. Passive evaluation uses the latest agent-reported listeners and shows reasons/recommendations. CERT-In/RBI mappings identify operational evidence gaps; findings do not automatically block traffic or certify compliance. |
+| R41 | Whole-server default deny for selected servers/groups with manual downtime acknowledgement | A dedicated GUI review freezes exact endpoints and enforce-only grants, preserves protected management/control paths, and requires a fresh unchecked downtime checkbox before each push. Endpoint capability and separate local opt-in are mandatory; staged rules, read-back and independent rollback guard application. [Workflow](docs/whole-server-default-deny.md). |
 
 ## Architecture and communication
 
@@ -94,6 +97,10 @@ Business packets go directly to the destination server; the controller is not a 
 Private appliance backend, PostgreSQL and quorum ports are infrastructure-only; see [HA networking](docs/ha.md). Preserve endpoint certificate identity through any approved external L4 routing. The stable FQDN, external DNS/LB, site affinity and network ACLs remain operator infrastructure.
 
 ### How a policy becomes a firewall change
+
+The automatic flow below applies to ordinary per-port hosts. On a host protected
+by whole-server default deny, a changed bundle remains pending until an Admin
+completes a fresh dedicated review and manually acknowledges downtime.
 
 ```mermaid
 flowchart TD

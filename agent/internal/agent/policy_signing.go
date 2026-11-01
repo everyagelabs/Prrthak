@@ -35,7 +35,7 @@ func ValidatePolicySignature(c Config, p *Policy) error {
 	return validatePolicySignatureAt(c, p, time.Now())
 }
 func policySigningRequired(c Config) bool {
-	if c.Enforce || c.LearningAutoAllow || c.AllowFirewallChanges || c.PolicySigningTrustFile != "" || len(c.PolicySigningKeys) > 0 {
+	if c.Enforce || c.AllowHostDefaultDeny || c.LearningAutoAllow || c.AllowFirewallChanges || c.PolicySigningTrustFile != "" || len(c.PolicySigningKeys) > 0 {
 		return true
 	}
 	_, e := os.Lstat(filepath.Join(c.StateDir, "policy-signing-trust.json"))

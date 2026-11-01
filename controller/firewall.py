@@ -393,6 +393,8 @@ def create_change(store, value, actor, *, principal=None):
             server = store._get(db, "servers", identifier)
             if not server:
                 raise ValueError("Selected endpoint does not exist")
+            from .host_default_deny import guarded
+            if guarded(server):raise ValueError("Disable whole-server deny through its acknowledged flow before imported-rule mutations")
             from . import approvals
             if not approvals.signed_target(store, server):
                 raise ValueError("Upgrade the endpoint to signed_assignments_v1 before imported-rule mutations")
@@ -456,6 +458,9 @@ def confirm_change(store, identifier, value, actor, *, principal=None):
         plan = store._get(db, "firewall_changes", identifier)
         if not plan:
             raise KeyError(identifier)
+        from .host_default_deny import guarded
+        if any(guarded(store._get(db,"servers",server_id) or {}) for server_id in plan.get("operations_by_server",{})):
+            raise ValueError("Disable whole-server deny through its acknowledged flow before imported-rule mutations")
         if plan["status"] not in ("draft", "awaiting_second_confirmation"):
             problem = "This change is no longer awaiting confirmation"
         elif not isinstance(value.get("confirmation_nonce"), str) or not secrets.compare_digest(value["confirmation_nonce"], plan["confirmation_nonce"]):
@@ -503,6 +508,8 @@ def assignments(store, db, identifier):
     result = []
     from . import approvals
     server = store._get(db, "servers", identifier) or {}
+    from .host_default_deny import guarded
+    if guarded(server):return result
     if not approvals.signed_target(store, server):
         return result
     for plan in store._all(db, "firewall_changes"):

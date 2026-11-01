@@ -16,6 +16,7 @@
   "max_spool_batches": 500,
   "discovery_interval_seconds": 900,
   "allow_firewall_changes": false,
+  "allow_host_default_deny": false,
   "unexpected_port_monitor_enabled": false,
   "probe_log_rate_per_second": 5,
   "learning_auto_allow": false

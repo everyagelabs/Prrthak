@@ -248,6 +248,8 @@ def learning_requester(store, db, session, actor, principal=None):
 def _learning_target(session, server):
     from .learning_policies import _bindings, _protected
     identifier = server["id"]
+    from .host_default_deny import guarded
+    if guarded(server):raise ValueError("Whole-server deny requires its own acknowledged push; automatic grants are held")
     ports = session.get("server_ports", {}).get(identifier, [])
     result = session.get("discovery_results", {}).get(identifier, {})
     if result.get("status") != "ready" or not ports:

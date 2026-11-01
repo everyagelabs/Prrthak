@@ -140,6 +140,10 @@ func (a *Agent) processLearningAllow(ctx context.Context, p *LearningAllow) erro
 		a.State.LearningAllowOutcome = nil
 		return a.save()
 	}
+	if a.hostDefaultDenyGuarded() {
+		a.learningOutcome(p, "blocked", "whole-server default deny withholds additive learned mutations until reviewed fallback removal commits")
+		return a.save()
+	}
 	if !a.Config.Enforce || !a.Config.LearningAutoAllow || a.Simulate {
 		status := "preview"
 		if a.State.LearningAllowBundle != nil && len(a.State.LearningAllowBundle.Rules) > 0 {

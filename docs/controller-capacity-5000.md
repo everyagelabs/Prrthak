@@ -1,6 +1,20 @@
 # 5,000-server controller capacity
 
-## Current 0.7 acceptance · 1 November 2026
+## Current 0.8 acceptance · 1 November 2026
+
+The whole-server-default-deny build retains the ordinary direct-Admin delivery target on the same isolated ARM64/Gunicorn/private-PostgreSQL profile below.
+
+| Phase | Verified identities | Elapsed |
+| --- | ---: | ---: |
+| Initial signed delivery and receipts | 5,000 | 17.176 s |
+| Actual Admin policy PUT, publication and full 30 s polling window | 5,000 | **32.157 s** |
+| Warm polling, 100 discovery reports and 10,000 synthetic events | 5,000 | 17.576 s |
+
+Publication took 2.143 seconds, included in the total. All changed versions, exact source matrices and current single-Admin proof scopes were verified. All phases met 60 seconds, with zero final failures, six transient report retries, all 10,000 events retained and no pending flow batch. Source hashes remained unchanged; two fresh owned databases were dropped afterward.
+
+This measures ordinary per-port delivery to 5,000 virtual certificate identities, not 5,000 native agents applying whole-server deny. Dedicated deny reviews remain exact, byte-bounded snapshots for explicit canary scopes. Native enforcement, Entra sign-in, WAN, failover and endurance acceptance remain separate. Record: `.local/capacity/results-direct-080-pilot-1.json`; reproduction uses the same command/profile below with a fresh database namespace.
+
+## Historical 0.7 acceptance · 1 November 2026
 
 The final direct-Admin build passed the local 60-second delivery target. This is a shared ARM64 development host, real Gunicorn HTTPS/mTLS and private PostgreSQL 16.15; it is not native firewall or WAN/DC qualification.
 

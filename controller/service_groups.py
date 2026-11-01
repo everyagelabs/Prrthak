@@ -260,5 +260,7 @@ def effective_bundles(store, db, *, servers=None, policies=None, service_group_o
             mode = "enforce" if "enforce" in rule["modes"] else "monitor"
             services.append({"port": rule["port"], "protocol": rule["protocol"], "mode": mode, "sources": sorted(rule[mode])})
         payloads[server["id"]] = {"mode": "enforce" if any(rule["mode"] == "enforce" for rule in services) else "monitor", "services": services}
+        from .host_default_deny import payload as host_default_deny_payload
+        payloads[server["id"]] = host_default_deny_payload(server, payloads[server["id"]])
     return {"servers": servers, "payloads": payloads, "matched": matched, "targets": targets_by_policy,
             "snapshots": {identifier: [groups[key] for key in sorted(groups)] for identifier, groups in snapshots_by_host.items()}}

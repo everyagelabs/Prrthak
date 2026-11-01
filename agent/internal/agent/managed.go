@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -32,7 +33,11 @@ func validateEnforcement(p *Policy, protection Protection, now time.Time) error 
 	if len(auth.ApprovalProof) > 0 {
 		var proof endpointApprovalProof
 		if json.Unmarshal(auth.ApprovalProof, &proof) == nil && proof.Mode == "single_admin" {
-			if err := validateEndpointApproval(Config{}, auth.ApprovalProof, p.ServerID, now, false, "managed_policy", "managed_rollout"); err != nil {
+			kinds := []string{"managed_policy", "managed_rollout"}
+			if p.HostDefaultDeny || auth.Intent == "remove_host_default_deny" {
+				kinds = []string{"host_default_deny"}
+			}
+			if err := validateEndpointApproval(Config{}, auth.ApprovalProof, p.ServerID, now, false, kinds...); err != nil {
 				return err
 			}
 			minimum = 1
@@ -82,7 +87,9 @@ func (a *Agent) managedMutation(ctx context.Context, path string, journal *manag
 	return nil
 }
 func (a *Agent) applyManaged(ctx context.Context, p *Policy, protection Protection) error {
-	if !a.Config.Enforce || a.Simulate {
+	removal := !p.HostDefaultDeny && p.Enforcement != nil && p.Enforcement.Intent == "remove_host_default_deny"
+	cleanup := p.Enforcement != nil && p.Enforcement.Intent == "remove_managed_rules" && a.State.ManagedBundle != nil && len(a.State.ManagedBundle.Rules) > 0
+	if !a.Config.Enforce && !removal || a.Simulate {
 		if !a.Simulate && a.State.ManagedBundle != nil && len(a.State.ManagedBundle.Rules) > 0 {
 			old := a.State.ManagedBundle
 			a.State.ManagedEnforcement = &ManagedEnforcement{Status: "enforced", Version: old.Version, Digest: old.Digest, ApprovalID: old.ApprovalID, Error: "local enforcement disabled; committed restrictions remain until reviewed cleanup", UpdatedAt: time.Now().UTC()}
@@ -91,12 +98,16 @@ func (a *Agent) applyManaged(ctx context.Context, p *Policy, protection Protecti
 		}
 		return nil
 	}
-	if p.Mode == "monitor" && a.State.ManagedBundle == nil {
+	if p.Mode == "monitor" && a.State.ManagedBundle == nil && !removal {
 		a.managedStatus("preview", p, "")
 		return nil
 	}
 	if p.Enforcement != nil {
-		if err := validateEndpointApproval(a.Config, p.Enforcement.ApprovalProof, p.ServerID, time.Now().UTC(), false, "managed_policy", "managed_rollout"); err != nil {
+		kinds := []string{"managed_policy", "managed_rollout"}
+		if p.HostDefaultDeny || removal {
+			kinds = []string{"host_default_deny"}
+		}
+		if err := validateEndpointApproval(a.Config, p.Enforcement.ApprovalProof, p.ServerID, time.Now().UTC(), false, kinds...); err != nil {
 			a.managedStatus("error", p, err.Error())
 			return err
 		}
@@ -123,15 +134,42 @@ func (a *Agent) applyManaged(ctx context.Context, p *Policy, protection Protecti
 		a.managedStatus("error", p, e.Error())
 		return e
 	}
-	if a.State.ManagedBundle != nil && a.State.ManagedBundle.Digest == p.Digest && a.State.ManagedBundle.Version == p.Version && a.State.ManagedBundle.ProtectionDigest == protection.Digest {
-		if e := a.managedPreflight(ctx, protection); e != nil {
+	if !removal && !cleanup && a.State.ManagedBundle != nil && a.State.ManagedBundle.Digest == p.Digest && a.State.ManagedBundle.Version == p.Version && a.State.ManagedBundle.ProtectionDigest == protection.Digest {
+		if e := a.managedPreflight(ctx, protection, p.HostDefaultDeny); e != nil {
 			a.managedStatus("error", p, e.Error())
+			if p.HostDefaultDeny {
+				a.refreshHostDefaultDenyProtection(ctx)
+			}
 			return e
+		}
+		if p.HostDefaultDeny {
+			digest, blockers := a.hostDefaultDenyContext(ctx, protection)
+			if len(blockers) != 0 || digest != protection.HostDefaultDenyContextDigest {
+				e := errors.New("committed whole-server firewall context drift detected")
+				a.refreshHostDefaultDenyProtection(ctx)
+				a.managedStatus("error", p, e.Error())
+				return e
+			}
 		}
 		a.State.AppliedVersion = p.Version
 		committed := a.State.ManagedBundle
 		a.State.ManagedEnforcement = &ManagedEnforcement{Status: "enforced", Version: committed.Version, Digest: committed.Digest, ApprovalID: committed.ApprovalID, UpdatedAt: time.Now().UTC()}
 		return nil
+	}
+	// A generic reconciliation/cleanup can neither add nor remove whole-host
+	// authority. A fresh explicit acknowledgement is needed for every new bundle.
+	if p.HostDefaultDeny || removal || a.State.ManagedBundle != nil && a.State.ManagedBundle.HostDefaultDeny {
+		if e := a.validateHostDefaultDeny(p, protection, removal); e != nil {
+			a.managedStatus("pending_approval", p, e.Error())
+			return e
+		}
+		contextDigest, blockers := a.hostDefaultDenyContext(ctx, protection)
+		if len(blockers) != 0 || contextDigest != protection.HostDefaultDenyContextDigest {
+			e := errors.New("whole-server firewall context changed or is unsupported: " + strings.Join(blockers, "; "))
+			a.managedStatus("error", p, e.Error())
+			a.refreshHostDefaultDenyProtection(ctx)
+			return e
+		}
 	}
 	if e := validateEnforcement(p, protection, time.Now()); e != nil {
 		a.managedStatus("pending_approval", p, e.Error())
@@ -152,13 +190,16 @@ func (a *Agent) applyManaged(ctx context.Context, p *Policy, protection Protecti
 			enforcedServices++
 		}
 	}
-	if enforcedServices == 0 && p.Enforcement.Intent != "remove_managed_rules" {
+	if enforcedServices == 0 && !p.HostDefaultDeny && !removal && p.Enforcement.Intent != "remove_managed_rules" {
 		e := errors.New("removing managed rules requires explicit reviewed cleanup intent")
 		a.managedStatus("pending_approval", p, e.Error())
 		return e
 	}
-	if e = a.managedPreflight(ctx, protection); e != nil {
+	if e = a.managedPreflight(ctx, protection, p.HostDefaultDeny || removal); e != nil {
 		a.managedStatus("error", p, e.Error())
+		if p.HostDefaultDeny || removal {
+			a.refreshHostDefaultDenyProtection(ctx)
+		}
 		return e
 	}
 	raw := make([]byte, 16)
@@ -175,7 +216,38 @@ func (a *Agent) applyManaged(ctx context.Context, p *Policy, protection Protecti
 	if e != nil {
 		return e
 	}
-	if e = a.managedSetPreflight(ctx, sets); e != nil {
+	if removal {
+		old := a.State.ManagedBundle
+		canonical, staged, sets = []ManagedRule{}, nil, nil
+		if old == nil {
+			if len(p.Services) != 0 {
+				return errors.New("unapplied whole-server cancellation requires an empty retained policy")
+			}
+		} else {
+			if old.HostDefaultDeny {
+				frozen := &Policy{Version: p.Version, Mode: old.HostDefaultDenyMode, Digest: "frozen", Services: old.HostDefaultDenyServices}
+				if len(frozen.Services) == 0 && len(p.Services) == 0 {
+					frozen.Mode = p.Mode
+				}
+				expected, err := compiledPolicyDigest(frozen)
+				if err != nil || expected != p.Digest {
+					return errors.New("whole-server removal must retain the last applied approved source/port matrix")
+				}
+			} else if old.Digest != p.Digest {
+				return errors.New("whole-server cancellation must retain the existing managed matrix")
+			}
+			sets = append([]ManagedIPSet{}, old.IPSets...)
+			for _, rule := range old.Rules {
+				if !hostDefaultDenyFallback(rule) {
+					canonical = append(canonical, rule)
+				}
+			}
+		}
+	}
+	if !removal {
+		e = a.managedSetPreflight(ctx, sets)
+	}
+	if e != nil {
 		a.managedStatus("error", p, e.Error())
 		return e
 	}
@@ -195,6 +267,11 @@ func (a *Agent) applyManaged(ctx context.Context, p *Policy, protection Protecti
 		return e
 	}
 	journal := &managedJournal{Nonce: nonce, Phase: "armed", Deadline: time.Now().Add(120 * time.Second), DeadlineBootSeconds: bootElapsedSeconds() + 120, PID: os.Getpid(), ProcessIdentity: processIdentity(os.Getpid()), Previous: a.State.ManagedBundle, Next: ManagedBundle{TopologyDigest: topology, Generation: nonce, ProtectionDigest: protection.Digest, Version: p.Version, Digest: p.Digest, ApprovalID: p.Enforcement.ApprovalID, Rules: canonical, IPSets: sets}, Mutations: []managedMutation{}}
+	journal.Next.HostDefaultDeny = p.HostDefaultDeny
+	if p.HostDefaultDeny {
+		journal.Next.HostDefaultDenyServices = append([]Service{}, p.Services...)
+		journal.Next.HostDefaultDenyMode = p.Mode
+	}
 	path := managedJournalPath(a.Config.StateDir, nonce)
 	if e = saveManagedJournal(path, journal); e != nil {
 		return e
@@ -229,6 +306,9 @@ func (a *Agent) applyManaged(ctx context.Context, p *Policy, protection Protecti
 			a.managedStatus("rolled_back", p, "")
 			a.State.ManagedEnforcement.RollbackReason = cause.Error()
 		}
+		if p.HostDefaultDeny || removal {
+			a.refreshHostDefaultDenyProtection(rollbackCtx)
+		}
 		_ = a.save()
 		return cause
 	}
@@ -247,6 +327,15 @@ func (a *Agent) applyManaged(ctx context.Context, p *Policy, protection Protecti
 			return fail(e)
 		}
 	}
+	if removal && journal.Previous != nil {
+		for _, rule := range journal.Previous.Rules {
+			if hostDefaultDenyFallback(rule) {
+				if e = a.managedMutation(ctx, path, journal, "runtime", rule, false); e != nil {
+					return fail(e)
+				}
+			}
+		}
+	}
 	if p.Enforcement.Intent == "remove_managed_rules" && len(canonical) == 0 && journal.Previous != nil {
 		for _, rule := range journal.Previous.Rules {
 			if e = a.managedMutation(ctx, path, journal, "runtime", rule, false); e != nil {
@@ -255,6 +344,12 @@ func (a *Agent) applyManaged(ctx context.Context, p *Policy, protection Protecti
 		}
 	}
 	a.managedStatus("runtime_healthchecking", p, "")
+	if p.HostDefaultDeny || removal {
+		fresh, blockers := a.hostDefaultDenyContext(ctx, protection, staged, canonical)
+		if len(blockers) != 0 || fresh != protection.HostDefaultDenyContextDigest {
+			return fail(errors.New("whole-server context changed while staging"))
+		}
+	}
 	if e = a.managedHealth(ctx, p, protection, nonce); e != nil {
 		return fail(fmt.Errorf("staged management health: %w", e))
 	}
@@ -275,6 +370,9 @@ func (a *Agent) applyManaged(ctx context.Context, p *Policy, protection Protecti
 	}
 	if journal.Previous != nil {
 		for _, rule := range journal.Previous.Rules {
+			if managedRulesContain(canonical, rule) {
+				continue
+			}
 			if e = a.managedMutation(ctx, path, journal, "permanent", rule, false); e != nil {
 				return fail(e)
 			}
@@ -287,6 +385,9 @@ func (a *Agent) applyManaged(ctx context.Context, p *Policy, protection Protecti
 	}
 	if journal.Previous != nil {
 		for _, rule := range journal.Previous.Rules {
+			if managedRulesContain(canonical, rule) {
+				continue
+			}
 			if e = a.managedMutation(ctx, path, journal, "runtime", rule, false); e != nil {
 				return fail(e)
 			}
@@ -308,8 +409,19 @@ func (a *Agent) applyManaged(ctx context.Context, p *Policy, protection Protecti
 	if e = validateManagedCommittedSets(ctx, a.Commands, &journal.Next); e != nil {
 		return fail(e)
 	}
+	if p.HostDefaultDeny || removal {
+		fresh, blockers := a.hostDefaultDenyContext(ctx, protection, canonical)
+		if len(blockers) != 0 || fresh != protection.HostDefaultDenyContextDigest {
+			return fail(errors.New("whole-server context changed before final commit"))
+		}
+	}
 	if e = a.managedHealth(ctx, p, protection, nonce); e != nil {
 		return fail(fmt.Errorf("final management health: %w", e))
+	}
+	if removal {
+		if e = a.verifyHostDefaultDenyRemoved(ctx); e != nil {
+			return fail(e)
+		}
 	}
 	if time.Now().After(journal.Deadline.Add(-5 * time.Second)) {
 		return fail(errors.New("health completed too near rollback deadline"))
@@ -393,4 +505,7 @@ func (a *Agent) enrichManagedStatus() {
 		a.State.ManagedEnforcement.LastGoodVersion = a.State.ManagedBundle.Version
 		a.State.ManagedEnforcement.LastGoodDigest = a.State.ManagedBundle.Digest
 	}
+	a.State.ManagedEnforcement.HostDefaultDenyActive = a.State.ManagedBundle != nil && a.State.ManagedBundle.HostDefaultDeny
+	present := a.State.ManagedBundle != nil && len(a.State.ManagedBundle.Rules) > 0
+	a.State.ManagedEnforcement.ManagedRulesPresent = &present
 }

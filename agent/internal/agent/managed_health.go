@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/netip"
@@ -53,6 +54,12 @@ func (a *Agent) validateManagedWitness(witness managedWitness, p *Policy, protec
 	if witness.CheckedAt.Before(now.Add(-30*time.Second)) || witness.CheckedAt.After(now.Add(5*time.Second)) {
 		return errors.New("management witness is stale or from the future")
 	}
+	if p.HostDefaultDeny || p.Enforcement.Intent == "remove_host_default_deny" {
+		auth := p.Enforcement
+		if !witness.HostDefaultDenyAck || witness.HostDefaultDenyRevision != auth.HostDefaultDenyRevision || witness.HostDefaultDenyConfigurationDigest != auth.HostDefaultDenyConfigurationDigest || witness.Intent != auth.Intent || string(configurationCanonical(witness.ApprovalProof)) != string(configurationCanonical(auth.ApprovalProof)) || validateEndpointApproval(a.Config, witness.ApprovalProof, p.ServerID, now, false, "host_default_deny") != nil {
+			return errors.New("fresh whole-server witness lost its exact acknowledgement, revision, configuration or dedicated authority")
+		}
+	}
 	allowedTargets := map[string]bool{}
 	if a.inventory != nil {
 		for _, ip := range a.inventory.IPs {
@@ -96,18 +103,23 @@ func configuredManagedProbe(c Config) string {
 }
 
 type managedWitness struct {
-	Generation       int       `json:"generation"`
-	TargetIPsDigest  string    `json:"target_ips_digest"`
-	Nonce            string    `json:"nonce"`
-	ServerID         string    `json:"server_id"`
-	Version          int       `json:"version"`
-	Digest           string    `json:"digest"`
-	ProtectionDigest string    `json:"protection_digest"`
-	BindingDigest    string    `json:"binding_digest"`
-	CheckedAt        time.Time `json:"checked_at"`
-	ControllerOK     bool      `json:"controller_ok"`
-	Status           string    `json:"status"`
-	SSHChecks        []struct {
+	HostDefaultDenyAck                 bool            `json:"host_default_deny_ack,omitempty"`
+	HostDefaultDenyRevision            int             `json:"host_default_deny_revision,omitempty"`
+	HostDefaultDenyConfigurationDigest string          `json:"host_default_deny_configuration_digest,omitempty"`
+	Intent                             string          `json:"intent,omitempty"`
+	ApprovalProof                      json.RawMessage `json:"approval_proof,omitempty"`
+	Generation                         int             `json:"generation"`
+	TargetIPsDigest                    string          `json:"target_ips_digest"`
+	Nonce                              string          `json:"nonce"`
+	ServerID                           string          `json:"server_id"`
+	Version                            int             `json:"version"`
+	Digest                             string          `json:"digest"`
+	ProtectionDigest                   string          `json:"protection_digest"`
+	BindingDigest                      string          `json:"binding_digest"`
+	CheckedAt                          time.Time       `json:"checked_at"`
+	ControllerOK                       bool            `json:"controller_ok"`
+	Status                             string          `json:"status"`
+	SSHChecks                          []struct {
 		TargetIP          string `json:"target_ip"`
 		Port              int    `json:"port"`
 		SourceIP          string `json:"source_ip"`

@@ -85,7 +85,7 @@ def revisions(store, identifier, revision=None):
 
 
 def difference(before, after):
-    fields = ("name", "selector", "group_ids", "mode", "services")
+    fields = ("name", "selector", "group_ids", "mode", "services", "host_default_deny")
     return {"before": before, "after": after, "from_revision": before.get("revision", before.get("version")), "to_revision": after.get("revision", after.get("version")), "changes": [{"field": field, "before": before.get(field), "after": after.get(field)} for field in fields if before.get(field) != after.get(field)]}
 
 
@@ -126,6 +126,11 @@ def protection(value):
     if probe and (probe_url.scheme != "https" or (probe_url.scheme, probe_url.netloc) != (controller_url.scheme, controller_url.netloc) or probe_url.username or probe_url.fragment):
         raise ValueError("Management witness must use the same authenticated controller origin")
     baseline = {"management_sources": sorted(set(normalized_sources)), "ssh_ports": sorted(set(ports)), "controller_url": controller, "management_probe_url": probe, "zone": zone}
+    context, profile = value.get("host_default_deny_context_digest"), value.get("host_default_deny_control_profile")
+    if context is not None or profile is not None:
+        if not isinstance(context, str) or not re.fullmatch(r"[a-f0-9]{64}", context) or profile != "host-inbound-control-v1":
+            raise ValueError("Whole-host inbound protection requires its exact paired context digest and control profile")
+        baseline.update(host_default_deny_context_digest=context, host_default_deny_control_profile=profile)
     expected = digest(baseline)
     if value.get("digest") != expected:
         raise ValueError("Protected configuration digest does not match its exact reported baseline")
@@ -138,7 +143,13 @@ def protection(value):
     for condition, message in ((not baseline["management_sources"], "Restricted management CIDRs are missing"), (not ports, "Actual SSH listeners are unknown"), (not controller or not probe, "Controller management witness is not configured"), (not zone, "Managed firewall zone is unknown")):
         if condition and message not in blockers:
             blockers.append(message)
-    return {**baseline, "digest": expected, "ready": value.get("ready", False) and not blockers, "blockers": blockers}
+    result = {**baseline, "digest": expected, "ready": value.get("ready", False) and not blockers, "blockers": blockers}
+    if "host_default_deny_ready" in value or "host_default_deny_blockers" in value:
+        deny_blockers=value.get("host_default_deny_blockers", [])
+        if not isinstance(value.get("host_default_deny_ready", False), bool) or not isinstance(deny_blockers,list) or len(deny_blockers)>32 or any(not isinstance(reason,str) or len(reason)>512 for reason in deny_blockers):
+            raise ValueError("Invalid whole-host inbound readiness report")
+        result.update(host_default_deny_ready=value.get("host_default_deny_ready",False),host_default_deny_blockers=deny_blockers)
+    return result
 
 
 def _recovery_missing_receipt(db, server, result):
@@ -177,6 +188,50 @@ def _recovery_missing_receipt(db, server, result):
     return True
 
 
+def _receipt_is_current(db, server, result, approval):
+    """Order authenticated attempt evidence; older receipts remain history only."""
+    cursor=server.get("_managed_receipt_cursor") or {}
+    if not cursor:
+        previous=server.get("managed_enforcement") or {}
+        version=max(server.get("_last_managed_applied_version",0), previous.get("version",0) if previous.get("approval_id") else 0)
+        cursor={"version":version,"approval_id":previous.get("approval_id","") if previous.get("version")==version else "",
+                "updated_at":previous.get("updated_at","1970-01-01T00:00:00Z"),"status":previous.get("status","")}
+    version=result["version"]
+    if version<cursor.get("version",0):return False
+    if not approval or result["status"] in ("preview", "pending_approval"):
+        return True
+    row=db.execute("SELECT active FROM managed_approvals WHERE server_id=? AND approval_id=? AND version=? AND digest=? LIMIT 1",
+        (server["id"],result["approval_id"],version,result["digest"])).fetchone()
+    active=bool(row and row[0])
+    if version==cursor.get("version",0):
+        if result["approval_id"]!=cursor.get("approval_id"):
+            if not active:return False
+        else:
+            if not active and db.execute("SELECT 1 FROM managed_approvals WHERE server_id=? AND version=? AND digest=? AND active=1 AND approval_id<>? LIMIT 1",(server["id"],version,result["digest"],result["approval_id"])).fetchone():return False
+            before=parse_time(cursor.get("updated_at") or "1970-01-01T00:00:00Z")
+            after=parse_time(result["updated_at"])
+            if after<before:return False
+            if approval.get("host_default_deny_ack") and not active and cursor.get("status") in ("error","rolled_back"):
+                if cursor.get("status")=="rolled_back" or result["status"]!="rolled_back":return False
+            if after==before:
+                ranks={"preview":0,"pending_approval":0,"staging":1,"runtime_healthchecking":2,"committing":3,"enforced":4,"error":5,"rolled_back":6}
+                old_rank,new_rank=ranks.get(cursor.get("status"),0),ranks[result["status"]]
+                if new_rank<old_rank:return False
+                if new_rank==old_rank and cursor.get("receipt_digest") and cursor["receipt_digest"]!=digest(result):return False
+    server["_managed_receipt_cursor"]={"version":version,"approval_id":result["approval_id"],"updated_at":result["updated_at"],"status":result["status"],"receipt_digest":digest(result)}
+    return True
+
+
+def _record_outcome(store, db, server, result, current=True):
+    old=server.get("managed_enforcement",{})
+    if current and not any(old.get(key)!=result.get(key) for key in result if key!="updated_at"):return
+    identifier=str(uuid.uuid4()) if current else "historical:"+digest({"server_id":server["id"],**result})
+    evidence={**result,"server_id":server["id"],**({"history_only":True} if not current else {})}
+    db.execute("INSERT INTO managed_outcomes(id,server_id,version,approval_id,created_at,data) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING",
+        (identifier,server["id"],result["version"],result["approval_id"],now().isoformat(timespec="microseconds").replace("+00:00","Z"),json.dumps(evidence)))
+    if current:store.audit("managed_enforcement."+result["status"],"agent:"+server["id"],{"version":result["version"],"digest":result["digest"],"approval_id":result["approval_id"],"rollback_reason":result["rollback_reason"]},db)
+
+
 def report_outcome(store, db, server, value):
     if not isinstance(value, dict):
         raise ValueError("managed_enforcement must be an object")
@@ -186,6 +241,10 @@ def report_outcome(store, db, server, value):
     if status not in allowed or isinstance(version, bool) or not isinstance(version, int) or version < 0:
         raise ValueError("Invalid managed enforcement outcome")
     result = {"status": status, "version": version}
+    for field in ("managed_rules_present", "host_default_deny_active"):
+        if field in value:
+            if not isinstance(value[field],bool):raise ValueError("Managed ownership receipt flags must be booleans")
+            result[field]=value[field]
     for key in ("digest", "approval_id", "rollback_reason", "error", "last_good_digest"):
         field = value.get(key, "")
         if not isinstance(field, str) or len(field) > (4096 if key in ("error", "rollback_reason") else 128):
@@ -221,33 +280,42 @@ def report_outcome(store, db, server, value):
         historical_approval = db.execute("SELECT data FROM managed_approvals WHERE server_id=? AND version=? AND digest=? LIMIT 1", (server["id"], last_good, result["last_good_digest"])).fetchone()
         if not historical_approval:
             raise PermissionError("Last-good version has no historical managed authorization")
-        if status == "rolled_back":
-            server["_managed_rules_active"] = json.loads(historical[0])["mode"] == "enforce"
-            server["_last_managed_applied_version"] = last_good
     result["intent"] = approval.get("intent", "enforce") if approval else "preview"
     result["protection_digest"] = approval.get("protection_digest", "") if approval else ""
     result["approved_ips"] = approval.get("approved_ips", []) if approval else []
+    applied_bundle=None
     if status == "enforced":
-        historical = db.execute("SELECT data FROM bundle_history WHERE server_id=? AND version=?", (server["id"], version)).fetchone()
-        if not historical or json.loads(historical[0])["digest"] != result["digest"]:
+        historical=db.execute("SELECT data FROM bundle_history WHERE server_id=? AND version=?",(server["id"],version)).fetchone()
+        if not historical or json.loads(historical[0])["digest"]!=result["digest"]:
             raise ValueError("Enforced outcome does not match immutable effective history")
-        server["_managed_rules_active"] = result["intent"] != "remove_managed_rules"
-        server["_last_managed_applied_version"] = version
-        server["last_good_version"] = version
-        server["last_good_digest"] = result["digest"]
-        floor = server.get("_recovery_version_floor", 0)
-        if server.get("recovery_reconciliation_required") is True and isinstance(floor, int) and not isinstance(floor, bool) and version > floor:
-            server.pop("recovery_reconciliation_required", None)
-            server.pop("recovery_unverified_outcome", None)
-    elif status == "rolled_back":
-        server["last_good_version"], server["last_good_digest"] = last_good, result["last_good_digest"]
-        server["rollback_reason"] = result["rollback_reason"]
-    old = server.get("managed_enforcement", {})
-    if any(old.get(key) != result.get(key) for key in result if key != "updated_at"):
-        identifier = str(uuid.uuid4())
-        db.execute("INSERT INTO managed_outcomes(id,server_id,version,approval_id,created_at,data) VALUES(?,?,?,?,?,?)", (identifier, server["id"], version, result["approval_id"], now().isoformat(timespec="microseconds").replace("+00:00", "Z"), json.dumps({**result, "server_id": server["id"]})))
-        store.audit("managed_enforcement." + status, "agent:" + server["id"], {"version": version, "digest": result["digest"], "approval_id": result["approval_id"], "rollback_reason": result["rollback_reason"]}, db)
+        applied_bundle=json.loads(historical[0])
+    elif status=="rolled_back" and last_good:
+        applied_bundle=json.loads(db.execute("SELECT data FROM bundle_history WHERE server_id=? AND version=?",(server["id"],last_good)).fetchone()[0])
+    if status in ("enforced","rolled_back") and "host_default_deny_active" in result and result["host_default_deny_active"]!=bool((applied_bundle or {}).get("host_default_deny")):
+        raise ValueError("Whole-host active receipt does not match its authenticated applied/rollback bundle")
+    if status in ("enforced","rolled_back") and (applied_bundle or {}).get("host_default_deny") is True and result.get("managed_rules_present") is False:
+        raise ValueError("An active whole-host fallback cannot report absent owned rules")
+    current=_receipt_is_current(db,server,result,approval)
+    _record_outcome(store,db,server,result,current)
+    if not current:return False
+    if status=="enforced":
+        server["_managed_rules_active"]=result.get("managed_rules_present",result["intent"]!="remove_managed_rules")
+        server["_last_managed_applied_version"]=version
+        server["last_good_version"]=version;server["last_good_digest"]=result["digest"]
+        floor=server.get("_recovery_version_floor",0)
+        if server.get("recovery_reconciliation_required") is True and isinstance(floor,int) and not isinstance(floor,bool) and version>floor:
+            server.pop("recovery_reconciliation_required",None);server.pop("recovery_unverified_outcome",None)
+        if not approval.get("host_default_deny_ack"):
+            server.pop("_host_default_deny_owned_cleanup_required",None)
+    elif status=="rolled_back":
+        server["_managed_rules_active"]=result.get("managed_rules_present",bool(applied_bundle and applied_bundle["mode"]=="enforce"))
+        server["_last_managed_applied_version"]=last_good
+        server["last_good_version"],server["last_good_digest"]=last_good,result["last_good_digest"]
+        server["rollback_reason"]=result["rollback_reason"]
+    from .host_default_deny import outcome as host_default_deny_outcome
+    host_default_deny_outcome(store, db, server, result, approval)
     server["managed_enforcement"] = result
+    return True
 
 
 def baseline(server):
@@ -273,6 +341,8 @@ def authorize_policy(store, db, policy, actor, principal):
 def reconcile_direct(store, db, server, policies=None, validity=None):
     """Bind saved, live Admin intent to the newly resolved exact host bundle."""
     from . import approvals
+    from .host_default_deny import guarded
+    if guarded(server) or server.get("_host_default_deny_owned_cleanup_required") and server.get("_compiled",{}).get("mode")!="enforce":return False
     if not server.get("protection", {}).get("ready") or not approvals.signed_target(store, server):return False
     current = baseline(server)
     enforcing = server.get("_compiled", {}).get("mode") == "enforce"
@@ -322,11 +392,14 @@ def reconcile_direct(store, db, server, policies=None, validity=None):
 
 def authorization(store, db, server):
     from . import approvals
+    from .host_default_deny import guarded, valid_authority
+    whole_host=guarded(server)
     current = baseline(server)
     result = {"authorized": False, "approval_id": "", "approved_digest": current["digest"], "approved_version": current["version"], "protection_digest": current["protection_digest"], "binding_digest": current["binding_digest"], "digest": current["binding_digest"], "confirmation_count": 0, "expires_at": "1970-01-01T00:00:00Z", "reason": "Explicit administrative review is required for this exact effective bundle"}
     cleanup = server.get("_compiled", {}).get("mode") != "enforce" and server.get("_managed_rules_active") is True
     result["intent"] = "remove_managed_rules" if cleanup else "enforce"
-    if server.get("_compiled", {}).get("mode") != "enforce" and not cleanup:
+    if whole_host:result["reason"] = "A fresh exact whole-server deny review and manual downtime acknowledgement are required"
+    if server.get("_compiled", {}).get("mode") != "enforce" and not cleanup and not whole_host:
         result["reason"] = "Monitor policy remains a preview; no managed rules need approved cleanup"
         return result
     if not server.get("protection", {}).get("ready"):
@@ -338,6 +411,8 @@ def authorization(store, db, server):
     rows = db.execute("SELECT data FROM managed_approvals WHERE server_id=? AND version=? AND digest=? AND protection_digest=? AND active=1 AND expires_at>? ORDER BY expires_at DESC LIMIT 10", (server["id"], current["version"], current["digest"], current["protection_digest"], stamp(now()))).fetchall()
     for row in rows:
         approval = json.loads(row[0])
+        if not whole_host and approval.get("host_default_deny_ack"):continue
+        if whole_host and not valid_authority(store,db,server,approval):continue
         from . import approvals
         # Confirm inserts normalized approvals only in the same transaction that
         # queues the rollout; cancel atomically deactivates these rows. Never load
@@ -350,15 +425,15 @@ def authorization(store, db, server):
 def _rollout_server(db, identifier):
     # Project one selected endpoint in SQL, excluding unrelated snapshots,
     # telemetry and learning history. Check bytes before decoding the result.
-    fields = ("id", "hostname", "ips", "_compiled", "protection", "_managed_rules_active", "capabilities")
+    fields = ("id", "hostname", "ips", "_compiled", "protection", "_managed_rules_active", "capabilities", "configuration_state", "host_default_deny_state", "_host_default_deny_active", "_recovery_version_floor", "last_good_version", "_last_managed_applied_version", "last_seen", "protection_reported_at")
     if getattr(db, "dialect", "sqlite") == "postgresql":
         projection = "jsonb_build_object(" + ",".join("'" + field + "',document->'" + field + "'" for field in fields) + ")::text"
         selected = "SELECT " + projection + " AS projected FROM servers CROSS JOIN LATERAL (SELECT data::jsonb AS document OFFSET 0) parsed WHERE id=?"
         length = "octet_length(projected)"
     else:
         def expression(field):
-            if field == "_managed_rules_active":
-                return "json(CASE json_type(data,'$._managed_rules_active') WHEN 'true' THEN 'true' WHEN 'false' THEN 'false' ELSE 'null' END)"
+            if field in ("_managed_rules_active", "_host_default_deny_active"):
+                return "json(CASE json_type(data,'$."+field+"') WHEN 'true' THEN 'true' WHEN 'false' THEN 'false' ELSE 'null' END)"
             return "json_extract(data,'$." + field + "')"
         projection = "json_object(" + ",".join("'" + field + "'," + expression(field) for field in fields) + ")"
         selected = "SELECT " + projection + " AS projected FROM servers WHERE id=?"
@@ -389,6 +464,8 @@ def rollout_preview(store, ids, db):
         from . import approvals
         if not approvals.signed_target(store, server):
             blockers.append("Upgrade the endpoint to signed_assignments_v1 before live enforcement")
+        from .host_default_deny import guarded
+        if guarded(server):blockers.append("Use the dedicated whole-server deny preview and manually acknowledge downtime for this push")
         cleanup = server.get("_compiled", {}).get("mode") != "enforce" and server.get("_managed_rules_active") is True
         intent = "remove_managed_rules" if cleanup else "enforce"
         current["intent"] = intent
@@ -441,7 +518,7 @@ def rollouts(store, identifier=None):
         result = []
         for row in rows:
             public = dict(row)
-            if public["status"] in ("draft", "awaiting_second_confirmation", "queued"):
+            if row.get("kind") != "host_default_deny" and public["status"] in ("draft", "awaiting_second_confirmation", "queued"):
                 if parse_time(public["expires_at"]) <= now():
                     public["status"] = "expired"
                 else:
@@ -453,6 +530,7 @@ def rollouts(store, identifier=None):
             result_by_host = {}
             for outcome in outcomes:
                 value = json.loads(outcome[0])
+                if value.get("history_only"):continue
                 if value["server_id"] not in result_by_host:
                     result_by_host[value["server_id"]] = value
             public["results"] = result_by_host
@@ -466,6 +544,7 @@ def confirm(store, identifier, value, actor, *, principal=None):
         plan = store._get(db, "managed_rollouts", identifier)
         if not plan:
             raise KeyError(identifier)
+        if plan.get("kind") == "host_default_deny":raise ValueError("Use the dedicated whole-server deny confirmation and manual downtime acknowledgement")
         bindings, targets = rollout_preview(store, plan["server_ids"], db)
         if plan["status"] not in ("draft", "awaiting_second_confirmation"):
             problem = "This managed rollout no longer awaits confirmation"

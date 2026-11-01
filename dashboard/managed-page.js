@@ -8,12 +8,12 @@ function managedApprovalHTML(plan) {
   return `<div class="inline-notice"><strong>Admin change.</strong> ${h(actor)}. ${h(globalThis.PrthakApprovals.explain(plan))}</div>`;
 }
 function managedLabHTML() {
-  return `<div class="managed-lab-notice">${icon('info')}<span><strong>Policy delivery and endpoint status.</strong> Admin saves publish affected intent automatically. Endpoints apply it only with their local opt-in, current protection checks and rollback support. Deny or destructive changes retain two explicit confirmations by the same Admin. Agent outcomes show actual application.</span></div>`;
+  return `<div class="managed-lab-notice">${icon('info')}<span><strong>Policy delivery and endpoint status.</strong> Admin saves publish affected intent automatically. Endpoints apply it only with their local opt-in, current protection checks and rollback support. Imported deny/restrictive changes, restrictive learned removal and destructive recovery retain their explicit same-actor confirmation steps. Whole-server default deny is a separate opt-in; every new deny-bearing bundle needs its own downtime acknowledgement. Agent outcomes show actual application.</span></div>`;
 }
 function managedBadge(status) { return badge(M.label(status),M.tone(status)); }
 function policyWorkspaceHTML() {
-  const tab=state.policyTab || 'policies';
-  return `<div class="policy-workspace-tabs" role="tablist" aria-label="Policy workspace"><button role="tab" id="access-policy-tab" aria-selected="${tab==='policies'}" tabindex="${tab==='policies'?0:-1}" aria-controls="policy-workspace-panel" data-action="managed-workspace-tab" data-tab="policies">Access policies</button><button role="tab" id="managed-rollout-tab" aria-selected="${tab==='rollouts'}" tabindex="${tab==='rollouts'?0:-1}" aria-controls="policy-workspace-panel" data-action="managed-workspace-tab" data-tab="rollouts">Changes & history</button><span>Admin save → delivery → agent verification</span></div><div id="policy-workspace-panel" role="tabpanel" aria-labelledby="${tab==='rollouts'?'managed-rollout-tab':'access-policy-tab'}">${managedLabHTML()}${tab==='rollouts'?managedRolloutsHTML():policyCardsHTML()}</div>`;
+  const tab=['policies','rollouts','default-deny'].includes(state.policyTab)?state.policyTab:'policies',tabs=[['policies','access-policy-tab','Access policies'],['rollouts','managed-rollout-tab','Changes & history'],['default-deny','default-deny-tab','Whole-server default deny']];
+  return `<div class="policy-workspace-tabs" role="tablist" aria-label="Policy workspace">${tabs.map(([key,id,label])=>`<button role="tab" id="${id}" aria-selected="${tab===key}" tabindex="${tab===key?0:-1}" aria-controls="policy-workspace-panel" data-action="managed-workspace-tab" data-tab="${key}">${label}</button>`).join('')}<span>Admin save → delivery → agent verification</span></div><div id="policy-workspace-panel" role="tabpanel" aria-labelledby="${tabs.find(([key])=>key===tab)[1]}">${managedLabHTML()}${tab==='default-deny'?defaultDenyHTML():tab==='rollouts'?managedRolloutsHTML():policyCardsHTML()}</div>`;
 }
 function managedVisibleRollouts() {
   if(state.managedPagination?.remote)return state.managedScope===managedRolloutScope().key?(state.managedRollouts || []):[];
@@ -45,6 +45,7 @@ function managedRememberHistory(cache,id,value) {
   delete cache[id];cache[id]=value;while(Object.keys(cache).length>8)delete cache[Object.keys(cache)[0]];
 }
 async function refreshManagedRollouts({force=false,offset}={}) {
+  if(state.policyTab==='default-deny')return loadDefaultDeny({force,offset});
   const scope=managedRolloutScope();
   if (state.managedLoading && !force && state.managedRequestedScope===scope.key) return;
   const selectedOffset=offset===undefined?(state.managedScope===scope.key?state.managedPagination?.offset || 0:0):offset;
@@ -178,7 +179,7 @@ async function managedOutcomeHistory(id,version,offset=0) {
 }
 async function managedAction(button) {
   const action=button.dataset.action,id=button.dataset.id;
-  if(action==='managed-workspace-tab'){state.policyTab=button.dataset.tab;try{sessionStorage.setItem('prithak-policy-tab',state.policyTab);}catch{}render();if(state.policyTab==='rollouts')await refreshManagedRollouts();return;}
+  if(action==='managed-workspace-tab'){if(!['policies','rollouts','default-deny'].includes(button.dataset.tab))return;state.policyTab=button.dataset.tab;try{sessionStorage.setItem('prithak-policy-tab',state.policyTab);}catch{}render();if(['rollouts','default-deny'].includes(state.policyTab))await refreshManagedRollouts();return;}
   if(action==='managed-new-rollout')return managedNewRollout();
   if(action==='managed-policy-history')return managedPolicyHistory(id);
   if(action==='managed-history-page')return managedPolicyHistory(id,num(button.dataset.offset));

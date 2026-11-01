@@ -140,6 +140,12 @@ Use the controller’s Agent polling settings for timing overrides. For endpoint
 | `management_probe_url` | controller origin + `/api/v1/agent/enforcement/check` | Same authenticated controller origin/path only; no arbitrary external witness. |
 | `learning_auto_allow` | `false` | Additional local opt-in for scoped accept-only learning policies; also requires `enforce=true` and an explicit Auto allow session. |
 | `allow_firewall_changes` | `false` | Independent opt-in for exact confirmed edits to imported existing rules. |
+| `allow_host_default_deny` | `false` | Independent opt-in for the dedicated whole-server ingress workflow; requires managed enforcement and `learning_auto_allow=false`. Each push still needs the GUI's current exact downtime acknowledgement. |
+
+Whole-server default deny requires a compatible controller/agent and is configured
+through a signed GUI-generated endpoint kit. It retains declared SSH/network
+controls, enforces both address families and uses the managed transaction and
+rollback path. See [the complete workflow](../docs/whole-server-default-deny.md).
 
 Every report includes the configured `control_interval_seconds`, even when service inventory is cached. The controller derives the offline threshold as the greater of 180 seconds or three times that interval, so a longer configured polling interval does not cause a false offline alert.
 

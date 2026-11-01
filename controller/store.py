@@ -723,6 +723,7 @@ class Store:
             server = server or {"id": identifier, "tags": {}, "_metadata_overrides": {"tags": {}}, "expected_services": [], "desired_version": 0, "status": "healthy", "created_at": stamp()}
             changed_addresses = ips != server.get("ips")
             previous_applied_version = server.get("applied_version", 0)
+            previous_apply_status = server.get("apply_status", "preview")
             server.update({"hostname": hostname, "ips": ips, "last_seen": stamp(), "applied_version": applied_version, "apply_status": apply_status, "collector_status": collector_status, "ufw_active": bool(value.get("ufw_active", False)), "discovery_performed": discovery_performed, "control_interval_seconds": control_interval})
             server.update({"agent_version": agent_version, "capabilities": capabilities})
             from .hit_monitoring import report_status as report_hit_status
@@ -776,9 +777,12 @@ class Store:
                 protected = protection(value["protection"])
                 server["protection"] = protected
                 server["protection_digest"] = protected["digest"]
+                server["protection_reported_at"] = stamp()
                 server["management_protection"] = {**protected, "controller_origin": protected["controller_url"], "blocking_reasons": protected["blockers"]}
             if "managed_enforcement" in value:
-                report_outcome(self, db, server, value["managed_enforcement"])
+                if report_outcome(self, db, server, value["managed_enforcement"]) is False:
+                    applied_version=previous_applied_version;apply_status=previous_apply_status
+                    server["applied_version"]=applied_version;server["apply_status"]=apply_status
             from .firewall import ingest_snapshot, ingest_results
             from .security import ingest_events, monitor
             if "firewall_snapshot" in value:
@@ -794,7 +798,8 @@ class Store:
             refresh_learning_host(self, db, server)
             from .agent_settings import report as report_agent_settings
             report_agent_settings(self, db, server, value)
-            if new or changed_addresses:
+            host_default_deny_recompile = server.pop("_host_default_deny_recompile", False)
+            if new or changed_addresses or host_default_deny_recompile:
                 self._put(db, "servers", server)
                 from .metadata import reconcile_all
                 reconcile_all(self, db)
@@ -1225,7 +1230,7 @@ class Store:
             if not approved["authorized"] or value.get("approval_id") != approved["approval_id"] or value.get("version") != approved["approved_version"] or value.get("digest") != approved["approved_digest"] or value.get("protection_digest") != approved["protection_digest"] or value.get("binding_digest") != approved["binding_digest"]:
                 raise PermissionError("Current exact policy, protected configuration and target IPs are not authorized")
             protection = server["protection"]
-            return {"server_id": identifier, "hostname": server["hostname"], "ips": approved["approved_ips"], "ssh_ports": protection["ssh_ports"], "management_sources": protection["management_sources"], "controller_origin": protection["controller_url"], "controller_addresses": protection.get("controller_addresses", []), "approval_id": approved["approval_id"], "version": approved["approved_version"], "digest": approved["approved_digest"], "protection_digest": approved["protection_digest"], "binding_digest": approved["binding_digest"], "expires_at": approved["expires_at"], "intent": approved.get("intent", "enforce"), "approval_proof": approved.get("approval_proof")}
+            return {"server_id": identifier, "hostname": server["hostname"], "ips": approved["approved_ips"], "ssh_ports": protection["ssh_ports"], "management_sources": protection["management_sources"], "controller_origin": protection["controller_url"], "controller_addresses": protection.get("controller_addresses", []), "approval_id": approved["approval_id"], "version": approved["approved_version"], "digest": approved["approved_digest"], "protection_digest": approved["protection_digest"], "binding_digest": approved["binding_digest"], "expires_at": approved["expires_at"], "intent": approved.get("intent", "enforce"), "approval_proof": approved.get("approval_proof"), **{key: approved[key] for key in ("host_default_deny_ack", "host_default_deny_revision", "host_default_deny_configuration_digest") if key in approved}}
 
     def locations(self):
         from .locations import listing

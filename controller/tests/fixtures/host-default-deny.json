@@ -1,0 +1,584 @@
+{
+  "schema_version": 1,
+  "provenance": {
+    "generated_at": "2026-11-01T17:04:20Z",
+    "generator": "controller/tests/fixtures/generate_host_default_deny.py",
+    "native_helper_version": "Prṛthak (पृथक्) agent 0.8.0 (managed enforcement requires explicit local opt-in and approved rollback-protected rollout)",
+    "native_helper_sha256": "2ce3accacd3715cba5c4f285bd84a3d1f0ae69edc833938d3eaef6e9109f6849",
+    "pipeline": [
+      "Store.report",
+      "host_default_deny.preview",
+      "host_default_deny.confirm",
+      "Store.assignment",
+      "PolicySigner.sign",
+      "ManagementHealth.check"
+    ],
+    "configuration_digest": "Actual native --configuration-state receipt, not a Python approximation",
+    "management_actuator": "Deterministic approved SSH actuator; real Store verification before and after it",
+    "identity": "Public endpoint leaf issued by a disposable development CA",
+    "prior_apply": "Synthetic authenticated fixture receipt, not a native firewall application",
+    "pending_edit_held": true,
+    "private_material_exported": false,
+    "limits": "Wire/hash/proof interoperability only; no native firewall, live Entra, SSH path or DC acceptance"
+  },
+  "cases": [
+    {
+      "name": "enable",
+      "at": 1793552660,
+      "nonce": "host-deny-interop-enable-nonce",
+      "removal": false,
+      "config": {
+        "controller_url": "https://controller.example",
+        "state_dir": "/var/lib/seg-agent",
+        "ca_cert": "/etc/seg-agent/controller-ca.crt",
+        "endpoint_ca_cert": "",
+        "certificate": "/var/lib/seg-agent/agent.crt",
+        "private_key": "/var/lib/seg-agent/agent.key",
+        "enrollment_token_file": "/etc/seg-agent/enrollment-token",
+        "interval_seconds": 60,
+        "request_timeout_seconds": 15,
+        "zone": "public",
+        "enforce": true,
+        "management_sources": [
+          "10.90.0.0/24"
+        ],
+        "max_spool_batches": 500,
+        "discovery_interval_seconds": 900,
+        "allow_firewall_changes": false,
+        "allow_host_default_deny": true,
+        "unexpected_port_monitor_enabled": false,
+        "probe_log_rate_per_second": 5,
+        "learning_auto_allow": false,
+        "control_url": "",
+        "discovery_url": "",
+        "management_probe_url": "https://controller.example/api/v1/agent/enforcement/check",
+        "management_probe_ca_cert": "",
+        "policy_signing_trust_file": "",
+        "policy_signing_keys": {
+          "63b1eb2bc166f67990b2abcdd7edbcd5": "IcG1iO7NFi4Ly03WW7YRZAAXU+KB2mhcz2bAQDtsbrQ="
+        },
+        "policy_signing_deployment_id": "00000000-0000-4000-8000-000000000008",
+        "protected_ssh_ports": [
+          2022
+        ]
+      },
+      "configuration_state": {
+        "controller_url": "https://controller.example",
+        "control_url": "",
+        "discovery_url": "",
+        "enforce": true,
+        "allow_host_default_deny": true,
+        "allow_firewall_changes": false,
+        "learning_auto_allow": false,
+        "unexpected_port_monitor_enabled": false,
+        "management_sources": [
+          "10.90.0.0/24"
+        ],
+        "protected_ssh_ports": [
+          2022
+        ],
+        "zone": "public",
+        "digest": "5f0de612544dc8e40f6f6f543122112664bdaebfce8881c81282aabf69654f67"
+      },
+      "trust": {
+        "deployment_id": "00000000-0000-4000-8000-000000000008",
+        "keys": {
+          "63b1eb2bc166f67990b2abcdd7edbcd5": "IcG1iO7NFi4Ly03WW7YRZAAXU+KB2mhcz2bAQDtsbrQ="
+        }
+      },
+      "protection": {
+        "management_sources": [
+          "10.90.0.0/24"
+        ],
+        "ssh_ports": [
+          2022
+        ],
+        "controller_url": "https://controller.example",
+        "management_probe_url": "https://controller.example/api/v1/agent/enforcement/check",
+        "zone": "public",
+        "host_default_deny_context_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "host_default_deny_control_profile": "host-inbound-control-v1",
+        "digest": "b864366e64304d9c7adf3e976653e4e6c2a402373c214b959b861af07f353ecc",
+        "ready": true,
+        "blockers": [],
+        "host_default_deny_ready": true,
+        "host_default_deny_blockers": []
+      },
+      "policy": {
+        "mode": "enforce",
+        "services": [
+          {
+            "port": 8443,
+            "protocol": "tcp",
+            "mode": "enforce",
+            "sources": [
+              "10.50.0.0/24",
+              "2001:db8::8/128"
+            ]
+          }
+        ],
+        "host_default_deny": true,
+        "server_id": "target",
+        "version": 4,
+        "digest": "3f99003306c0c5a62b9f0013bde724eb4e4b3a44d53e3f9e20b69005935cb526",
+        "generated_at": "2026-11-01T17:04:20Z",
+        "service_group_snapshots": [],
+        "learning_sessions": [],
+        "learning_tombstones": [],
+        "firewall_changes": [],
+        "enforcement": {
+          "authorized": true,
+          "approval_id": "c112e8e6-3be5-4289-a1d3-b0bf61f3dde4",
+          "approved_digest": "3f99003306c0c5a62b9f0013bde724eb4e4b3a44d53e3f9e20b69005935cb526",
+          "approved_version": 4,
+          "protection_digest": "b864366e64304d9c7adf3e976653e4e6c2a402373c214b959b861af07f353ecc",
+          "binding_digest": "99d2af21a0bcfe9dab308d3ba2a83ee6c4d87f6cdfda603acb1611db2f53d200",
+          "digest": "99d2af21a0bcfe9dab308d3ba2a83ee6c4d87f6cdfda603acb1611db2f53d200",
+          "confirmation_count": 1,
+          "expires_at": "9999-12-31T23:59:59Z",
+          "reason": "Exact bundle and protected baseline explicitly reviewed",
+          "intent": "enforce_host_default_deny",
+          "approved_ips": [
+            "10.70.0.1"
+          ],
+          "target_digest": "fa4f56f76790b9e11b805808e90c016194f3c96270bd3f191b176758bf4928c7",
+          "approval_proof": {
+            "scheme": "prthak-maker-checker-v1",
+            "mode": "single_admin",
+            "stage": "approved",
+            "plan_id": "c112e8e6-3be5-4289-a1d3-b0bf61f3dde4",
+            "plan_digest": "923f80c9c701e501be490f191753aefd40b182c2b3957c2fa5a4610c3ab647be",
+            "requester": {
+              "actor": "entra:11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+              "user_id": "11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+              "tenant_id": "11111111-1111-1111-1111-111111111111",
+              "object_id": "33333333-3333-3333-3333-333333333333",
+              "display_name": "Same display name",
+              "role": "admin",
+              "auth_config": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc"
+            },
+            "requested_at": "2026-11-01T17:04:20Z",
+            "provider_authority": {
+              "fingerprint": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc",
+              "epoch": ""
+            },
+            "scope": {
+              "kind": "host_default_deny",
+              "server_ids": [
+                "target"
+              ],
+              "action": "enable"
+            },
+            "submitted_by": {
+              "actor": "entra:11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+              "user_id": "11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+              "tenant_id": "11111111-1111-1111-1111-111111111111",
+              "object_id": "33333333-3333-3333-3333-333333333333",
+              "display_name": "Same display name",
+              "role": "admin",
+              "auth_config": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc"
+            },
+            "approved_by": {
+              "actor": "entra:11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+              "user_id": "11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+              "tenant_id": "11111111-1111-1111-1111-111111111111",
+              "object_id": "33333333-3333-3333-3333-333333333333",
+              "display_name": "Same display name",
+              "role": "admin",
+              "auth_config": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc"
+            },
+            "submitted_at": "2026-11-01T17:04:20Z",
+            "approved_at": "2026-11-01T17:04:20Z",
+            "binding_digest": "251fe11c82afb28e55f42f88047a3958e69a207e12cfb104ef8f6e85df5eccfe"
+          },
+          "host_default_deny_ack": true,
+          "host_default_deny_revision": 1,
+          "host_default_deny_configuration_digest": "5f0de612544dc8e40f6f6f543122112664bdaebfce8881c81282aabf69654f67"
+        },
+        "learning_allow": {
+          "server_id": "target",
+          "generation": 0,
+          "digest": "3c9ed6b82629f9dcfd121ac2805220c7e3b8e084a09ca2c238ed43fcebf5a475",
+          "services": [],
+          "policy_ids": [],
+          "authorities": [],
+          "protection_digest": "b864366e64304d9c7adf3e976653e4e6c2a402373c214b959b861af07f353ecc",
+          "target_ips_digest": "a6d0c09f81e5c466d9e0386c0f1acdcfeb42ecac2faefec43a5cc96936b46f05",
+          "binding_digest": "c0848f991a857bcd78a6ae0c6cd679b61c2159858acc89d6cffa1e49a2a636d8",
+          "authorized": false,
+          "reason": "No learning-owned policy is assigned",
+          "expires_at": "1970-01-01T00:00:00Z"
+        },
+        "polling_settings": {
+          "version": 0,
+          "digest": "25206f3835f07034c377c6ce4a3d286af570a98ceb75fe13489d1ccc1c72f5ac",
+          "control_interval_seconds": 30,
+          "discovery_interval_seconds": 900,
+          "matched_rule_ids": [],
+          "field_rules": {}
+        },
+        "assignment_generation": 1,
+        "assignment_digest": "e04a2e0cac049abc5e7ddc5039ca33c2b8b310e68ba13c092e8bd71e5894d8c1",
+        "signature": {
+          "algorithm": "Ed25519",
+          "key_id": "63b1eb2bc166f67990b2abcdd7edbcd5",
+          "payload": "eyJkZXBsb3ltZW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDA4IiwiZG9tYWluIjoicHJ0aGFrLXBvbGljeS1hc3NpZ25tZW50LXYxIiwiZXhwaXJlc19hdCI6MTc5MzU1NDIwMCwiaXNzdWVkX2F0IjoxNzkzNTUyNDAwLCJwb2xpY3kiOnsiYXNzaWdubWVudF9kaWdlc3QiOiJlMDRhMmUwY2FjMDQ5YWJjNWU3ZGRjNTAzOWNhMzNjMmI4YjMxMGU2OGJhMTNjMDkyZThiZDcxZTU4OTRkOGMxIiwiYXNzaWdubWVudF9nZW5lcmF0aW9uIjoxLCJkaWdlc3QiOiIzZjk5MDAzMzA2YzBjNWE2MmI5ZjAwMTNiZGU3MjRlYjRlNGIzYTQ0ZDUzZTNmOWUyMGI2OTAwNTkzNWNiNTI2IiwiZW5mb3JjZW1lbnQiOnsiYXBwcm92YWxfaWQiOiJjMTEyZThlNi0zYmU1LTQyODktYTFkMy1iMGJmNjFmM2RkZTQiLCJhcHByb3ZhbF9wcm9vZiI6eyJhcHByb3ZlZF9hdCI6IjIwMjYtMTEtMDFUMTc6MDQ6MjBaIiwiYXBwcm92ZWRfYnkiOnsiYWN0b3IiOiJlbnRyYToxMTExMTExMS0xMTExLTExMTEtMTExMS0xMTExMTExMTExMTE6MzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMzIiwiYXV0aF9jb25maWciOiJiNjZmZjkxNWY5OTY0YTQwZGIxMmRmMDRlMGY3ODc0OTI5NDMxOWIwOTI1OTNmNzBiZjg2MzAxOWUwZTU1M2JjIiwiZGlzcGxheV9uYW1lIjoiU2FtZSBkaXNwbGF5IG5hbWUiLCJvYmplY3RfaWQiOiIzMzMzMzMzMy0zMzMzLTMzMzMtMzMzMy0zMzMzMzMzMzMzMzMiLCJyb2xlIjoiYWRtaW4iLCJ0ZW5hbnRfaWQiOiIxMTExMTExMS0xMTExLTExMTEtMTExMS0xMTExMTExMTExMTEiLCJ1c2VyX2lkIjoiMTExMTExMTEtMTExMS0xMTExLTExMTEtMTExMTExMTExMTExOjMzMzMzMzMzLTMzMzMtMzMzMy0zMzMzLTMzMzMzMzMzMzMzMyJ9LCJiaW5kaW5nX2RpZ2VzdCI6IjI1MWZlMTFjODJhZmIyOGU1NWY0MmY4ODA0N2EzOTU4ZTY5YTIwN2UxMmNmYjEwNGVmOGY2ZTg1ZGY1ZWNjZmUiLCJtb2RlIjoic2luZ2xlX2FkbWluIiwicGxhbl9kaWdlc3QiOiI5MjNmODBjOWM3MDFlNTAxYmU0OTBmMTkxNzUzYWVmZDQwYjE4MmMyYjM5NTdjMmZhNWE0NjEwYzNhYjY0N2JlIiwicGxhbl9pZCI6ImMxMTJlOGU2LTNiZTUtNDI4OS1hMWQzLWIwYmY2MWYzZGRlNCIsInByb3ZpZGVyX2F1dGhvcml0eSI6eyJlcG9jaCI6IiIsImZpbmdlcnByaW50IjoiYjY2ZmY5MTVmOTk2NGE0MGRiMTJkZjA0ZTBmNzg3NDkyOTQzMTliMDkyNTkzZjcwYmY4NjMwMTllMGU1NTNiYyJ9LCJyZXF1ZXN0ZWRfYXQiOiIyMDI2LTExLTAxVDE3OjA0OjIwWiIsInJlcXVlc3RlciI6eyJhY3RvciI6ImVudHJhOjExMTExMTExLTExMTEtMTExMS0xMTExLTExMTExMTExMTExMTozMzMzMzMzMy0zMzMzLTMzMzMtMzMzMy0zMzMzMzMzMzMzMzMiLCJhdXRoX2NvbmZpZyI6ImI2NmZmOTE1Zjk5NjRhNDBkYjEyZGYwNGUwZjc4NzQ5Mjk0MzE5YjA5MjU5M2Y3MGJmODYzMDE5ZTBlNTUzYmMiLCJkaXNwbGF5X25hbWUiOiJTYW1lIGRpc3BsYXkgbmFtZSIsIm9iamVjdF9pZCI6IjMzMzMzMzMzLTMzMzMtMzMzMy0zMzMzLTMzMzMzMzMzMzMzMyIsInJvbGUiOiJhZG1pbiIsInRlbmFudF9pZCI6IjExMTExMTExLTExMTEtMTExMS0xMTExLTExMTExMTExMTExMSIsInVzZXJfaWQiOiIxMTExMTExMS0xMTExLTExMTEtMTExMS0xMTExMTExMTExMTE6MzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMzIn0sInNjaGVtZSI6InBydGhhay1tYWtlci1jaGVja2VyLXYxIiwic2NvcGUiOnsiYWN0aW9uIjoiZW5hYmxlIiwia2luZCI6Imhvc3RfZGVmYXVsdF9kZW55Iiwic2VydmVyX2lkcyI6WyJ0YXJnZXQiXX0sInN0YWdlIjoiYXBwcm92ZWQiLCJzdWJtaXR0ZWRfYXQiOiIyMDI2LTExLTAxVDE3OjA0OjIwWiIsInN1Ym1pdHRlZF9ieSI6eyJhY3RvciI6ImVudHJhOjExMTExMTExLTExMTEtMTExMS0xMTExLTExMTExMTExMTExMTozMzMzMzMzMy0zMzMzLTMzMzMtMzMzMy0zMzMzMzMzMzMzMzMiLCJhdXRoX2NvbmZpZyI6ImI2NmZmOTE1Zjk5NjRhNDBkYjEyZGYwNGUwZjc4NzQ5Mjk0MzE5YjA5MjU5M2Y3MGJmODYzMDE5ZTBlNTUzYmMiLCJkaXNwbGF5X25hbWUiOiJTYW1lIGRpc3BsYXkgbmFtZSIsIm9iamVjdF9pZCI6IjMzMzMzMzMzLTMzMzMtMzMzMy0zMzMzLTMzMzMzMzMzMzMzMyIsInJvbGUiOiJhZG1pbiIsInRlbmFudF9pZCI6IjExMTExMTExLTExMTEtMTExMS0xMTExLTExMTExMTExMTExMSIsInVzZXJfaWQiOiIxMTExMTExMS0xMTExLTExMTEtMTExMS0xMTExMTExMTExMTE6MzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMzIn19LCJhcHByb3ZlZF9kaWdlc3QiOiIzZjk5MDAzMzA2YzBjNWE2MmI5ZjAwMTNiZGU3MjRlYjRlNGIzYTQ0ZDUzZTNmOWUyMGI2OTAwNTkzNWNiNTI2IiwiYXBwcm92ZWRfaXBzIjpbIjEwLjcwLjAuMSJdLCJhcHByb3ZlZF92ZXJzaW9uIjo0LCJhdXRob3JpemVkIjp0cnVlLCJiaW5kaW5nX2RpZ2VzdCI6Ijk5ZDJhZjIxYTBiY2ZlOWRhYjMwOGQzYmEyYTgzZWU2YzRkODdmNmNkZmRhNjAzYWNiMTYxMWRiMmY1M2QyMDAiLCJjb25maXJtYXRpb25fY291bnQiOjEsImRpZ2VzdCI6Ijk5ZDJhZjIxYTBiY2ZlOWRhYjMwOGQzYmEyYTgzZWU2YzRkODdmNmNkZmRhNjAzYWNiMTYxMWRiMmY1M2QyMDAiLCJleHBpcmVzX2F0IjoiOTk5OS0xMi0zMVQyMzo1OTo1OVoiLCJob3N0X2RlZmF1bHRfZGVueV9hY2siOnRydWUsImhvc3RfZGVmYXVsdF9kZW55X2NvbmZpZ3VyYXRpb25fZGlnZXN0IjoiNWYwZGU2MTI1NDRkYzhlNDBmNmY2ZjU0MzEyMjExMjY2NGJkYWViZmNlODg4MWM4MTI4MmFhYmY2OTY1NGY2NyIsImhvc3RfZGVmYXVsdF9kZW55X3JldmlzaW9uIjoxLCJpbnRlbnQiOiJlbmZvcmNlX2hvc3RfZGVmYXVsdF9kZW55IiwicHJvdGVjdGlvbl9kaWdlc3QiOiJiODY0MzY2ZTY0MzA0ZDljN2FkZjNlOTc2NjUzZTRlNmMyYTQwMjM3M2MyMTRiOTU5Yjg2MWFmMDdmMzUzZWNjIiwicmVhc29uIjoiRXhhY3QgYnVuZGxlIGFuZCBwcm90ZWN0ZWQgYmFzZWxpbmUgZXhwbGljaXRseSByZXZpZXdlZCIsInRhcmdldF9kaWdlc3QiOiJmYTRmNTZmNzY3OTBiOWUxMWI4MDU4MDhlOTBjMDE2MTk0ZjNjOTYyNzBiZDNmMTkxYjE3Njc1OGJmNDkyOGM3In0sImZpcmV3YWxsX2NoYW5nZXMiOltdLCJnZW5lcmF0ZWRfYXQiOiIyMDI2LTExLTAxVDE3OjA0OjIwWiIsImhvc3RfZGVmYXVsdF9kZW55Ijp0cnVlLCJsZWFybmluZ19hbGxvdyI6eyJhdXRob3JpdGllcyI6W10sImF1dGhvcml6ZWQiOmZhbHNlLCJiaW5kaW5nX2RpZ2VzdCI6ImMwODQ4Zjk5MWE4NTdiY2Q3OGE2YWUwYzZjZDY3OWI2MWMyMTU5ODU4YWNjODlkNmNmZmExZTQ5YTJhNjM2ZDgiLCJkaWdlc3QiOiIzYzllZDZiODI2MjlmOWRjZmQxMjFhYzI4MDUyMjBjN2UzYjhlMDg0YTA5Y2EyYzIzOGVkNDNmY2ViZjVhNDc1IiwiZXhwaXJlc19hdCI6IjE5NzAtMDEtMDFUMDA6MDA6MDBaIiwiZ2VuZXJhdGlvbiI6MCwicG9saWN5X2lkcyI6W10sInByb3RlY3Rpb25fZGlnZXN0IjoiYjg2NDM2NmU2NDMwNGQ5YzdhZGYzZTk3NjY1M2U0ZTZjMmE0MDIzNzNjMjE0Yjk1OWI4NjFhZjA3ZjM1M2VjYyIsInJlYXNvbiI6Ik5vIGxlYXJuaW5nLW93bmVkIHBvbGljeSBpcyBhc3NpZ25lZCIsInNlcnZlcl9pZCI6InRhcmdldCIsInNlcnZpY2VzIjpbXSwidGFyZ2V0X2lwc19kaWdlc3QiOiJhNmQwYzA5ZjgxZTVjNDY2ZDllMDM4NmMwZjFhY2RjZmViNDJlY2FjMmZhZWZlYzQzYTVjYzk2OTM2YjQ2ZjA1In0sImxlYXJuaW5nX3Nlc3Npb25zIjpbXSwibGVhcm5pbmdfdG9tYnN0b25lcyI6W10sIm1vZGUiOiJlbmZvcmNlIiwicG9sbGluZ19zZXR0aW5ncyI6eyJjb250cm9sX2ludGVydmFsX3NlY29uZHMiOjMwLCJkaWdlc3QiOiIyNTIwNmYzODM1ZjA3MDM0YzM3N2M2Y2U0YTNkMjg2YWY1NzBhOThjZWI3NWZlMTM0ODlkMWNjYzFjNzJmNWFjIiwiZGlzY292ZXJ5X2ludGVydmFsX3NlY29uZHMiOjkwMCwiZmllbGRfcnVsZXMiOnt9LCJtYXRjaGVkX3J1bGVfaWRzIjpbXSwidmVyc2lvbiI6MH0sInNlcnZlcl9pZCI6InRhcmdldCIsInNlcnZpY2VfZ3JvdXBfc25hcHNob3RzIjpbXSwic2VydmljZXMiOlt7Im1vZGUiOiJlbmZvcmNlIiwicG9ydCI6ODQ0MywicHJvdG9jb2wiOiJ0Y3AiLCJzb3VyY2VzIjpbIjEwLjUwLjAuMC8yNCIsIjIwMDE6ZGI4Ojo4LzEyOCJdfV0sInZlcnNpb24iOjR9fQ==",
+          "signature": "FXNInk1GNCyb5+eRCeSVkyhHkhG/WEUzmFNU1oBXEfxYEqVccOjaPVdtVFu0LLyxfCzfQZHMks1BAZOnAZBjBw=="
+        }
+      },
+      "witness": {
+        "server_id": "target",
+        "version": 4,
+        "digest": "3f99003306c0c5a62b9f0013bde724eb4e4b3a44d53e3f9e20b69005935cb526",
+        "protection_digest": "b864366e64304d9c7adf3e976653e4e6c2a402373c214b959b861af07f353ecc",
+        "binding_digest": "99d2af21a0bcfe9dab308d3ba2a83ee6c4d87f6cdfda603acb1611db2f53d200",
+        "nonce": "host-deny-interop-enable-nonce",
+        "checked_at": "2026-11-01T17:04:20Z",
+        "controller_ok": true,
+        "status": "healthy",
+        "ssh_checks": [
+          {
+            "target_ip": "10.70.0.1",
+            "port": 2022,
+            "source_ip": "10.90.0.5",
+            "ssh_banner_verified": true
+          }
+        ],
+        "approval_id": "c112e8e6-3be5-4289-a1d3-b0bf61f3dde4",
+        "intent": "enforce_host_default_deny",
+        "approval_proof": {
+          "scheme": "prthak-maker-checker-v1",
+          "mode": "single_admin",
+          "stage": "approved",
+          "plan_id": "c112e8e6-3be5-4289-a1d3-b0bf61f3dde4",
+          "plan_digest": "923f80c9c701e501be490f191753aefd40b182c2b3957c2fa5a4610c3ab647be",
+          "requester": {
+            "actor": "entra:11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+            "user_id": "11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+            "tenant_id": "11111111-1111-1111-1111-111111111111",
+            "object_id": "33333333-3333-3333-3333-333333333333",
+            "display_name": "Same display name",
+            "role": "admin",
+            "auth_config": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc"
+          },
+          "requested_at": "2026-11-01T17:04:20Z",
+          "provider_authority": {
+            "fingerprint": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc",
+            "epoch": ""
+          },
+          "scope": {
+            "kind": "host_default_deny",
+            "server_ids": [
+              "target"
+            ],
+            "action": "enable"
+          },
+          "submitted_by": {
+            "actor": "entra:11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+            "user_id": "11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+            "tenant_id": "11111111-1111-1111-1111-111111111111",
+            "object_id": "33333333-3333-3333-3333-333333333333",
+            "display_name": "Same display name",
+            "role": "admin",
+            "auth_config": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc"
+          },
+          "approved_by": {
+            "actor": "entra:11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+            "user_id": "11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+            "tenant_id": "11111111-1111-1111-1111-111111111111",
+            "object_id": "33333333-3333-3333-3333-333333333333",
+            "display_name": "Same display name",
+            "role": "admin",
+            "auth_config": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc"
+          },
+          "submitted_at": "2026-11-01T17:04:20Z",
+          "approved_at": "2026-11-01T17:04:20Z",
+          "binding_digest": "251fe11c82afb28e55f42f88047a3958e69a207e12cfb104ef8f6e85df5eccfe"
+        },
+        "host_default_deny_ack": true,
+        "host_default_deny_revision": 1,
+        "host_default_deny_configuration_digest": "5f0de612544dc8e40f6f6f543122112664bdaebfce8881c81282aabf69654f67"
+      },
+      "certificate_pem": "-----BEGIN CERTIFICATE-----\nMIIDsDCCAhigAwIBAgIQGn+dcvHkMI0L/LFnUgdsUjANBgkqhkiG9w0BAQsFADAg\nMR4wHAYDVQQDDBVQU2VncmEgZGV2ZWxvcG1lbnQgQ0EwHhcNMjYxMTAxMTcwNDIw\nWhcNMjcwMTMwMTcwNDIwWjARMQ8wDQYDVQQDDAZ0YXJnZXQwggEiMA0GCSqGSIb3\nDQEBAQUAA4IBDwAwggEKAoIBAQCrfgIqTmbyN+F6dtLvTPl5pXC2mVzuAvt9bqfG\nqyLMl9ODmH+wPDPZnqYW58n99v4SgI3R+epfQL4AnRqp2Yz12wrvwBgBd2NGcchO\nu9C8977nR4JsBzryRi04PdXNmkb4PRdCdFcHk0AXlK+ejNb4gpaH5l4TGxBEqFjn\nm8HR2OnLGFF2yswO4kuNbUXmYKg8yifG0Xf8g5OqREFTVKYeSnrG8ZCsUbmvEfjx\n96voYCdp+lZ15kzl/HHoBBVLRK2A7zpV5dJoP2tgg4qcFEacMjpBqZJfbpZIKxGB\nGETf0M+uI/9qaeQEYsiqC0MT/UCppg4SCSaIXca+uQR814OPAgMBAAGjdTBzMAwG\nA1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMC\nMB0GA1UdDgQWBBQha7X8djWcoCc5mwffghVM1zi4yDAfBgNVHSMEGDAWgBTwqc3i\nsKynDt40XeWvQZLw+5NmFzANBgkqhkiG9w0BAQsFAAOCAYEAbdViFhcLguImhmer\naDs5jLZBbdOCcSnlBSHLE6TukqwpUCxdCoktKUBOrGs6MdbOmFhdhirquC4KRj8a\ngJTuRTjg2XdRk2p0kKcOIYFjNAq0kcT5WidxFapV4faxGakrl+n73hQ7dRSikxzR\nnm0Lk0TYbUzBSChlFiMZ0/F2ri+NLACTZN2RPZV4UNjaP7u2nUECQqJ6DUU3qLf5\nkYd9LywPhYamZ+BZJi1j1T+9rcvEvAohOT/oDEU0nrHYa5NWhSamlYq2hGjzLuS3\n7dZ5NuUskfOWSZ3pqQzqxU37apSgDr0oRiYzsu14oQ7TzWWRCgS5VUiAuia5CSZ5\n88SD9XbLCoOd5tu/RN/05AhUp2d0HeMI6Ixa95GWuP7pzKD7BlMbXWs7vvDOuR0c\n2XFN8SxVidy+8PbrTkYAsTALFqmA+UfOew8vsZ6vQSQ9xl9FmXmh+GdjnJT8NZwC\n83dLL9P/v/LDmMznq2DlcKn7puUgj1RbFh0xjY12VYeuBJAn\n-----END CERTIFICATE-----\n",
+      "endpoint_ca_pem": "-----BEGIN CERTIFICATE-----\nMIIEMTCCApmgAwIBAgIUX+wN+KMOlkTveuOMGm3xwM7xOCcwDQYJKoZIhvcNAQEL\nBQAwIDEeMBwGA1UEAwwVUFNlZ3JhIGRldmVsb3BtZW50IENBMB4XDTI2MTEwMTE3\nMDQyMFoXDTM2MTAyOTE3MDQyMFowIDEeMBwGA1UEAwwVUFNlZ3JhIGRldmVsb3Bt\nZW50IENBMIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAzMJxqTGqLoSU\n4IZwaSzsOHOe8KnGToAn/MnUY3Z5lnup7objBKlKkBTIeR/C3ixo/5rXnbejvQmz\nb82wF1UE9vBOp0xyVUa0BLNzRAYfNnmCsr9y6L8gzrT7tVDR4NMHqdv+EEsXH7/Y\nsSvGjZJ9fnDTOaRuCTjXPyxtMjVdTTMsX78MnLsKVT6X3T3yVpuxT+G8ggJMpDMN\ny5w9xwI7bwy2Yuuwtz+d6zW2l7Vzqz1HVQweEE8GrnPKid6nRFAAQKSA/w87ohY9\nD+4LgMBaY4DDBLL7p3rib75JUlk8Uhs6I3uz5/IUxdkx9AzXEXiiNRudRQ8aQG4Q\n/rOQWA58+pZ/cqpBiWvSssJ1LM4Xnx10+7ki9awRNNpWnDpfy1Sj1Bmla+Egr5Nw\nlBbSLtkdmrZV9Q4mdRbrCF0H7LNYFEIAQ/uzEg0utg1vWANWJauCgjiTTRFPXB0e\n21ZBJwL93Yk+fD8df9UNRu0pfPt37LpiLzoLjNXi/wbZzJwiUgFvAgMBAAGjYzBh\nMB0GA1UdDgQWBBTwqc3isKynDt40XeWvQZLw+5NmFzAfBgNVHSMEGDAWgBTwqc3i\nsKynDt40XeWvQZLw+5NmFzAPBgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIB\nBjANBgkqhkiG9w0BAQsFAAOCAYEAam8P9JKk+6K3FTgj6LjV91Mczt1WMhQ/slQ7\nonsM7qmnwNwedtIylh2Ead3vcSD5vDbSmTXvJaHlgqMUeA3eN4Fexkw+Ji+FlWND\n8LRVOUse/UUEIhqyGIA45za6xBGhk2Ipf0C72iNPv15NCkjADgSvSxRf/Y4T7Dzn\nEXRLB04PkW+NRd4UT5riZQVz+NHFzkOdIgUzLG8BgqvdKB48oXTLzKU5aYKOQWMt\nv9sQ+fU7DYvmuVfSkQo7uZQrqIakAYw6izRsrCjDdHOz29H/zejZh/+RQuz9ttyU\nNvJmajJqqm1hPa+Fkg/kKvth/xJurAxCB1ck1wN+thVBy/tesXaQSsYuBQYTn+Q1\n2A/JN/NJTSrM5IHhJk8Q6VvRi2oCo97nw1VWorWaBaWepYn94DZ+lrNdwGhbJW9M\nHPvekZp64mIbKrqu1cHhB6sj7sZYI4rs6cIZ8miM5rgnctpajPZHbkFOew74swgb\ngjOgkENPE5ZZV+a0OCLhyrvKUT3+\n-----END CERTIFICATE-----\n"
+    },
+    {
+      "name": "disable",
+      "at": 1793552660,
+      "nonce": "host-deny-interop-disable-nonce",
+      "removal": true,
+      "config": {
+        "controller_url": "https://controller.example",
+        "state_dir": "/var/lib/seg-agent",
+        "ca_cert": "/etc/seg-agent/controller-ca.crt",
+        "endpoint_ca_cert": "",
+        "certificate": "/var/lib/seg-agent/agent.crt",
+        "private_key": "/var/lib/seg-agent/agent.key",
+        "enrollment_token_file": "/etc/seg-agent/enrollment-token",
+        "interval_seconds": 60,
+        "request_timeout_seconds": 15,
+        "zone": "public",
+        "enforce": true,
+        "management_sources": [
+          "10.90.0.0/24"
+        ],
+        "max_spool_batches": 500,
+        "discovery_interval_seconds": 900,
+        "allow_firewall_changes": false,
+        "allow_host_default_deny": false,
+        "unexpected_port_monitor_enabled": false,
+        "probe_log_rate_per_second": 5,
+        "learning_auto_allow": false,
+        "control_url": "",
+        "discovery_url": "",
+        "management_probe_url": "https://controller.example/api/v1/agent/enforcement/check",
+        "management_probe_ca_cert": "",
+        "policy_signing_trust_file": "",
+        "policy_signing_keys": {
+          "63b1eb2bc166f67990b2abcdd7edbcd5": "IcG1iO7NFi4Ly03WW7YRZAAXU+KB2mhcz2bAQDtsbrQ="
+        },
+        "policy_signing_deployment_id": "00000000-0000-4000-8000-000000000008",
+        "protected_ssh_ports": [
+          2022
+        ]
+      },
+      "configuration_state": {
+        "controller_url": "https://controller.example",
+        "control_url": "",
+        "discovery_url": "",
+        "enforce": true,
+        "allow_firewall_changes": false,
+        "learning_auto_allow": false,
+        "unexpected_port_monitor_enabled": false,
+        "management_sources": [
+          "10.90.0.0/24"
+        ],
+        "protected_ssh_ports": [
+          2022
+        ],
+        "zone": "public",
+        "digest": "7c44da809806a0f25045fc8af9132e1af94123a3ac2289aa8ca201a97990ecaa"
+      },
+      "trust": {
+        "deployment_id": "00000000-0000-4000-8000-000000000008",
+        "keys": {
+          "63b1eb2bc166f67990b2abcdd7edbcd5": "IcG1iO7NFi4Ly03WW7YRZAAXU+KB2mhcz2bAQDtsbrQ="
+        }
+      },
+      "protection": {
+        "management_sources": [
+          "10.90.0.0/24"
+        ],
+        "ssh_ports": [
+          2022
+        ],
+        "controller_url": "https://controller.example",
+        "management_probe_url": "https://controller.example/api/v1/agent/enforcement/check",
+        "zone": "public",
+        "host_default_deny_context_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "host_default_deny_control_profile": "host-inbound-control-v1",
+        "digest": "b864366e64304d9c7adf3e976653e4e6c2a402373c214b959b861af07f353ecc",
+        "ready": true,
+        "blockers": [],
+        "host_default_deny_ready": true,
+        "host_default_deny_blockers": []
+      },
+      "policy": {
+        "mode": "enforce",
+        "services": [
+          {
+            "mode": "enforce",
+            "port": 8443,
+            "protocol": "tcp",
+            "sources": [
+              "10.50.0.0/24",
+              "2001:db8::8/128"
+            ]
+          }
+        ],
+        "server_id": "target",
+        "version": 6,
+        "digest": "5c5eac3d8c072e7741f9c60eb333280fb34d986056f894cc6f546ee985cdbf07",
+        "generated_at": "2026-11-01T17:04:20Z",
+        "service_group_snapshots": [],
+        "learning_sessions": [],
+        "learning_tombstones": [],
+        "firewall_changes": [],
+        "enforcement": {
+          "authorized": true,
+          "approval_id": "89b99012-46c3-4127-8898-d9b5718555c6",
+          "approved_digest": "5c5eac3d8c072e7741f9c60eb333280fb34d986056f894cc6f546ee985cdbf07",
+          "approved_version": 6,
+          "protection_digest": "b864366e64304d9c7adf3e976653e4e6c2a402373c214b959b861af07f353ecc",
+          "binding_digest": "3c75338e6d06a5cfa96b742aadf502a2cff0fb3585b11281ee3bd72ab50e571a",
+          "digest": "3c75338e6d06a5cfa96b742aadf502a2cff0fb3585b11281ee3bd72ab50e571a",
+          "confirmation_count": 1,
+          "expires_at": "9999-12-31T23:59:59Z",
+          "reason": "Exact bundle and protected baseline explicitly reviewed",
+          "intent": "remove_host_default_deny",
+          "approved_ips": [
+            "10.70.0.1"
+          ],
+          "target_digest": "fa4f56f76790b9e11b805808e90c016194f3c96270bd3f191b176758bf4928c7",
+          "approval_proof": {
+            "scheme": "prthak-maker-checker-v1",
+            "mode": "single_admin",
+            "stage": "approved",
+            "plan_id": "89b99012-46c3-4127-8898-d9b5718555c6",
+            "plan_digest": "b229043a92f879a82a263365fd878f51002232e16e811126918eb8b7a4c8bb53",
+            "requester": {
+              "actor": "entra:11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+              "user_id": "11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+              "tenant_id": "11111111-1111-1111-1111-111111111111",
+              "object_id": "33333333-3333-3333-3333-333333333333",
+              "display_name": "Same display name",
+              "role": "admin",
+              "auth_config": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc"
+            },
+            "requested_at": "2026-11-01T17:04:20Z",
+            "provider_authority": {
+              "fingerprint": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc",
+              "epoch": ""
+            },
+            "scope": {
+              "kind": "host_default_deny",
+              "server_ids": [
+                "target"
+              ],
+              "action": "disable"
+            },
+            "submitted_by": {
+              "actor": "entra:11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+              "user_id": "11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+              "tenant_id": "11111111-1111-1111-1111-111111111111",
+              "object_id": "33333333-3333-3333-3333-333333333333",
+              "display_name": "Same display name",
+              "role": "admin",
+              "auth_config": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc"
+            },
+            "approved_by": {
+              "actor": "entra:11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+              "user_id": "11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+              "tenant_id": "11111111-1111-1111-1111-111111111111",
+              "object_id": "33333333-3333-3333-3333-333333333333",
+              "display_name": "Same display name",
+              "role": "admin",
+              "auth_config": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc"
+            },
+            "submitted_at": "2026-11-01T17:04:20Z",
+            "approved_at": "2026-11-01T17:04:20Z",
+            "binding_digest": "71ea422046c28340f0a9a33d7e28ddb4cb13f9fab34ecc9fae2a1eaec16e4442"
+          },
+          "host_default_deny_ack": true,
+          "host_default_deny_revision": 2,
+          "host_default_deny_configuration_digest": "7c44da809806a0f25045fc8af9132e1af94123a3ac2289aa8ca201a97990ecaa"
+        },
+        "learning_allow": {
+          "server_id": "target",
+          "generation": 0,
+          "digest": "3c9ed6b82629f9dcfd121ac2805220c7e3b8e084a09ca2c238ed43fcebf5a475",
+          "services": [],
+          "policy_ids": [],
+          "authorities": [],
+          "protection_digest": "b864366e64304d9c7adf3e976653e4e6c2a402373c214b959b861af07f353ecc",
+          "target_ips_digest": "a6d0c09f81e5c466d9e0386c0f1acdcfeb42ecac2faefec43a5cc96936b46f05",
+          "binding_digest": "c0848f991a857bcd78a6ae0c6cd679b61c2159858acc89d6cffa1e49a2a636d8",
+          "authorized": false,
+          "reason": "No learning-owned policy is assigned",
+          "expires_at": "1970-01-01T00:00:00Z"
+        },
+        "polling_settings": {
+          "version": 0,
+          "digest": "25206f3835f07034c377c6ce4a3d286af570a98ceb75fe13489d1ccc1c72f5ac",
+          "control_interval_seconds": 30,
+          "discovery_interval_seconds": 900,
+          "matched_rule_ids": [],
+          "field_rules": {}
+        },
+        "assignment_generation": 3,
+        "assignment_digest": "670aff5ce9aedb5b832310a45a857c85802064ca7134449356bcc2264f671cb3",
+        "signature": {
+          "algorithm": "Ed25519",
+          "key_id": "63b1eb2bc166f67990b2abcdd7edbcd5",
+          "payload": "eyJkZXBsb3ltZW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDA4IiwiZG9tYWluIjoicHJ0aGFrLXBvbGljeS1hc3NpZ25tZW50LXYxIiwiZXhwaXJlc19hdCI6MTc5MzU1NDIwMCwiaXNzdWVkX2F0IjoxNzkzNTUyNDAwLCJwb2xpY3kiOnsiYXNzaWdubWVudF9kaWdlc3QiOiI2NzBhZmY1Y2U5YWVkYjViODMyMzEwYTQ1YTg1N2M4NTgwMjA2NGNhNzEzNDQ0OTM1NmJjYzIyNjRmNjcxY2IzIiwiYXNzaWdubWVudF9nZW5lcmF0aW9uIjozLCJkaWdlc3QiOiI1YzVlYWMzZDhjMDcyZTc3NDFmOWM2MGViMzMzMjgwZmIzNGQ5ODYwNTZmODk0Y2M2ZjU0NmVlOTg1Y2RiZjA3IiwiZW5mb3JjZW1lbnQiOnsiYXBwcm92YWxfaWQiOiI4OWI5OTAxMi00NmMzLTQxMjctODg5OC1kOWI1NzE4NTU1YzYiLCJhcHByb3ZhbF9wcm9vZiI6eyJhcHByb3ZlZF9hdCI6IjIwMjYtMTEtMDFUMTc6MDQ6MjBaIiwiYXBwcm92ZWRfYnkiOnsiYWN0b3IiOiJlbnRyYToxMTExMTExMS0xMTExLTExMTEtMTExMS0xMTExMTExMTExMTE6MzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMzIiwiYXV0aF9jb25maWciOiJiNjZmZjkxNWY5OTY0YTQwZGIxMmRmMDRlMGY3ODc0OTI5NDMxOWIwOTI1OTNmNzBiZjg2MzAxOWUwZTU1M2JjIiwiZGlzcGxheV9uYW1lIjoiU2FtZSBkaXNwbGF5IG5hbWUiLCJvYmplY3RfaWQiOiIzMzMzMzMzMy0zMzMzLTMzMzMtMzMzMy0zMzMzMzMzMzMzMzMiLCJyb2xlIjoiYWRtaW4iLCJ0ZW5hbnRfaWQiOiIxMTExMTExMS0xMTExLTExMTEtMTExMS0xMTExMTExMTExMTEiLCJ1c2VyX2lkIjoiMTExMTExMTEtMTExMS0xMTExLTExMTEtMTExMTExMTExMTExOjMzMzMzMzMzLTMzMzMtMzMzMy0zMzMzLTMzMzMzMzMzMzMzMyJ9LCJiaW5kaW5nX2RpZ2VzdCI6IjcxZWE0MjIwNDZjMjgzNDBmMGE5YTMzZDdlMjhkZGI0Y2IxM2Y5ZmFiMzRlY2M5ZmFlMmExZWFlYzE2ZTQ0NDIiLCJtb2RlIjoic2luZ2xlX2FkbWluIiwicGxhbl9kaWdlc3QiOiJiMjI5MDQzYTkyZjg3OWE4MmEyNjMzNjVmZDg3OGY1MTAwMjIzMmUxNmU4MTExMjY5MThlYjhiN2E0YzhiYjUzIiwicGxhbl9pZCI6Ijg5Yjk5MDEyLTQ2YzMtNDEyNy04ODk4LWQ5YjU3MTg1NTVjNiIsInByb3ZpZGVyX2F1dGhvcml0eSI6eyJlcG9jaCI6IiIsImZpbmdlcnByaW50IjoiYjY2ZmY5MTVmOTk2NGE0MGRiMTJkZjA0ZTBmNzg3NDkyOTQzMTliMDkyNTkzZjcwYmY4NjMwMTllMGU1NTNiYyJ9LCJyZXF1ZXN0ZWRfYXQiOiIyMDI2LTExLTAxVDE3OjA0OjIwWiIsInJlcXVlc3RlciI6eyJhY3RvciI6ImVudHJhOjExMTExMTExLTExMTEtMTExMS0xMTExLTExMTExMTExMTExMTozMzMzMzMzMy0zMzMzLTMzMzMtMzMzMy0zMzMzMzMzMzMzMzMiLCJhdXRoX2NvbmZpZyI6ImI2NmZmOTE1Zjk5NjRhNDBkYjEyZGYwNGUwZjc4NzQ5Mjk0MzE5YjA5MjU5M2Y3MGJmODYzMDE5ZTBlNTUzYmMiLCJkaXNwbGF5X25hbWUiOiJTYW1lIGRpc3BsYXkgbmFtZSIsIm9iamVjdF9pZCI6IjMzMzMzMzMzLTMzMzMtMzMzMy0zMzMzLTMzMzMzMzMzMzMzMyIsInJvbGUiOiJhZG1pbiIsInRlbmFudF9pZCI6IjExMTExMTExLTExMTEtMTExMS0xMTExLTExMTExMTExMTExMSIsInVzZXJfaWQiOiIxMTExMTExMS0xMTExLTExMTEtMTExMS0xMTExMTExMTExMTE6MzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMzIn0sInNjaGVtZSI6InBydGhhay1tYWtlci1jaGVja2VyLXYxIiwic2NvcGUiOnsiYWN0aW9uIjoiZGlzYWJsZSIsImtpbmQiOiJob3N0X2RlZmF1bHRfZGVueSIsInNlcnZlcl9pZHMiOlsidGFyZ2V0Il19LCJzdGFnZSI6ImFwcHJvdmVkIiwic3VibWl0dGVkX2F0IjoiMjAyNi0xMS0wMVQxNzowNDoyMFoiLCJzdWJtaXR0ZWRfYnkiOnsiYWN0b3IiOiJlbnRyYToxMTExMTExMS0xMTExLTExMTEtMTExMS0xMTExMTExMTExMTE6MzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMzIiwiYXV0aF9jb25maWciOiJiNjZmZjkxNWY5OTY0YTQwZGIxMmRmMDRlMGY3ODc0OTI5NDMxOWIwOTI1OTNmNzBiZjg2MzAxOWUwZTU1M2JjIiwiZGlzcGxheV9uYW1lIjoiU2FtZSBkaXNwbGF5IG5hbWUiLCJvYmplY3RfaWQiOiIzMzMzMzMzMy0zMzMzLTMzMzMtMzMzMy0zMzMzMzMzMzMzMzMiLCJyb2xlIjoiYWRtaW4iLCJ0ZW5hbnRfaWQiOiIxMTExMTExMS0xMTExLTExMTEtMTExMS0xMTExMTExMTExMTEiLCJ1c2VyX2lkIjoiMTExMTExMTEtMTExMS0xMTExLTExMTEtMTExMTExMTExMTExOjMzMzMzMzMzLTMzMzMtMzMzMy0zMzMzLTMzMzMzMzMzMzMzMyJ9fSwiYXBwcm92ZWRfZGlnZXN0IjoiNWM1ZWFjM2Q4YzA3MmU3NzQxZjljNjBlYjMzMzI4MGZiMzRkOTg2MDU2Zjg5NGNjNmY1NDZlZTk4NWNkYmYwNyIsImFwcHJvdmVkX2lwcyI6WyIxMC43MC4wLjEiXSwiYXBwcm92ZWRfdmVyc2lvbiI6NiwiYXV0aG9yaXplZCI6dHJ1ZSwiYmluZGluZ19kaWdlc3QiOiIzYzc1MzM4ZTZkMDZhNWNmYTk2Yjc0MmFhZGY1MDJhMmNmZjBmYjM1ODViMTEyODFlZTNiZDcyYWI1MGU1NzFhIiwiY29uZmlybWF0aW9uX2NvdW50IjoxLCJkaWdlc3QiOiIzYzc1MzM4ZTZkMDZhNWNmYTk2Yjc0MmFhZGY1MDJhMmNmZjBmYjM1ODViMTEyODFlZTNiZDcyYWI1MGU1NzFhIiwiZXhwaXJlc19hdCI6Ijk5OTktMTItMzFUMjM6NTk6NTlaIiwiaG9zdF9kZWZhdWx0X2RlbnlfYWNrIjp0cnVlLCJob3N0X2RlZmF1bHRfZGVueV9jb25maWd1cmF0aW9uX2RpZ2VzdCI6IjdjNDRkYTgwOTgwNmEwZjI1MDQ1ZmM4YWY5MTMyZTFhZjk0MTIzYTNhYzIyODlhYThjYTIwMWE5Nzk5MGVjYWEiLCJob3N0X2RlZmF1bHRfZGVueV9yZXZpc2lvbiI6MiwiaW50ZW50IjoicmVtb3ZlX2hvc3RfZGVmYXVsdF9kZW55IiwicHJvdGVjdGlvbl9kaWdlc3QiOiJiODY0MzY2ZTY0MzA0ZDljN2FkZjNlOTc2NjUzZTRlNmMyYTQwMjM3M2MyMTRiOTU5Yjg2MWFmMDdmMzUzZWNjIiwicmVhc29uIjoiRXhhY3QgYnVuZGxlIGFuZCBwcm90ZWN0ZWQgYmFzZWxpbmUgZXhwbGljaXRseSByZXZpZXdlZCIsInRhcmdldF9kaWdlc3QiOiJmYTRmNTZmNzY3OTBiOWUxMWI4MDU4MDhlOTBjMDE2MTk0ZjNjOTYyNzBiZDNmMTkxYjE3Njc1OGJmNDkyOGM3In0sImZpcmV3YWxsX2NoYW5nZXMiOltdLCJnZW5lcmF0ZWRfYXQiOiIyMDI2LTExLTAxVDE3OjA0OjIwWiIsImxlYXJuaW5nX2FsbG93Ijp7ImF1dGhvcml0aWVzIjpbXSwiYXV0aG9yaXplZCI6ZmFsc2UsImJpbmRpbmdfZGlnZXN0IjoiYzA4NDhmOTkxYTg1N2JjZDc4YTZhZTBjNmNkNjc5YjYxYzIxNTk4NThhY2M4OWQ2Y2ZmYTFlNDlhMmE2MzZkOCIsImRpZ2VzdCI6IjNjOWVkNmI4MjYyOWY5ZGNmZDEyMWFjMjgwNTIyMGM3ZTNiOGUwODRhMDljYTJjMjM4ZWQ0M2ZjZWJmNWE0NzUiLCJleHBpcmVzX2F0IjoiMTk3MC0wMS0wMVQwMDowMDowMFoiLCJnZW5lcmF0aW9uIjowLCJwb2xpY3lfaWRzIjpbXSwicHJvdGVjdGlvbl9kaWdlc3QiOiJiODY0MzY2ZTY0MzA0ZDljN2FkZjNlOTc2NjUzZTRlNmMyYTQwMjM3M2MyMTRiOTU5Yjg2MWFmMDdmMzUzZWNjIiwicmVhc29uIjoiTm8gbGVhcm5pbmctb3duZWQgcG9saWN5IGlzIGFzc2lnbmVkIiwic2VydmVyX2lkIjoidGFyZ2V0Iiwic2VydmljZXMiOltdLCJ0YXJnZXRfaXBzX2RpZ2VzdCI6ImE2ZDBjMDlmODFlNWM0NjZkOWUwMzg2YzBmMWFjZGNmZWI0MmVjYWMyZmFlZmVjNDNhNWNjOTY5MzZiNDZmMDUifSwibGVhcm5pbmdfc2Vzc2lvbnMiOltdLCJsZWFybmluZ190b21ic3RvbmVzIjpbXSwibW9kZSI6ImVuZm9yY2UiLCJwb2xsaW5nX3NldHRpbmdzIjp7ImNvbnRyb2xfaW50ZXJ2YWxfc2Vjb25kcyI6MzAsImRpZ2VzdCI6IjI1MjA2ZjM4MzVmMDcwMzRjMzc3YzZjZTRhM2QyODZhZjU3MGE5OGNlYjc1ZmUxMzQ4OWQxY2NjMWM3MmY1YWMiLCJkaXNjb3ZlcnlfaW50ZXJ2YWxfc2Vjb25kcyI6OTAwLCJmaWVsZF9ydWxlcyI6e30sIm1hdGNoZWRfcnVsZV9pZHMiOltdLCJ2ZXJzaW9uIjowfSwic2VydmVyX2lkIjoidGFyZ2V0Iiwic2VydmljZV9ncm91cF9zbmFwc2hvdHMiOltdLCJzZXJ2aWNlcyI6W3sibW9kZSI6ImVuZm9yY2UiLCJwb3J0Ijo4NDQzLCJwcm90b2NvbCI6InRjcCIsInNvdXJjZXMiOlsiMTAuNTAuMC4wLzI0IiwiMjAwMTpkYjg6OjgvMTI4Il19XSwidmVyc2lvbiI6Nn19",
+          "signature": "VJ70NA8QYx29s4RdmzuVQLtcCk/HZH2HXEvhV5tfeYkn5Y85cwf7H9WiYNjmnF4wkM0pHTVQ8OQ0XB8qbcRiBg=="
+        }
+      },
+      "witness": {
+        "server_id": "target",
+        "version": 6,
+        "digest": "5c5eac3d8c072e7741f9c60eb333280fb34d986056f894cc6f546ee985cdbf07",
+        "protection_digest": "b864366e64304d9c7adf3e976653e4e6c2a402373c214b959b861af07f353ecc",
+        "binding_digest": "3c75338e6d06a5cfa96b742aadf502a2cff0fb3585b11281ee3bd72ab50e571a",
+        "nonce": "host-deny-interop-disable-nonce",
+        "checked_at": "2026-11-01T17:04:20Z",
+        "controller_ok": true,
+        "status": "healthy",
+        "ssh_checks": [
+          {
+            "target_ip": "10.70.0.1",
+            "port": 2022,
+            "source_ip": "10.90.0.5",
+            "ssh_banner_verified": true
+          }
+        ],
+        "approval_id": "89b99012-46c3-4127-8898-d9b5718555c6",
+        "intent": "remove_host_default_deny",
+        "approval_proof": {
+          "scheme": "prthak-maker-checker-v1",
+          "mode": "single_admin",
+          "stage": "approved",
+          "plan_id": "89b99012-46c3-4127-8898-d9b5718555c6",
+          "plan_digest": "b229043a92f879a82a263365fd878f51002232e16e811126918eb8b7a4c8bb53",
+          "requester": {
+            "actor": "entra:11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+            "user_id": "11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+            "tenant_id": "11111111-1111-1111-1111-111111111111",
+            "object_id": "33333333-3333-3333-3333-333333333333",
+            "display_name": "Same display name",
+            "role": "admin",
+            "auth_config": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc"
+          },
+          "requested_at": "2026-11-01T17:04:20Z",
+          "provider_authority": {
+            "fingerprint": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc",
+            "epoch": ""
+          },
+          "scope": {
+            "kind": "host_default_deny",
+            "server_ids": [
+              "target"
+            ],
+            "action": "disable"
+          },
+          "submitted_by": {
+            "actor": "entra:11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+            "user_id": "11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+            "tenant_id": "11111111-1111-1111-1111-111111111111",
+            "object_id": "33333333-3333-3333-3333-333333333333",
+            "display_name": "Same display name",
+            "role": "admin",
+            "auth_config": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc"
+          },
+          "approved_by": {
+            "actor": "entra:11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+            "user_id": "11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+            "tenant_id": "11111111-1111-1111-1111-111111111111",
+            "object_id": "33333333-3333-3333-3333-333333333333",
+            "display_name": "Same display name",
+            "role": "admin",
+            "auth_config": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc"
+          },
+          "submitted_at": "2026-11-01T17:04:20Z",
+          "approved_at": "2026-11-01T17:04:20Z",
+          "binding_digest": "71ea422046c28340f0a9a33d7e28ddb4cb13f9fab34ecc9fae2a1eaec16e4442"
+        },
+        "host_default_deny_ack": true,
+        "host_default_deny_revision": 2,
+        "host_default_deny_configuration_digest": "7c44da809806a0f25045fc8af9132e1af94123a3ac2289aa8ca201a97990ecaa"
+      },
+      "certificate_pem": "-----BEGIN CERTIFICATE-----\nMIIDsDCCAhigAwIBAgIQGn+dcvHkMI0L/LFnUgdsUjANBgkqhkiG9w0BAQsFADAg\nMR4wHAYDVQQDDBVQU2VncmEgZGV2ZWxvcG1lbnQgQ0EwHhcNMjYxMTAxMTcwNDIw\nWhcNMjcwMTMwMTcwNDIwWjARMQ8wDQYDVQQDDAZ0YXJnZXQwggEiMA0GCSqGSIb3\nDQEBAQUAA4IBDwAwggEKAoIBAQCrfgIqTmbyN+F6dtLvTPl5pXC2mVzuAvt9bqfG\nqyLMl9ODmH+wPDPZnqYW58n99v4SgI3R+epfQL4AnRqp2Yz12wrvwBgBd2NGcchO\nu9C8977nR4JsBzryRi04PdXNmkb4PRdCdFcHk0AXlK+ejNb4gpaH5l4TGxBEqFjn\nm8HR2OnLGFF2yswO4kuNbUXmYKg8yifG0Xf8g5OqREFTVKYeSnrG8ZCsUbmvEfjx\n96voYCdp+lZ15kzl/HHoBBVLRK2A7zpV5dJoP2tgg4qcFEacMjpBqZJfbpZIKxGB\nGETf0M+uI/9qaeQEYsiqC0MT/UCppg4SCSaIXca+uQR814OPAgMBAAGjdTBzMAwG\nA1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMC\nMB0GA1UdDgQWBBQha7X8djWcoCc5mwffghVM1zi4yDAfBgNVHSMEGDAWgBTwqc3i\nsKynDt40XeWvQZLw+5NmFzANBgkqhkiG9w0BAQsFAAOCAYEAbdViFhcLguImhmer\naDs5jLZBbdOCcSnlBSHLE6TukqwpUCxdCoktKUBOrGs6MdbOmFhdhirquC4KRj8a\ngJTuRTjg2XdRk2p0kKcOIYFjNAq0kcT5WidxFapV4faxGakrl+n73hQ7dRSikxzR\nnm0Lk0TYbUzBSChlFiMZ0/F2ri+NLACTZN2RPZV4UNjaP7u2nUECQqJ6DUU3qLf5\nkYd9LywPhYamZ+BZJi1j1T+9rcvEvAohOT/oDEU0nrHYa5NWhSamlYq2hGjzLuS3\n7dZ5NuUskfOWSZ3pqQzqxU37apSgDr0oRiYzsu14oQ7TzWWRCgS5VUiAuia5CSZ5\n88SD9XbLCoOd5tu/RN/05AhUp2d0HeMI6Ixa95GWuP7pzKD7BlMbXWs7vvDOuR0c\n2XFN8SxVidy+8PbrTkYAsTALFqmA+UfOew8vsZ6vQSQ9xl9FmXmh+GdjnJT8NZwC\n83dLL9P/v/LDmMznq2DlcKn7puUgj1RbFh0xjY12VYeuBJAn\n-----END CERTIFICATE-----\n",
+      "endpoint_ca_pem": "-----BEGIN CERTIFICATE-----\nMIIEMTCCApmgAwIBAgIUX+wN+KMOlkTveuOMGm3xwM7xOCcwDQYJKoZIhvcNAQEL\nBQAwIDEeMBwGA1UEAwwVUFNlZ3JhIGRldmVsb3BtZW50IENBMB4XDTI2MTEwMTE3\nMDQyMFoXDTM2MTAyOTE3MDQyMFowIDEeMBwGA1UEAwwVUFNlZ3JhIGRldmVsb3Bt\nZW50IENBMIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAzMJxqTGqLoSU\n4IZwaSzsOHOe8KnGToAn/MnUY3Z5lnup7objBKlKkBTIeR/C3ixo/5rXnbejvQmz\nb82wF1UE9vBOp0xyVUa0BLNzRAYfNnmCsr9y6L8gzrT7tVDR4NMHqdv+EEsXH7/Y\nsSvGjZJ9fnDTOaRuCTjXPyxtMjVdTTMsX78MnLsKVT6X3T3yVpuxT+G8ggJMpDMN\ny5w9xwI7bwy2Yuuwtz+d6zW2l7Vzqz1HVQweEE8GrnPKid6nRFAAQKSA/w87ohY9\nD+4LgMBaY4DDBLL7p3rib75JUlk8Uhs6I3uz5/IUxdkx9AzXEXiiNRudRQ8aQG4Q\n/rOQWA58+pZ/cqpBiWvSssJ1LM4Xnx10+7ki9awRNNpWnDpfy1Sj1Bmla+Egr5Nw\nlBbSLtkdmrZV9Q4mdRbrCF0H7LNYFEIAQ/uzEg0utg1vWANWJauCgjiTTRFPXB0e\n21ZBJwL93Yk+fD8df9UNRu0pfPt37LpiLzoLjNXi/wbZzJwiUgFvAgMBAAGjYzBh\nMB0GA1UdDgQWBBTwqc3isKynDt40XeWvQZLw+5NmFzAfBgNVHSMEGDAWgBTwqc3i\nsKynDt40XeWvQZLw+5NmFzAPBgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIB\nBjANBgkqhkiG9w0BAQsFAAOCAYEAam8P9JKk+6K3FTgj6LjV91Mczt1WMhQ/slQ7\nonsM7qmnwNwedtIylh2Ead3vcSD5vDbSmTXvJaHlgqMUeA3eN4Fexkw+Ji+FlWND\n8LRVOUse/UUEIhqyGIA45za6xBGhk2Ipf0C72iNPv15NCkjADgSvSxRf/Y4T7Dzn\nEXRLB04PkW+NRd4UT5riZQVz+NHFzkOdIgUzLG8BgqvdKB48oXTLzKU5aYKOQWMt\nv9sQ+fU7DYvmuVfSkQo7uZQrqIakAYw6izRsrCjDdHOz29H/zejZh/+RQuz9ttyU\nNvJmajJqqm1hPa+Fkg/kKvth/xJurAxCB1ck1wN+thVBy/tesXaQSsYuBQYTn+Q1\n2A/JN/NJTSrM5IHhJk8Q6VvRi2oCo97nw1VWorWaBaWepYn94DZ+lrNdwGhbJW9M\nHPvekZp64mIbKrqu1cHhB6sj7sZYI4rs6cIZ8miM5rgnctpajPZHbkFOew74swgb\ngjOgkENPE5ZZV+a0OCLhyrvKUT3+\n-----END CERTIFICATE-----\n"
+    }
+  ]
+}

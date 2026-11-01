@@ -603,6 +603,9 @@ func (a *Agent) applyFirewallChange(ctx context.Context, change FirewallChange) 
 		result.CompletedAt = time.Now().UTC()
 		return result
 	}
+	if a.hostDefaultDenyGuarded() {
+		return fail("whole-server default deny withholds imported mutations until reviewed fallback removal commits")
+	}
 	if !changeIDValid(change.ID) || !validDigest(change.PlanDigest) || !validDigest(change.ExpectedSnapshotDigest) {
 		return fail("invalid approved-plan identity or snapshot digest")
 	}

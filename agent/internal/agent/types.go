@@ -2,9 +2,10 @@ package agent
 
 import "time"
 
-const Version = "0.7.0"
+const Version = "0.8.0"
 
 const LearningDiscoveryCapability = "learning_discovery_v1"
+const HostDefaultDenyCapability = "host_default_deny_v1"
 
 type Port struct {
 	Port     int    `json:"port"`
@@ -39,6 +40,7 @@ type Policy struct {
 	Version              int                       `json:"version"`
 	Digest               string                    `json:"digest"`
 	Mode                 string                    `json:"mode"`
+	HostDefaultDeny      bool                      `json:"host_default_deny,omitempty"`
 	Services             []Service                 `json:"services"`
 	LearningSessions     []Session                 `json:"learning_sessions"`
 	HitMonitors          []HitMonitorAssignment    `json:"hit_monitors,omitempty"`

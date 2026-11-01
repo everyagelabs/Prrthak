@@ -26,11 +26,13 @@ MAX_ARCHIVE = 64 * 1024 * 1024
 MAX_TAR = 96 * 1024 * 1024
 MAX_FILE = 64 * 1024 * 1024
 MAX_ENTRIES = 64
+HOST_DENY_GUIDE = "docs/whole-server-default-deny.md"
 ALLOWED = {
     "seg-agent", "INSTALL.txt", "runtime-integrity.json", "deploy/release-public-trust.json",
     "agent/config.example.json", "agent/README.md", "deploy/systemd/seg-agent.service",
     *{"scripts/" + name for name in ("install-agent.sh", "install-agent-linux.sh", "install-agent-rhel.sh", "install-agent-ubuntu.sh", "prepare-managed-ipsets.py", "verify-release.py")},
     *{"docs/" + name for name in ("managed-enforcement.md", "linux-validation.md", "scale-validation.md", "ipset-enforcement.md", "policy-signing.md", "linux-agent-installation.md", "pilot-gui-installation.md", "authentication.md")},
+    HOST_DENY_GUIDE,
 }
 BUILDER_DOCKERFILE = """FROM debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4
 RUN apt-get update && apt-get install --no-install-recommends -y python3 rpm dpkg-dev gzip coreutils && rm -rf /var/lib/apt/lists/*
@@ -116,7 +118,8 @@ def inspect_bundle(archive, payload):
             if item.name != stem + "/" + relative or relative not in ALLOWED or relative in found or item.type not in (tarfile.REGTYPE, tarfile.AREGTYPE) or not 0 <= item.size <= MAX_FILE or item.pax_headers:
                 raise ValueError("Release must contain unique allowlisted regular files only")
             found[relative] = item
-        if not ALLOWED <= found.keys():
+        required = ALLOWED if tuple(map(int, version.split('.'))) >= (0, 8, 0) else ALLOWED - {HOST_DENY_GUIDE}
+        if not required <= found.keys():
             raise ValueError("Release is missing installation or signed-runtime files")
         payload.mkdir(mode=0o755)
         payload.chmod(0o755)

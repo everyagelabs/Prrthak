@@ -4,13 +4,13 @@ Prṛthak imports each endpoint's firewalld configuration separately from its in
 
 The **Services** catalogue (`/services`) stores reusable flat sets of 1–100 exact TCP/UDP ports. These are controller policy definitions, separate from imported firewalld named-service definitions. A policy row can use one saved service group or one port/protocol and attach its own union of CIDRs, an AND tag selector and multiple existing source server groups. The controller expands each row without mixing unrelated port/source combinations. Overlapping enforce rows union enforcing sources only; monitor rows cannot widen them.
 
-Before a global service-group edit, inspect its affected policies and effective host impact. Edits require the loaded revision and update catalogue history, policy port snapshots and intended bundles atomically. Host versions advance only if access changes; renames do not advance them. Used service groups and server groups referenced as sources cannot be deleted until their policy references are removed. Historical snapshots retain actual ports/revisions; restoring old policy configuration resolves today's saved group and current membership. A changed effective bundle needs separate managed review. Saving a catalogue, changing source membership or starting automatic learning never authorizes firewall writes.
+Before a global service-group edit, inspect its affected policies and effective host impact. Edits require the loaded revision and update catalogue history, policy port snapshots and intended bundles atomically. Host versions advance only if access changes; renames do not advance them. Used service groups and server groups referenced as sources cannot be deleted until their policy references are removed. Historical snapshots retain actual ports/revisions; restoring old policy configuration resolves today's saved group and current membership. Ordinary authorized Admin changes publish per-port intent directly, subject to endpoint opt-ins and safety checks. On a whole-server default-deny host, a changed effective bundle requires a fresh dedicated downtime acknowledgement; the last working rules remain active until then.
 
 ## Inventory and common rules
 
 The agent collects runtime and permanent firewalld state during inventory discovery. The Firewall page groups exact matching rules across hosts, with the zone, scopes, host count, action, and editability. Runtime changes affect the current firewall; permanent changes survive reload/restart. A change must explicitly select its scopes. No automatic reload or runtime-to-permanent copy is performed.
 
-Rules include named services, ports and rich rules. Targets such as `ACCEPT`, policy objects, direct rules and other unsupported or ambiguous configurations remain visible with a view-only reason. An `ACCEPT` target can represent unrestricted access even if the list of open ports is empty. Identical text is not a guarantee of identical effective access: interfaces, sources, zone selection, other rules and named service definitions also matter. [firewalld command reference](https://firewalld.org/documentation/man-pages/firewall-cmd.html), [rich-rule ordering](https://firewalld.org/documentation/man-pages/firewalld.richlanguage.html).
+Supported editing covers named services, ports, validated rich rules, bounded INPUT direct rules and local port redirects. Permanent zone-target replacement is staged explicitly; it does not change the runtime target or reload firewalld. Unsupported routing/NAT, policy objects, bindings and ambiguous configurations remain visible with a view-only reason. An `ACCEPT` target can represent unrestricted access even if the list of open ports is empty. Identical text is not a guarantee of identical effective access: interfaces, sources, zone selection, other rules and named service definitions also matter. [firewalld command reference](https://firewalld.org/documentation/man-pages/firewall-cmd.html), [rich-rule ordering](https://firewalld.org/documentation/man-pages/firewalld.richlanguage.html).
 
 Only complete, fresh inventories are eligible for change planning. A failed collection preserves the last successful inventory and marks it incomplete/stale. Exact fingerprints, rather than a rule's table position, identify the selected entries.
 
@@ -20,23 +20,17 @@ An administrator chooses explicit hosts, an exact common rule, runtime/permanent
 
 For deny/reject/drop or potentially restrictive changes, the same current authorized Admin completes two explicit confirmations; the second uses a rotated nonce and exact typed challenge. Normal supported additions use one reviewed Apply action. Scope/digest binding, replay protection, current roles/sessions and inventory/target checks remain in effect. No second administrator or selectable approval mode is required. Shared-token/demo authority remains lab-only.
 
-Confirmed work reaches agents through their normal authenticated policy polling. Live imported-rule changes require explicit endpoint configuration:
-
-```json
-{
-  "allow_firewall_changes": true
-}
-```
+Confirmed work reaches agents through their normal authenticated policy polling. Use the endpoint-configuration GUI and signed private kit to enable the separate `allow_firewall_changes` local opt-in. No manual JSON editing is required.
 
 Without this setting the endpoint returns a preview result. This setting is independent of managed source-policy `enforce`; that adapter now has a separate exact-approval, management-health and independent rollback workflow described in [managed-enforcement.md](managed-enforcement.md).
 
-The endpoint checks approval count, expiration and a freshly read inventory before execution. Supported operations use typed `firewall-cmd` arguments, save a local private backup, add replacements before removing old entries, and verify the result. Failure triggers reversal of only this operation's recorded mutations. The endpoint refuses unsafe management-access changes and unsupported rule contexts. Other rules, zone targets and global firewall settings are not rewritten. Per-host results distinguish applied, preview, conflict and failed outcomes; a global plan is not an atomic transaction across all hosts.
+The endpoint checks approval count, expiration and a freshly read inventory before execution. Supported operations use typed `firewall-cmd` arguments, save a local private backup, add replacements before removing old entries, and verify the result. Failure triggers reversal of only this operation's recorded mutations. The endpoint refuses unsafe management-access changes and unsupported rule contexts. Unrelated rules and global settings remain intact. Per-host results distinguish applied, preview, conflict and failed outcomes; a global plan is not an atomic transaction across all hosts. Imported mutations and automatic learned grants are held while whole-server default deny or its removal remains active; see [the dedicated ingress workflow](whole-server-default-deny.md).
 
 Backups and rollback attempts do not guarantee packet-level availability or connectivity under every local firewall writer. Validate the supported platform/rule matrix and management paths in a lab before enabling live imported-rule changes. Certificate authentication, explicit admin confirmation, endpoint opt-in and read-back are separate checks.
 
 ## Optional unexpected-port monitor
 
-This observer is separate from temporary application traffic learning. Enable it in the endpoint JSON, then restart the service:
+This observer is separate from temporary application traffic learning. Use the endpoint-configuration GUI to prepare and apply a signed kit enabling the unexpected-port monitor. The underlying opt-in is:
 
 ```json
 {

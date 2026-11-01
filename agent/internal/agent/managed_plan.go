@@ -62,7 +62,11 @@ func compiledPolicyDigest(p *Policy) (string, error) {
 		}
 		services = append(services, map[string]any{"port": svc.Port, "protocol": svc.Protocol, "mode": mode, "sources": sources})
 	}
-	data, err := json.Marshal(map[string]any{"mode": p.Mode, "services": services})
+	value := map[string]any{"mode": p.Mode, "services": services}
+	if p.HostDefaultDeny {
+		value["host_default_deny"] = true
+	}
+	data, err := json.Marshal(value)
 	if err != nil {
 		return "", err
 	}
@@ -79,6 +83,7 @@ func managedRuleText(nonce string, priority int, family, source string, svc Serv
 	return rule + fmt.Sprintf(` port port="%d" protocol="%s" log prefix="PRTM%s:" level="debug" limit value="1/m" %s`, svc.Port, svc.Protocol, nonce[:12], action)
 }
 func managedRules(p *Policy, protection Protection, nonce string, stage bool) ([]ManagedRule, error) {
+	p = hostDefaultDenyRulePolicy(p, protection)
 	allow, reject := managedCanonicalAllow, managedCanonicalReject
 	if stage {
 		allow, reject = managedStageAllow, managedStageReject
@@ -115,9 +120,14 @@ func managedRules(p *Policy, protection Protection, nonce string, stage bool) ([
 			}
 			rules = append(rules, ManagedRule{protection.Zone, managedRuleText(nonce, allow, family, source, svc, "accept")})
 		}
-		for _, family := range []string{"ipv4", "ipv6"} {
-			rules = append(rules, ManagedRule{protection.Zone, managedRuleText(nonce, reject, family, "", svc, "reject")})
+		if !p.HostDefaultDeny {
+			for _, family := range []string{"ipv4", "ipv6"} {
+				rules = append(rules, ManagedRule{protection.Zone, managedRuleText(nonce, reject, family, "", svc, "reject")})
+			}
 		}
+	}
+	if p.HostDefaultDeny {
+		rules = append(rules, hostDefaultDenyControlRules(protection, nonce, stage)...)
 	}
 	if len(rules) > maxManagedRules {
 		return nil, fmt.Errorf("managed bundle exceeds first-version limit of %d rich rules", maxManagedRules)
@@ -190,11 +200,11 @@ func (a *Agent) managedProtection(ctx context.Context) (Protection, error) {
 		add("no verified SSH listener found; management health cannot be attested")
 	}
 	protection.Ready = len(protection.Blockers) == 0
-	encoded, _ := json.Marshal(map[string]any{"management_sources": protection.ManagementSources, "ssh_ports": protection.SSHPorts, "controller_url": protection.ControllerURL, "management_probe_url": protection.ManagementProbeURL, "zone": protection.Zone})
-	protection.Digest = shaText(string(encoded))
+	protection.Digest = protectionDigest(protection)
+	a.enrichHostDefaultDenyProtection(ctx, &protection)
 	return protection, nil
 }
-func (a *Agent) managedPreflight(ctx context.Context, protection Protection) error {
+func (a *Agent) managedPreflight(ctx context.Context, protection Protection, wholeHost ...bool) error {
 	if err := policySigningReadiness(a.Config); err != nil {
 		return errors.New("policy signing trust: " + err.Error())
 	}
@@ -235,7 +245,7 @@ func (a *Agent) managedPreflight(ctx context.Context, protection Protection) err
 		case "source":
 			return errors.New("source-bound zones are unsupported")
 		case "target":
-			if strings.EqualFold(rule.Value, "ACCEPT") {
+			if strings.EqualFold(rule.Value, "ACCEPT") && !(len(wholeHost) > 0 && wholeHost[0]) {
 				return errors.New("zone target ACCEPT requires migration before enforcement")
 			}
 		case "rich_rule":
@@ -353,8 +363,7 @@ func (a *Agent) managedProtectionFromReport(report Report) Protection {
 		protection.Blockers = append(protection.Blockers, "simulation cannot enforce")
 	}
 	protection.Ready = len(protection.Blockers) == 0
-	encoded, _ := json.Marshal(map[string]any{"management_sources": protection.ManagementSources, "ssh_ports": protection.SSHPorts, "controller_url": protection.ControllerURL, "management_probe_url": protection.ManagementProbeURL, "zone": protection.Zone})
-	protection.Digest = shaText(string(encoded))
+	protection.Digest = protectionDigest(protection)
 	return protection
 }
 

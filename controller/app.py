@@ -449,7 +449,7 @@ def handler_for(app):
             if method in ("POST", "PUT", "PATCH", "DELETE"):
                 if principal.get("auth_type") == "session":
                     app.auth.require_csrf(self.headers, principal)
-                if path not in ("/api/v1/auth/logout", "/api/v1/firewall/query", "/api/v1/policies/query", "/api/v1/learning-policies/query", "/api/v1/policy-rollouts/query") and role not in ("admin", "super_admin"):
+                if path not in ("/api/v1/auth/logout", "/api/v1/firewall/query", "/api/v1/policies/query", "/api/v1/learning-policies/query", "/api/v1/policy-rollouts/query", "/api/v1/host-default-deny/query") and role not in ("admin", "super_admin"):
                     raise PermissionError("Admin or Super Admin role required")
                 origin = self.headers.get("Origin")
                 scheme = "https" if isinstance(self.connection, ssl.SSLSocket) else "http"
@@ -800,6 +800,19 @@ def handler_for(app):
                 if value.get("summary_only") is True:
                     raise ValueError("Open the exact immutable revision before requesting a restore")
                 self.response(201, app.store.rollback_policy(parts[1], value.get("revision"), value.get("reason"), actor, principal=principal))
+            elif parts and parts[0] == "host-default-deny":
+                from . import host_default_deny
+                if parts == ["host-default-deny"] and method == "GET":
+                    self.response(200, host_default_deny.listing(app.store, {**{key:query[key][0] for key in ("server_id","search") if key in query},"limit":int(query.get("limit",[50])[0]),"offset":int(query.get("offset",[0])[0])}))
+                elif parts == ["host-default-deny","query"] and method == "POST":
+                    self.response(200,host_default_deny.listing(app.store,self.body()))
+                elif parts == ["host-default-deny","preview"] and method == "POST":
+                    self.response(201,host_default_deny.preview(app.store,self.body(),actor,principal))
+                elif len(parts)==2 and method=="GET":
+                    self.response(200,host_default_deny.get(app.store,parts[1]))
+                elif len(parts)==3 and parts[2]=="confirm" and method=="POST":
+                    self.response(200,host_default_deny.confirm(app.store,parts[1],self.body(),actor,principal))
+                else:self.response(405,{"error":"Method not allowed"})
             elif parts == ["policy-rollouts"]:
                 if method == "GET":
                     from .managed_views import rollouts

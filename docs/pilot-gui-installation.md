@@ -1,4 +1,4 @@
-# GUI-configured 20-server pilot (0.7.0)
+# GUI-configured 20-server pilot (0.8.0)
 
 Configure Prṛthak in the GUI. The installer and fixed local manager generate
 protected files; no manual `.env`, agent JSON, token or CA editing is required.
@@ -51,7 +51,7 @@ flowchart LR
 
 ## 2. Stage the verified release and run one controller installer
 
-Obtain `prthak-controller-0.7.0.tar.gz` and its detached `.signature.json`.
+Obtain `prthak-controller-0.8.0.tar.gz` and its detached `.signature.json`.
 Verify exact archive bytes **before extraction/execution**, using an independently
 approved public release-signing pin and verifier. A public key downloaded beside
 an unknown archive does not establish trust. The project signing authority is
@@ -126,8 +126,8 @@ approved repositories. Family installers check prerequisites; they do not run
 apt/dnf, start firewalld, disable UFW or migrate existing rules. Package hooks
 may activate services, so stage OS work with management access protected.
 
-Stage and independently verify `prthak-agent-0.7.0-linux-amd64.tar.gz` or
-`prthak-agent-0.7.0-linux-arm64.tar.gz`, then extract to a protected root-owned
+Stage and independently verify `prthak-agent-0.8.0-linux-amd64.tar.gz` or
+`prthak-agent-0.8.0-linux-arm64.tar.gz`, then extract to a protected root-owned
 release directory. Use its signed runtime manifest and independently approved
 public trust. The static Go endpoint needs no Git, Python or Go compiler/runtime.
 
@@ -226,6 +226,11 @@ Begin temporary learning on selected ports and enable reviewed enforcement only
 after native SSH/controller protection and forced rollback checks pass.
 
 ## Direct administrative changes
+
+Automatic delivery here applies to ordinary per-port hosts. A host protected by
+whole-server default deny keeps its last working rules when its effective
+bundle changes, until a fresh dedicated downtime acknowledgement authorizes
+that exact replacement.
 
 An authenticated **Admin** or **Super Admin** saves policies, server groups,
 service groups and central metadata directly. Saving a managed policy publishes
@@ -354,3 +359,8 @@ firewalld/SELinux/SSH checks, the real 20-server pilot, live Entra/MFA, DC/WAN
 partitions, watchdog fencing and a real 5,000-endpoint workload remain external
 acceptance work. A standalone pilot or locally signed identity fixture does not
 validate HA, an organization tenant or production readiness.
+
+
+## Optional whole-server default deny
+
+After native lockout acceptance, use [Policies → Whole-server default deny](whole-server-default-deny.md) for a small explicit server/group scope. The endpoint needs the separate local opt-in and compatible agent; every push requires a fresh manually checked downtime acknowledgement. Monitor rows do not grant access through the global fallback. Existing sessions and the declared network-control exceptions are preserved. Review the exact affected servers and verify receipts; adding future group members never silently enables this option.

@@ -98,17 +98,21 @@ def _outcome_counts(db, approval_id):
     status = _expression(db, ("status",))
     intent = _expression(db, ("intent",))
     state = "CASE WHEN " + status + "='enforced' AND " + intent + "='remove_managed_rules' THEN 'removed' ELSE " + status + " END"
-    sql = "SELECT " + state + ",COUNT(*) FROM (SELECT data,ROW_NUMBER() OVER(PARTITION BY server_id ORDER BY created_at DESC,id DESC) AS rn FROM managed_outcomes WHERE approval_id=?) latest WHERE rn=1 GROUP BY " + state + " ORDER BY 1 LIMIT 33"
+    sql = "SELECT " + state + ",COUNT(*) FROM (SELECT data,ROW_NUMBER() OVER(PARTITION BY server_id ORDER BY created_at DESC,id DESC) AS rn FROM managed_outcomes WHERE approval_id=? AND " + _current_evidence(db) + ") latest WHERE rn=1 GROUP BY " + state + " ORDER BY 1 LIMIT 33"
     rows = list(db.execute(sql, (approval_id,)))
     if len(rows) > 32:
         raise ValueError("Managed outcome status catalogue exceeds its supported bound")
     return {row[0] or "unknown": int(row[1]) for row in rows}
 
 
+def _current_evidence(db):
+    return "COALESCE(CAST(" + _expression(db,("history_only",)) + " AS TEXT),'false') NOT IN ('true','1')"
+
+
 def rollouts(store, limit=20, offset=0, server_ids=None, search=""):
     checked = rollout_options({"limit": limit, "offset": offset, "server_ids": server_ids, "search": search})
     ids = checked["server_ids"]
-    fields = ("name", "status", "created_at", "expires_at", "created_by", "plan_digest", "confirmation_count", "requires_double_confirmation", "approval.mode", "approval.stage", "approval.requester.user_id", "approval.requester.tenant_id", "approval.requester.display_name")
+    fields = ("name", "status", "created_at", "expires_at", "created_by", "plan_digest", "confirmation_count", "requires_double_confirmation", "approval.mode", "approval.stage", "approval.requester.user_id", "approval.requester.tenant_id", "approval.requester.display_name", "kind")
     with snapshot(store) as db:
         where, args, matching = _scope(db, ids)
         if search:
@@ -123,6 +127,7 @@ def rollouts(store, limit=20, offset=0, server_ids=None, search=""):
         for row in db.execute(sql, parameters):
             values = {field: row[index + 1] for index, field in enumerate(fields)}
             item = {field: values[field] for field in fields[:6]}
+            if values["kind"]:item["kind"] = values["kind"]
             item.update(id=row[0], confirmation_count=int(values["confirmation_count"] or 0), requires_double_confirmation=values["requires_double_confirmation"] in ("1", "true", 1, True), target_count=int(row[-2]), matching_target_count=int(row[-1]), summary_only=True, requires_exact_review=True)
             if item["status"] in ("draft", "awaiting_second_confirmation", "queued") and item["expires_at"] and parse_time(item["expires_at"]) <= now():
                 item["status"] = "expired"
@@ -166,6 +171,9 @@ def rollout(store, plan_id):
         value, used = _exact(db, "managed_rollouts", "id=?", (plan_id,), MAX_DETAIL_BYTES)
         if value.get("id") != plan_id:
             raise ValueError("Exact managed review identity mismatch")
+        if value.get("kind") == "host_default_deny":
+            from .host_default_deny import _public
+            return _public(value)
         ids = value.get("server_ids")
         rollout_options({"server_ids": ids})
         if not ids:
@@ -175,7 +183,7 @@ def rollout(store, plan_id):
                 value["status"] = "expired"
             elif not _bindings_match(db, ids, value.get("bindings")):
                 value.update(status="invalidated", error="Desired policy, protected baseline or exact target IPs changed")
-        source = "SELECT server_id,data FROM (SELECT server_id,data,ROW_NUMBER() OVER(PARTITION BY server_id ORDER BY created_at DESC,id DESC) AS rn FROM managed_outcomes WHERE approval_id=?) latest WHERE rn=1"
+        source = "SELECT server_id,data FROM (SELECT server_id,data,ROW_NUMBER() OVER(PARTITION BY server_id ORDER BY created_at DESC,id DESC) AS rn FROM managed_outcomes WHERE approval_id=? AND " + _current_evidence(db) + ") latest WHERE rn=1"
         metadata = db.execute("SELECT COUNT(*),COALESCE(SUM(" + _size(db) + "+" + _size(db, "server_id") + "+4),0) FROM (" + source + ") counted", (plan_id,)).fetchone()
         count, size = metadata[0], metadata[1]
         if int(count) > 20000 or used + int(size) + 4096 > MAX_DETAIL_BYTES:
@@ -202,7 +210,7 @@ def _history_page(store, table, owner_field, owner, number_field, fields, limit,
             if table == "bundle_history":
                 count = int(db.execute("SELECT COUNT(*) FROM managed_outcomes WHERE server_id=? AND version=?", (owner, item["version"])).fetchone()[0])
                 outcome_fields = ("status", "intent", "error", "rollback_reason", "message", "updated_at")
-                latest = db.execute("SELECT " + ",".join(_scalar(db, field) for field in outcome_fields) + " FROM (SELECT data FROM managed_outcomes WHERE server_id=? AND version=? ORDER BY created_at DESC,id DESC LIMIT 1) latest", (owner, item["version"])).fetchone()
+                latest = db.execute("SELECT " + ",".join(_scalar(db, field) for field in outcome_fields) + " FROM (SELECT data FROM managed_outcomes WHERE server_id=? AND version=? AND " + _current_evidence(db) + " ORDER BY created_at DESC,id DESC LIMIT 1) latest", (owner, item["version"])).fetchone()
                 item["outcome_total"] = count
                 item["outcomes"] = [{**{field: latest[index] for index, field in enumerate(outcome_fields)}, "version": item["version"], "summary_only": True}] if latest else []
             items.append(item)

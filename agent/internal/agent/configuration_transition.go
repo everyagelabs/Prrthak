@@ -28,6 +28,7 @@ type EndpointConfigurationSettings struct {
 	ControlURL                   string   `json:"control_url"`
 	DiscoveryURL                 string   `json:"discovery_url"`
 	Enforce                      bool     `json:"enforce"`
+	AllowHostDefaultDeny         bool     `json:"allow_host_default_deny,omitempty"`
 	AllowFirewallChanges         bool     `json:"allow_firewall_changes"`
 	LearningAutoAllow            bool     `json:"learning_auto_allow"`
 	UnexpectedPortMonitorEnabled bool     `json:"unexpected_port_monitor_enabled"`
@@ -129,7 +130,7 @@ func configurationState(c Config) *EndpointConfigurationState {
 	sort.Strings(sources)
 	ports := append([]int{}, c.ProtectedSSHPorts...)
 	sort.Ints(ports)
-	return &EndpointConfigurationState{EndpointConfigurationSettings: EndpointConfigurationSettings{ControllerURL: c.ControllerURL, ControlURL: c.ControlURL, DiscoveryURL: c.DiscoveryURL, Enforce: c.Enforce, AllowFirewallChanges: c.AllowFirewallChanges, LearningAutoAllow: c.LearningAutoAllow, UnexpectedPortMonitorEnabled: c.UnexpectedPortMonitorEnabled, ManagementSources: sources, ProtectedSSHPorts: ports, Zone: c.Zone}, Digest: configDigest(c)}
+	return &EndpointConfigurationState{EndpointConfigurationSettings: EndpointConfigurationSettings{ControllerURL: c.ControllerURL, ControlURL: c.ControlURL, DiscoveryURL: c.DiscoveryURL, Enforce: c.Enforce, AllowHostDefaultDeny: c.AllowHostDefaultDeny, AllowFirewallChanges: c.AllowFirewallChanges, LearningAutoAllow: c.LearningAutoAllow, UnexpectedPortMonitorEnabled: c.UnexpectedPortMonitorEnabled, ManagementSources: sources, ProtectedSSHPorts: ports, Zone: c.Zone}, Digest: configDigest(c)}
 }
 
 // EndpointConfigurationReceipt exposes only public operational settings and a
@@ -150,6 +151,9 @@ func CheckEndpointConfiguration(path, configPath string) error {
 	return err
 }
 func transitionConfig(c Config, settings EndpointConfigurationSettings) (Config, error) {
+	if settings.AllowHostDefaultDeny && (!settings.Enforce || settings.LearningAutoAllow) {
+		return c, errors.New("whole-server default deny requires enforcement and prohibits automatic learned grants")
+	}
 	if settings.LearningAutoAllow && !settings.Enforce {
 		return c, errors.New("automatic learned access requires the managed-enforcement local opt-in")
 	}
@@ -171,6 +175,7 @@ func transitionConfig(c Config, settings EndpointConfigurationSettings) (Config,
 	}
 	c.ControllerURL, c.ControlURL, c.DiscoveryURL = settings.ControllerURL, settings.ControlURL, settings.DiscoveryURL
 	c.Enforce, c.AllowFirewallChanges, c.LearningAutoAllow, c.UnexpectedPortMonitorEnabled = settings.Enforce, settings.AllowFirewallChanges, settings.LearningAutoAllow, settings.UnexpectedPortMonitorEnabled
+	c.AllowHostDefaultDeny = settings.AllowHostDefaultDeny
 	// Retired approval-mode fields are cleared only by explicit local
 	// reconfiguration. They never elevate unrelated firewall opt-ins.
 	c.AllowSingleAdminPilot = false

@@ -20,7 +20,7 @@ func controllerIngressTargeted(origin string, p *Policy) bool {
 			return true
 		}
 	}
-	targeted := false
+	targeted := p.HostDefaultDeny
 	for _, svc := range p.Services {
 		mode := svc.Mode
 		if mode == "" {

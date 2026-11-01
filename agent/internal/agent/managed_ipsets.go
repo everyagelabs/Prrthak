@@ -63,6 +63,7 @@ func managedSetRules(p *Policy, protection Protection, bank string, nonce string
 	return sourceSetRules(p, protection, bank, nonce, stage, false)
 }
 func sourceSetRules(p *Policy, protection Protection, bank string, nonce string, stage, additive bool) ([]ManagedRule, []ManagedIPSet, error) {
+	p = hostDefaultDenyRulePolicy(p, protection)
 	if bank != "a" && bank != "b" && bank != "la" && bank != "lb" {
 		return nil, nil, errors.New("invalid managed source-set bank")
 	}
@@ -142,10 +143,13 @@ func sourceSetRules(p *Policy, protection Protection, bank string, nonce string,
 				rule = strings.Replace(rule, " port port=", ` source ipset="`+name+`" port port=`, 1)
 				rules = append(rules, ManagedRule{protection.Zone, rule})
 			}
-			if !additive {
+			if !additive && !p.HostDefaultDeny {
 				rules = append(rules, ManagedRule{protection.Zone, managedRuleText(nonce, reject, richFamily, "", svc, "reject")})
 			}
 		}
+	}
+	if p.HostDefaultDeny && !additive {
+		rules = append(rules, hostDefaultDenyControlRules(protection, nonce, stage)...)
 	}
 	if len(rules) > maxManagedSetRules || total > maxManagedTotalEntries {
 		return nil, nil, errors.New("managed set bundle exceeds bounded port/source capacity")
@@ -166,6 +170,9 @@ func (a *Agent) managedRulePlan(p *Policy, protection Protection, nonce string, 
 }
 
 func parseManagedRich(value string) (richInfo, error) {
+	if info, ok := parseHostDefaultDenyControl(value); ok {
+		return info, nil
+	}
 	info, e := parseRich(value)
 	if e == nil {
 		return info, nil

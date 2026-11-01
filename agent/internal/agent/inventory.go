@@ -71,7 +71,7 @@ func (a *Agent) inventoryReport(ctx context.Context, now time.Time) Report {
 	}
 	report.Capabilities = []string{LearningDiscoveryCapability, LearningAutoAllowCapability, PollingSettingsCapability, "managed_ipsets_v1", "signed_assignments_v1", LearningIPSetCapability}
 	if !a.Simulate {
-		report.Capabilities = append(report.Capabilities, "endpoint_configuration_v1", "approval_mode_proof_v1")
+		report.Capabilities = append(report.Capabilities, "endpoint_configuration_v1", "approval_mode_proof_v1", HostDefaultDenyCapability)
 	}
 	report.Capabilities = append(report.Capabilities, "imported_zone_target_v1", "imported_direct_v1", "imported_nat_v1")
 	report.Capabilities = append(report.Capabilities, HitMonitorCapability)

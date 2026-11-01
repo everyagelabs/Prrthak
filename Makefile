@@ -68,6 +68,7 @@ check:
 	node --check dashboard/locations-page.js
 	node --check dashboard/managed.js
 	node --check dashboard/managed-page.js
+	node --check dashboard/default-deny-page.js
 	node --check dashboard/metadata-page.js
 	node --check dashboard/firewall.js
 	node --check dashboard/firewall-page.js

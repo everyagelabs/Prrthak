@@ -353,6 +353,7 @@ func (a *Agent) report(ctx context.Context) error {
 	r.ApplyError = a.applyError
 	if a.protection == nil || a.protectionDiscoverySequence != r.discoverySequence {
 		protection := a.managedProtectionFromReport(r)
+		a.enrichHostDefaultDenyProtection(ctx, &protection)
 		a.protection = &protection
 		a.protectionDiscoverySequence = r.discoverySequence
 	}

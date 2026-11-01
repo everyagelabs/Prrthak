@@ -45,21 +45,25 @@ networks on the actual SSH port, including 2022. Both IPv4 and IPv6 require the
 corresponding exact source scope. Rich rules support source, port, logging and
 accept/reject/drop actions. [firewalld rich language](https://firewalld.org/documentation/man-pages/firewalld.richlanguage.html).
 
-The current adapter restricts **selected managed inbound TCP/UDP ports**. It
-preserves unrelated firewall rules and unmanaged ports. Adding a managed 443
-policy does not automatically close 80 or every other port. Existing conntrack
-sessions are not forcibly terminated.
+Ordinary policies restrict **selected managed inbound TCP/UDP ports** and
+preserve unrelated ports. Adding a managed 443 policy alone does not close 80.
+The separate **whole-server default-deny** workflow can reject unmatched new
+inbound traffic after the exact approved grants and declared network-control
+exceptions. It requires an upgraded agent, a separate local opt-in and a fresh
+manually checked downtime acknowledgement for each push. Existing conntrack
+sessions are not forcibly terminated. See [the GUI workflow and safety
+boundaries](whole-server-default-deny.md).
 
 Temporary learning is separate: observation rules log only; explicitly approved
 automatic learning adds accept-only source overlays. That overlay alone does not
 reject unobserved clients if a broader existing zone rule still allows them.
 Use the reviewed managed policy path for exclusive source restrictions.
 
-Whole-host “deny every other inbound port,” outbound segmentation and
-container/forwarded traffic are not implemented by this adapter. Whole-host
-default deny would require a separate explicit review of management, controller,
-DNS/other necessary infrastructure, interfaces/zones, IPv6 and rollback. Do not
-assume that discovering no listener authorizes closing a port.
+Whole-server default deny uses host INPUT rules and retains its explicit
+SSH/controller, ICMP/IPv6 and DHCP-client protection. Unsupported NAT/routing,
+ambiguous zone and competing-rule contexts block activation. Outbound and
+container/forwarded segmentation remain outside this adapter. Discovering no
+listener does not authorize closing a port; the dedicated reviewed push does.
 
 ## Availability and operating sequence
 

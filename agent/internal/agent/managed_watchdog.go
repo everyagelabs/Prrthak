@@ -117,6 +117,12 @@ func managedOwned(rule string) bool {
 	if e != nil {
 		return false
 	}
+	if len(info.LogPrefix) != 17 || !strings.HasPrefix(info.LogPrefix, "PRTM") || !strings.HasSuffix(info.LogPrefix, ":") || !validDigest(strings.Repeat(info.LogPrefix[4:16], 5)+info.LogPrefix[4:8]) {
+		return false
+	}
+	if info.Port == "" {
+		return hostDefaultDenyOwnedControl(info)
+	}
 	return (info.Priority == managedCanonicalAllow || info.Priority == managedCanonicalReject || info.Priority == managedStageAllow || info.Priority == managedStageReject) && strings.HasPrefix(info.LogPrefix, "PRTM") && len(info.LogPrefix) == 17 && strings.HasSuffix(info.LogPrefix, ":") && info.LogLevel == "debug" && info.LogLimit == "1/m" && (info.Action == "accept" || info.Action == "reject")
 }
 func rollbackManaged(ctx context.Context, runner CommandRunner, path string, journal *managedJournal) error {

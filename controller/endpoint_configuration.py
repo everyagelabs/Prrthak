@@ -18,10 +18,13 @@ from .store import digest, now, parse_time, stamp
 
 TABLE = "endpoint_configuration_reviews"
 CAPABILITY = "endpoint_configuration_v1"
-SECURITY_FLAGS = ("enforce", "allow_firewall_changes", "learning_auto_allow", "unexpected_port_monitor_enabled")
+HOST_DENY_FLAG = "allow_host_default_deny"
+HOST_DENY_CAPABILITY = "host_default_deny_v1"
+SECURITY_FLAGS = ("enforce", "allow_firewall_changes", "learning_auto_allow", "unexpected_port_monitor_enabled", HOST_DENY_FLAG)
 FLAGS = SECURITY_FLAGS
 URLS = ("controller_url", "control_url", "discovery_url")
 FIELDS = (*FLAGS, *URLS, "management_sources", "protected_ssh_ports", "zone")
+LEGACY_FIELDS = tuple(key for key in FIELDS if key != HOST_DENY_FLAG)
 HEX = re.compile(r"[a-f0-9]{64}\Z")
 
 
@@ -40,21 +43,24 @@ def report(value):
         if not isinstance(value["allow_single_admin_pilot"],bool):
             raise ValueError("Invalid retired endpoint setting")
         value={key:item for key,item in value.items() if key!="allow_single_admin_pilot"}
-    if not isinstance(value, dict) or set(value) != {"digest", *FIELDS} or not isinstance(value.get("digest"), str) or not HEX.fullmatch(value["digest"]):
+    if not isinstance(value, dict) or set(value) not in ({"digest", *FIELDS}, {"digest", *LEGACY_FIELDS}) or not isinstance(value.get("digest"), str) or not HEX.fullmatch(value["digest"]):
         raise ValueError("Invalid endpoint configuration receipt")
-    return {"digest": value["digest"], **normalize({key: value[key] for key in FIELDS}, protect=False)}
+    return {"digest": value["digest"], **normalize({key: value[key] for key in FIELDS if key in value}, protect=False)}
 
 
 def normalize(value, *, protect=True):
-    if not isinstance(value, dict) or set(value) != set(FIELDS):
+    if not isinstance(value, dict) or set(value) not in (set(FIELDS), set(LEGACY_FIELDS)):
         raise ValueError("Provide the exact security settings, controller channels and management scope")
     result = {}
     for key in FLAGS:
-        if not isinstance(value[key], bool):
+        flag = value.get(key, False)
+        if not isinstance(flag, bool):
             raise ValueError("Security opt-ins must be explicit booleans")
-        result[key] = value[key]
+        result[key] = flag
     if protect and result["learning_auto_allow"] and not result["enforce"]:
         raise ValueError("Automatic learned access requires the managed-enforcement local opt-in too")
+    if protect and result[HOST_DENY_FLAG] and (not result["enforce"] or result["learning_auto_allow"]):
+        raise ValueError("Whole-server default deny requires managed enforcement and automatic learning disabled")
     for key in URLS:
         result[key] = origin(value[key]) if value[key] else ""
     if not result["controller_url"]:
@@ -82,6 +88,14 @@ def normalize(value, *, protect=True):
     return result
 
 
+def _wire_settings(value):
+    """Keep the false opt-in absent from legacy signed configuration scopes."""
+    result = normalize(value)
+    if result[HOST_DENY_FLAG] is False:
+        result.pop(HOST_DENY_FLAG)
+    return result
+
+
 def _server(store, db, identifier):
     server = store._get(db, "servers", identifier)
     if not server or CAPABILITY not in server.get("capabilities", []) or not server.get("configuration_state") or not server.get("ips"):
@@ -101,7 +115,9 @@ def _ssh(server):
 
 
 def _can_enable(server, settings):
-    if any(settings[key] for key in SECURITY_FLAGS) and (server.get("firewalld_state") != "running" or server.get("ufw_active")):
+    if settings.get(HOST_DENY_FLAG, False) and HOST_DENY_CAPABILITY not in server.get("capabilities", []):
+        raise ValueError("Upgrade this endpoint to host_default_deny_v1 before enabling whole-server default deny")
+    if any(settings.get(key, False) for key in SECURITY_FLAGS) and (server.get("firewalld_state") != "running" or server.get("ufw_active")):
         raise ValueError("Prepare running firewalld and resolve UFW coexistence before enabling endpoint firewall opt-ins")
 
 
@@ -112,6 +128,10 @@ def preview(app, value, actor, principal):
     certificate = _public_ca(value["controller_ca_pem"]) if value["controller_ca_pem"] else ""
     with app.store.lock, app.store.meta() as db:
         server = _server(app.store, db, value["server_id"])
+        if settings[HOST_DENY_FLAG] and HOST_DENY_CAPABILITY not in server.get("capabilities", []):
+            raise ValueError("Upgrade this endpoint to host_default_deny_v1 before enabling whole-server default deny")
+        if server["configuration_state"].get(HOST_DENY_FLAG) is True and HOST_DENY_FLAG not in value["settings"]:
+            raise ValueError("Explicitly preserve or disable the existing whole-server default-deny opt-in")
         _can_enable(server, settings)
         if any(settings[key] != server["configuration_state"][key] for key in URLS) and not value["retain_old_origin"]:
             raise ValueError("Confirm that old and proposed origins remain reachable for the same deployment during migration")
@@ -119,7 +139,7 @@ def preview(app, value, actor, principal):
             raise ValueError("Protect every currently discovered SSH listener")
         scope = {"server_id": server["id"], "hostname": server["hostname"], "ips": sorted(server.get("ips", [])),
                  "expected_config_digest": server["configuration_state"]["digest"], "target_binding": _binding(server),
-                 "settings": settings, "controller_ca_pem": certificate, "retain_old_origin": value["retain_old_origin"]}
+                 "settings": _wire_settings(settings), "controller_ca_pem": certificate, "retain_old_origin": value["retain_old_origin"]}
         plan = {"id": str(uuid.uuid4()), "created_at": stamp(), "expires_at": stamp(now() + timedelta(minutes=30)), "scope": scope,
                 "plan_digest": digest(scope), "status": "draft"}
         approvals.request(app.store, db, plan, actor, principal, endpoint_ids=[server["id"]],scope_kind="endpoint_configuration")
@@ -144,9 +164,9 @@ def _plan(app, db, identifier, *, candidate=None):
         if server["hostname"] != plan["scope"]["hostname"] or sorted(server.get("ips", [])) != plan["scope"]["ips"]:
             raise WorkflowConflict("Endpoint identity or addresses changed", {})
         observed = server["configuration_state"]
-        if any(plan["scope"]["settings"][key] for key in SECURITY_FLAGS) and not set(_ssh(server)) <= set(plan["scope"]["settings"]["protected_ssh_ports"]):
+        if any(plan["scope"]["settings"].get(key, False) for key in SECURITY_FLAGS) and not set(_ssh(server)) <= set(plan["scope"]["settings"]["protected_ssh_ports"]):
             raise WorkflowConflict("SSH listeners changed; review the current protection scope", {})
-        if observed["digest"] != candidate or {key: observed[key] for key in FIELDS} != plan["scope"]["settings"]:
+        if observed["digest"] != candidate or normalize({key: observed[key] for key in FIELDS}, protect=False) != normalize(plan["scope"]["settings"], protect=False):
             raise WorkflowConflict("Waiting for the exact candidate's fresh authenticated report", {})
     return plan, server
 

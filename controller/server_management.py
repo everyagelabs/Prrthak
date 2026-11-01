@@ -104,7 +104,8 @@ def _cleanup_verified(store, db, server, approvals):
     if not cleanup or any(item.get("intent", "enforce") != "remove_managed_rules"
                           and item.get("approved_version", 0) > version for item in approvals):
         return False
-    row = db.execute("SELECT data FROM managed_outcomes WHERE server_id=? ORDER BY created_at DESC LIMIT 1", (server["id"],)).fetchone()
+    from .managed_views import _current_evidence
+    row = db.execute("SELECT data FROM managed_outcomes WHERE server_id=? AND " + _current_evidence(db) + " ORDER BY created_at DESC LIMIT 1", (server["id"],)).fetchone()
     if not row:
         return False
     outcome = json.loads(row[0])

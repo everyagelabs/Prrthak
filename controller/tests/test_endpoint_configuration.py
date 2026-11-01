@@ -140,6 +140,44 @@ class EndpointConfigurationTests(unittest.TestCase):
         legacy={"digest":"b"*64,**self.current,"allow_single_admin_pilot":True}
         self.assertNotIn("allow_single_admin_pilot",lifecycle.report(legacy))
 
+    def test_host_deny_false_preserves_legacy_receipts_and_signed_scope(self):
+        legacy = {key: value for key, value in self.current.items() if key != lifecycle.HOST_DENY_FLAG}
+        reported = lifecycle.report({"digest": "b" * 64, **legacy})
+        self.assertIs(reported[lifecycle.HOST_DENY_FLAG], False)
+        plan = self.preview()
+        self.assertNotIn(lifecycle.HOST_DENY_FLAG, plan["scope"]["settings"])
+        kit = lifecycle.kit(self.app, plan["id"], self.maker["actor"])
+        self.assertNotIn(lifecycle.HOST_DENY_FLAG, kit["manifest"]["scope"]["settings"])
+        for malformed in ("false", 0, None):
+            with self.subTest(malformed=malformed), self.assertRaises(ValueError):
+                lifecycle.report({"digest": "b" * 64, **legacy, lifecycle.HOST_DENY_FLAG: malformed})
+
+    def test_host_deny_optin_requires_new_agent_enforcement_and_no_auto_allow(self):
+        value = copy.deepcopy(self.value)
+        value["settings"][lifecycle.HOST_DENY_FLAG] = True
+        with self.assertRaisesRegex(ValueError, "Upgrade"):
+            self.preview(value)
+        server = self.store.get("servers", "target")
+        with self.store.meta() as db:
+            self.store._put(db, "servers", {**server, "capabilities": [*server["capabilities"], lifecycle.HOST_DENY_CAPABILITY]})
+        for changes in ({"enforce": False}, {"learning_auto_allow": True}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.preview({**value, "settings": {**value["settings"], **changes}})
+        plan = self.preview(value)
+        self.assertIs(plan["scope"]["settings"][lifecycle.HOST_DENY_FLAG], True)
+        self.assertIs(lifecycle.kit(self.app, plan["id"], self.maker["actor"])["manifest"]["scope"]["settings"][lifecycle.HOST_DENY_FLAG], True)
+
+    def test_legacy_client_cannot_silently_clear_existing_host_deny_optin(self):
+        server = self.store.get("servers", "target")
+        with self.store.meta() as db:
+            self.store._put(db, "servers", {**server, "capabilities": [*server["capabilities"], lifecycle.HOST_DENY_CAPABILITY], "configuration_state": {**server["configuration_state"], lifecycle.HOST_DENY_FLAG: True}})
+        value = copy.deepcopy(self.value)
+        value["settings"].pop(lifecycle.HOST_DENY_FLAG)
+        with self.assertRaisesRegex(ValueError, "Explicitly preserve or disable"):
+            self.preview(value)
+        value["settings"][lifecycle.HOST_DENY_FLAG] = False
+        self.assertNotIn(lifecycle.HOST_DENY_FLAG, self.preview(value)["scope"]["settings"])
+
     def test_stale_and_unsupported_hosts_or_credential_fields_are_refused(self):
         for field, value in (("last_seen", stamp(now() - timedelta(minutes=5))), ("capabilities", [])):
             original = self.store.get("servers", "target")
@@ -180,11 +218,30 @@ class EndpointConfigurationTests(unittest.TestCase):
         result = subprocess.run([binary, "--check-configuration", str(path), "--config", str(config_path)], capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("native identity/network/systemd acceptance remains separate", result.stdout)
+        old_binary = os.environ.get("SEG_AGENT_OLD_BINARY")
+        if old_binary:
+            old_result = subprocess.run([old_binary, "--check-configuration", str(path), "--config", str(config_path)], capture_output=True, text=True, timeout=15)
+            self.assertEqual(old_result.returncode, 0, old_result.stderr)
         kit["manifest"]["scope"]["settings"]["learning_auto_allow"] = True
         path.write_text(json.dumps(kit))
         result = subprocess.run([binary, "--check-configuration", str(path), "--config", str(config_path)], capture_output=True, text=True, timeout=15)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("differs from independent signature", result.stderr)
+        self.assertEqual(json.loads(config_path.read_text()), config)
+        with self.store.meta() as db:
+            server = self.store._get(db, "servers", "target")
+            server["capabilities"].append(lifecycle.HOST_DENY_CAPABILITY)
+            self.store._put(db, "servers", server)
+        self.value["settings"][lifecycle.HOST_DENY_FLAG] = True
+        opted_in = self.approved()
+        opted_kit = lifecycle.kit(self.app, opted_in["id"], self.maker["actor"])
+        path.write_text(json.dumps(opted_kit))
+        enabled = subprocess.run([binary, "--check-configuration", str(path), "--config", str(config_path)], capture_output=True, text=True, timeout=15)
+        self.assertEqual(enabled.returncode, 0, enabled.stderr)
+        self.assertTrue(opted_kit["manifest"]["scope"]["settings"][lifecycle.HOST_DENY_FLAG])
+        if old_binary:
+            refused = subprocess.run([old_binary, "--check-configuration", str(path), "--config", str(config_path)], capture_output=True, text=True, timeout=15)
+            self.assertNotEqual(refused.returncode, 0)
         self.assertEqual(json.loads(config_path.read_text()), config)
 
 

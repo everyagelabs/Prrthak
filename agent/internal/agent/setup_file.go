@@ -210,7 +210,7 @@ func parseSetup(data []byte, hostname string, now time.Time) (Config, setupFile,
 		return Config{}, value, errors.New("setup config has an unsupported field or value")
 	}
 	c, err = validateConfig(c, false)
-	if err != nil || ValidateInstallConfig(c) != nil || c.EnrollmentTokenFile != "/etc/seg-agent/enrollment-token" || c.Enforce || c.AllowFirewallChanges || c.LearningAutoAllow || c.UnexpectedPortMonitorEnabled || c.AllowSingleAdminPilot || c.SingleAdminPilotScope != nil || c.DemoAgentID != "" || c.PolicySigningTrustFile != "" || len(c.PolicySigningKeys) != 0 || c.PolicySigningDeploymentID != "" || c.ManagementProbeURL != "" || c.ManagementProbeCACert != "" {
+	if err != nil || ValidateInstallConfig(c) != nil || c.EnrollmentTokenFile != "/etc/seg-agent/enrollment-token" || c.Enforce || c.AllowHostDefaultDeny || c.AllowFirewallChanges || c.LearningAutoAllow || c.UnexpectedPortMonitorEnabled || c.AllowSingleAdminPilot || c.SingleAdminPilotScope != nil || c.DemoAgentID != "" || c.PolicySigningTrustFile != "" || len(c.PolicySigningKeys) != 0 || c.PolicySigningDeploymentID != "" || c.ManagementProbeURL != "" || c.ManagementProbeCACert != "" {
 		return Config{}, value, errors.New("setup config must use canonical monitor-only paths and valid intervals")
 	}
 	if !validSetupCA(value.ControllerCA, expires, now) || (value.EndpointCA != "" && !validSetupCA(value.EndpointCA, expires, now)) || (value.EndpointCA == "") != (c.EndpointCACert == "") {

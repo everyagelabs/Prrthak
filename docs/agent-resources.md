@@ -1,6 +1,6 @@
 # Endpoint agent resource evidence
 
-31 October 2026. These are measurements of the exact existing Linux ARM64 agent binary in one disposable Ubuntu 26.04 container. They are a small passive baseline, not an endpoint sizing guarantee or native RHEL acceptance.
+Historical passive baseline · 31 October 2026, before the 0.8 whole-server default-deny feature. These measurements used one exact Linux ARM64 agent binary in a disposable Ubuntu 26.04 container. They are not a measurement of 0.8 enforcement, an endpoint sizing guarantee or native RHEL acceptance.
 
 The 95-second run used actual `ss` and firewalld read discovery, enrollment, mTLS and signed policy polling. Simulation was off. The fixture had one loopback listener and an empty policy; enforcement and learning were off. Control/discovery intervals were the default 60/900 seconds. Three reports and two policy checks completed. Ubuntu userspace used the shared validation VM's Linux 6.8 kernel; systemd on a native target host was not exercised.
 
@@ -17,7 +17,7 @@ The post-startup CPU window was 64.893 seconds; the complete sampled window was 
 
 The recorder used a wrong report-field key for its optional firewall-state column, leaving that column null. The fixture independently asserted a real successful `firewall-cmd --state` before starting the agent; the null column is not presented as a firewall-state measurement. Full method, binary/image hashes, command assertions and cleanup are in the [probe report](../.local/security-audit/agent-resources.md), [raw measurements](../.local/security-audit/agent-resources.json) and [probe source](../.local/security-audit/agent-resources.py). The temporary image/container and state were removed. No installed host or DC endpoint was changed.
 
-The binaries occupy **7.81 MiB on amd64** and **7.19 MiB on ARM64** on disk. Disk size is different from runtime memory. The current systemd unit has no `CPUQuota`, `MemoryHigh` or `MemoryMax`; the measurements are not enforced limits.
+The measured baseline binaries occupied **7.81 MiB on amd64** and **7.19 MiB on ARM64** on disk; rebuilt versions can differ. Disk size is different from runtime memory. The current systemd unit has no `CPUQuota`, `MemoryHigh` or `MemoryMax`; the measurements are not enforced limits.
 
 Active traffic learning/log bursts, managed enforcement and rollback, large source sets, outages, long-running behavior and native RHEL 8/9 or Ubuntu systemd hosts remain unmeasured. These require workload-specific profiling before selecting resource limits. Ordinary traffic is filtered by firewalld's kernel rules; the agent does not proxy application packets. Temporary learning adds kernel/journal event processing.
 

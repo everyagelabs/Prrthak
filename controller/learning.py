@@ -127,6 +127,8 @@ def create_session(store, value, actor, *, principal=None):
         if mode == "discovered" and unsupported:
             raise ValueError("Automatic learning requires an agent supporting learning_discovery_v1 (0.3.0 or later). Upgrade these agents or use manual ports: " + ", ".join(unsupported[:20]))
         if policy_action == "auto_allow":
+            from .host_default_deny import guarded
+            if any(guarded(server) for server in servers):raise ValueError("Disable whole-server deny through its acknowledged flow before automatic source grants")
             unsupported = [server["hostname"] for server in servers if AUTO_ALLOW_CAPABILITY not in server.get("capabilities", [])]
             if unsupported:
                 raise ValueError("Automatic source allows require learning_auto_allow_v1 (agent 0.4.0 or later). Upgrade: " + ", ".join(unsupported[:20]))

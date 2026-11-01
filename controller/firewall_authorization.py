@@ -19,6 +19,8 @@ def check(store, identity, body):
         if plan.get("confirmation_count", 0) < required or not approvals.authorized(store, db, plan.get("approval_proof"), plan_id=plan["id"], plan_digest=plan["plan_digest"], server_id=identity):
             raise PermissionError("Current Admin firewall authorization is missing or revoked")
         server = store._get(db, "servers", identity)
+        from .host_default_deny import guarded
+        if server and guarded(server):raise PermissionError("Imported-rule mutations are held while whole-server deny is enabled or being removed")
         snapshot = snapshot_view(server) if server else {}
         if not server or target_digest(server) != plan["target_digests"][identity] or snapshot.get("status") != "ok" or snapshot.get("stale"):
             raise PermissionError("Endpoint protection or firewall inventory is no longer current")

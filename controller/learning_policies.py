@@ -200,6 +200,8 @@ def _active(session):
 
 
 def _automatic(store, db, session, server, rows, evidence_overflow=False):
+    from .host_default_deny import guarded
+    if guarded(server):return
     if session.get("policy_action", "observe") != "auto_allow" or session.get("selection_mode") != "discovered" or session.get("auto_allow_confirmed") is not True or server["id"] in session.get("auto_allow_paused_server_ids", []) or not _active(session):
         return
     from . import approvals
@@ -325,6 +327,8 @@ def assignment(store, db, server):
         body_digest = digest({"services": [], "policy_ids": []})
         bindings = _bindings(server)
         return {"server_id": server["id"], "generation": 0, "digest": body_digest, "services": [], "policy_ids": [], "authorities": [], **bindings, "binding_digest": digest_binding(server["id"], 0, body_digest, bindings["protection_digest"], bindings["target_ips_digest"]), "authorized": False, "reason": "No learning-owned policy is assigned", "expires_at": "1970-01-01T00:00:00Z"}
+    from .host_default_deny import guarded
+    if guarded(server):return {**host,"authorized":False,"reason":"Learning mutations are held while whole-server deny is enabled or being removed","expires_at":"1970-01-01T00:00:00Z"}
     current = now()
     policies = _all_policies(store, db, server["id"], include_removed=True)
     by_id = {policy["id"]: policy for policy in policies}
@@ -595,6 +599,8 @@ def apply(store, session_id, value, actor, *, principal=None):
             return {"policies": [store._get(db, "learning_allow_policies", identifier) for identifier in plan["policy_ids"]], "target_server_ids": plan["target_server_ids"], "duplicate": True}
         session = store._get(db, "sessions", session_id)
         targets, group_state = _selection(store, db, plan["selection"])
+        from .host_default_deny import guarded
+        if any(guarded(target) for target in targets):raise ValueError("Learning mutations are held while whole-server deny is enabled or being removed")
         if parse_time(plan["expires_at"]) <= now() or session.get("evidence_revision", 0) != plan["evidence_revision"] or group_state != plan["group_state"] or [target["id"] for target in targets] != plan["target_server_ids"] or any(_target_fingerprint(target) != plan["target_fingerprints"][target["id"]] for target in targets):
             raise WorkflowConflict("Evidence, target membership or protected state changed; preview again", {})
         if plan["warnings"]:
@@ -640,6 +646,8 @@ def _edit(store, identifier, value, actor, removing=False, *, principal=None, re
         server = store._get(db, "servers", policy["server_id"])
         if server is None:
             raise ValueError("Target endpoint is no longer enrolled")
+        from .host_default_deny import guarded
+        if guarded(server):raise ValueError("Learning mutations are held while whole-server deny is enabled or being removed")
         name = value.get("name", policy["name"])
         if not isinstance(name, str) or not name.strip() or len(name) > 120:
             raise ValueError("A policy name of up to 120 characters is required")

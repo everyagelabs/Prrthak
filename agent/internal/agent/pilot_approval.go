@@ -138,7 +138,7 @@ func validateDirectApprovalScope(scope map[string]json.RawMessage, serverID stri
 		return errors.New("endpoint configuration requires its exact authorization kind")
 	}
 	switch kind {
-	case "endpoint_configuration", "managed_policy", "managed_rollout", "imported_firewall", "learning":
+	case "endpoint_configuration", "managed_policy", "managed_rollout", "imported_firewall", "learning", "host_default_deny":
 	default:
 		return errors.New("single-admin scope cannot authorize this endpoint operation")
 	}
