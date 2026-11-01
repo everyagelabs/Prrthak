@@ -1,6 +1,7 @@
 import copy
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import types
 import unittest
@@ -186,6 +187,22 @@ class PlatformManagerTests(unittest.TestCase):
         self.assertTrue(profile['join_preserve_local_snapshot'])
         cert = x509.load_pem_x509_certificate(Path(profile['controller_tls']['cert']).read_bytes())
         self.assertIn('10.70.0.50', [str(ip) for ip in cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value.get_values_for_type(x509.IPAddress)])
+        # Verify the actual issued/decrypted join leaf, including strict CA/AKI
+        # requirements and both canonical DNS and node-IP identities.
+        for identity_option, value in (('-verify_hostname', 'localhost'), ('-verify_ip', identity['node_ip'])):
+            verified = subprocess.run(['openssl', 'verify', '-x509_strict', '-purpose', 'sslserver',
+                identity_option, value, '-CAfile', str(pki / 'ca.pem'), profile['controller_tls']['cert']],
+                capture_output=True, text=True, timeout=10)
+            self.assertEqual(verified.returncode, 0, verified.stdout + verified.stderr)
+        issuer = x509.load_pem_x509_certificate((pki / 'ca.pem').read_bytes())
+        self.assertEqual(cert.extensions.get_extension_for_class(x509.AuthorityKeyIdentifier).value.key_identifier,
+                         issuer.extensions.get_extension_for_class(x509.SubjectKeyIdentifier).value.digest)
+        usage = cert.extensions.get_extension_for_class(x509.KeyUsage)
+        self.assertTrue(usage.critical)
+        self.assertTrue(usage.value.digital_signature)
+        self.assertTrue(usage.value.key_encipherment)
+        self.assertFalse(usage.value.key_cert_sign)
+        self.assertIsNotNone(cert.extensions.get_extension_for_class(x509.SubjectKeyIdentifier))
         record = next(row for row in store.all('maintenance_settings') if row['id'].startswith('platform_join:'))
         self.assertTrue(record['consumed'])
         self.assertNotIn('synthetic-secret', json.dumps(record))

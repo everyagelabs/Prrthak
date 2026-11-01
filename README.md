@@ -4,7 +4,7 @@
 
 Prṛthak discovers servers and their real listening services, shows permitted source-to-service access, learns observed source/port relationships, and lets administrators review and apply firewalld changes centrally. The selected server is the destination: an access policy specifies **service/port + allowed sources**, without a separate destination field.
 
-**Release line: 0.7.0 pilot candidate.** The final local 5,000-identity test delivered a real Admin edit in **31.879 seconds**, including publication and a full 30-second poll window ([scope and evidence](docs/controller-capacity-5000.md)). Code workflows and isolated test evidence are separate from operational acceptance. The real 20-server pilot, native RHEL/Ubuntu matrix, live Entra tenant, DC/WAN failover and hardware-fencing checks remain pending. This repository does not claim production certification or a vulnerability-free application.
+**Pilot candidate: [v0.7.0-pilot.3](https://github.com/everyagelabs/Prrthak/tree/v0.7.0-pilot.3).** The final local 5,000-identity test delivered a real Admin edit in **31.947 seconds**, including publication and a full 30-second poll window ([scope and evidence](docs/controller-capacity-5000.md)). Code workflows and isolated test evidence are separate from operational acceptance. The real 20-server pilot, native RHEL/Ubuntu matrix, live Entra tenant, DC/WAN failover and hardware-fencing checks remain pending. This repository does not claim production certification or a vulnerability-free application.
 
 Private repository: [everyagelabs/Prrthak](https://github.com/everyagelabs/Prrthak). Product owner: **EveryAge Labs Private Limited**.
 

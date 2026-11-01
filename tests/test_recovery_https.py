@@ -38,14 +38,33 @@ class RecoveryCLIHTTPSAcceptance(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="prthak-reviewed-recovery-https-")
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
         self.data, self.pki = self.root / "controller", self.root / "pki"
         self.pki.mkdir(mode=0o700)
         ca_key = ec.generate_private_key(ec.SECP256R1())
         ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Private recovery acceptance CA")])
-        ca = x509.CertificateBuilder().subject_name(ca_name).issuer_name(ca_name).public_key(ca_key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now() - timedelta(minutes=2)).not_valid_after(now() + timedelta(days=30)).add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True).sign(ca_key, hashes.SHA256())
+        ca = (x509.CertificateBuilder().subject_name(ca_name).issuer_name(ca_name).public_key(ca_key.public_key())
+            .serial_number(x509.random_serial_number()).not_valid_before(now() - timedelta(minutes=2)).not_valid_after(now() + timedelta(days=30))
+            .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+            .add_extension(x509.KeyUsage(digital_signature=False, content_commitment=False, key_encipherment=False,
+                data_encipherment=False, key_agreement=False, key_cert_sign=True, crl_sign=True,
+                encipher_only=None, decipher_only=None), critical=True)
+            .add_extension(x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()), critical=False)
+            .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), critical=False)
+            .sign(ca_key, hashes.SHA256()))
         key = ec.generate_private_key(ec.SECP256R1())
-        leaf = x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])).issuer_name(ca_name).public_key(key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now() - timedelta(minutes=2)).not_valid_after(now() + timedelta(days=10)).add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True).add_extension(x509.SubjectAlternativeName([x509.DNSName("localhost")]), critical=False).add_extension(x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]), critical=False).sign(ca_key, hashes.SHA256())
+        leaf = (x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")]))
+            .issuer_name(ca_name).public_key(key.public_key()).serial_number(x509.random_serial_number())
+            .not_valid_before(now() - timedelta(minutes=2)).not_valid_after(now() + timedelta(days=10))
+            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+            .add_extension(x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False,
+                data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False,
+                encipher_only=None, decipher_only=None), critical=True)
+            .add_extension(x509.SubjectAlternativeName([x509.DNSName("localhost")]), critical=False)
+            .add_extension(x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
+            .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
+            .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), critical=False)
+            .sign(ca_key, hashes.SHA256()))
         for name, value in (("ca.pem", ca.public_bytes(serialization.Encoding.PEM)), ("ca-key.pem", ca_key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())), ("controller.pem", leaf.public_bytes(serialization.Encoding.PEM)), ("controller-key.pem", key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))):
             (self.pki / name).write_bytes(value)
             (self.pki / name).chmod(0o600)
@@ -53,6 +72,7 @@ class RecoveryCLIHTTPSAcceptance(unittest.TestCase):
             listener.bind(("127.0.0.1", 0))
             self.port = listener.getsockname()[1]
         self.context = ssl.create_default_context(cafile=str(self.pki / "ca.pem"))
+        self.context.verify_flags |= ssl.VERIFY_X509_STRICT
         self.origin = "https://localhost:" + str(self.port)
         self.config = EntraConfig(tenant_id="11111111-1111-1111-1111-111111111111", client_id="22222222-2222-2222-2222-222222222222", redirect_uri=self.origin + "/api/v1/auth/callback", client_secret=secrets.token_urlsafe(40))
         self.store = Store(self.data)
@@ -85,7 +105,7 @@ class RecoveryCLIHTTPSAcceptance(unittest.TestCase):
 
     def start(self):
         environment = {key: value for key, value in os.environ.items() if not key.startswith(("SEG_", "PRTHAK_")) and key != "CONTROLLER_ORIGIN"}
-        environment.update(SEG_ENTRA_TENANT_ID=self.config.tenant_id, SEG_ENTRA_CLIENT_ID=self.config.client_id, SEG_ENTRA_REDIRECT_URI=self.config.redirect_uri, SEG_ENTRA_CLIENT_SECRET=self.config.client_secret, CONTROLLER_ORIGIN=self.origin, PYTHONPYCACHEPREFIX="/private/tmp/prthak-recovery-cli-pycache")
+        environment.update(SEG_ENTRA_TENANT_ID=self.config.tenant_id, SEG_ENTRA_CLIENT_ID=self.config.client_id, SEG_ENTRA_REDIRECT_URI=self.config.redirect_uri, SEG_ENTRA_CLIENT_SECRET=self.config.client_secret, CONTROLLER_ORIGIN=self.origin, PYTHONPYCACHEPREFIX=str(self.root / "pycache"))
         gate, seen = str(self.root / "release-private-ready"), str(self.root / "private-ready-seen")
         wrapper = ("from pathlib import Path\nimport controller.platform_runtime as runtime\noriginal=runtime.probe_readiness\n"
                    "def controlled(arguments,profile=None,tls_hostname=None,recovery_nonce=None):\n"

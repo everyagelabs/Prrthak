@@ -48,7 +48,7 @@ class ApplicationPortCLIIntegration(unittest.TestCase):
     def start(self, demo=False, fail_port=None):
         self.scheme = 'http' if demo else 'https'
         environment = {key: value for key, value in os.environ.items() if not key.startswith(('SEG_', 'PRTHAK_')) and key != 'CONTROLLER_ORIGIN'}
-        environment.update(SEG_SUPER_ADMIN_TOKEN=self.token, SEG_READ_ONLY_TOKEN=self.read_token, CONTROLLER_ORIGIN=self.scheme + '://localhost:' + str(self.launch_port), PYTHONPYCACHEPREFIX='/private/tmp/prthak-port-cli-pycache')
+        environment.update(SEG_SUPER_ADMIN_TOKEN=self.token, SEG_READ_ONLY_TOKEN=self.read_token, CONTROLLER_ORIGIN=self.scheme + '://localhost:' + str(self.launch_port), PYTHONPYCACHEPREFIX=str(self.root.resolve() / 'pycache'))
         arguments = ['--listen', '127.0.0.1:' + str(self.launch_port), '--data-dir', str(self.data), '--controller-id', 'port-cli-fixture']
         if demo:
             arguments += ['--demo']

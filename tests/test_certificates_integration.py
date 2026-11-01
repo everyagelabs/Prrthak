@@ -75,7 +75,7 @@ class CertificateCLIIntegrationTests(unittest.TestCase):
                        if not key.startswith(("SEG_", "PRTHAK_")) and key != "CONTROLLER_ORIGIN"}
         environment.update(SEG_SUPER_ADMIN_TOKEN=self.token,
                            CONTROLLER_ORIGIN="https://localhost:" + str(self.port),
-                           PYTHONPYCACHEPREFIX="/private/tmp/prthak-certificate-integration-pycache")
+                           PYTHONPYCACHEPREFIX=str(self.root.resolve() / "pycache"))
         arguments = ["--listen", "127.0.0.1:" + str(self.port), "--data-dir", str(self.data),
                      "--cert", str(self.pki / "controller.pem"), "--key", str(self.pki / "controller-key.pem"),
                      "--ca", str(self.pki / "ca.pem"), "--ca-key", str(self.pki / "ca-key.pem")]

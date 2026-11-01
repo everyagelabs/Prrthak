@@ -6,19 +6,19 @@ The final direct-Admin build passed the local 60-second delivery target. This is
 
 | Phase | Verified identities | Elapsed |
 | --- | ---: | ---: |
-| Initial signed delivery and receipts |5,000|15.947 s|
-| Actual Admin policy PUT, compile/publication and full 30 s polling window |5,000|31.879 s|
-| Warm polling, 100 discovery reports and 10,000 synthetic events |5,000|11.331 s|
+| Initial signed delivery and receipts |5,000|16.978 s|
+| Actual Admin policy PUT, compile/publication and full 30 s polling window |5,000|31.947 s|
+| Warm polling, 100 discovery reports and 10,000 synthetic events |5,000|21.827 s|
 
-Publication took 1.867 seconds, included in 31.879 seconds. All 5,000 updated version/digest/source matrices and exact current single-Admin proof scopes were verified; a signature refresh or 304 could not substitute for the changed intent. The Admin used a persisted private Entra-shaped session with real HTTPS/CSRF; no Microsoft sign-in/token exchange was performed. A separate Super session configured polling only and did not approve the policy change.
+Publication took 1.932 seconds, included in 31.947 seconds. All 5,000 updated version/digest/source matrices and exact current single-Admin proof scopes were verified; a signature refresh or 304 could not substitute for the changed intent. The Admin used a persisted private Entra-shaped session with real HTTPS/CSRF; no Microsoft sign-in/token exchange was performed. A separate Super session configured polling only and did not approve the policy change.
 
-All cycles succeeded with zero final failures, two transient report retries, 10,000 retained synthetic flow events and no pending batch after drain. Policy/report/flow p95 was 87.519/171.877/325.026 ms. Both fresh owned databases were removed. Controller source hashes were unchanged during measurement.
+All cycles succeeded with zero final failures, two transient policy retries and six transient report retries, 10,000 retained synthetic flow events and no pending batch after drain. Policy/report/flow p95 was 111.734/304.024/1727.770 ms. Both fresh owned databases were removed. Controller source hashes were unchanged during measurement.
 
 Profile: 5,000 virtual certificate identities; 2 workers × 32 threads; 64 concurrent clients; per-worker metadata/traffic pools 8/2 with 5 s lease wait; control 30 s; adaptive reports; 20 sources per service; PostgreSQL max_connections 100, shared_buffers 64 MiB and synchronous_commit on. There was one PostgreSQL instance; synchronous cross-site replication was not exercised. No actual Linux agent processes, firewalld, SSH health witnesses, enrollment storm, failover or endurance workload ran.
 
 Reproduce with `scripts/benchmark-mtls-fleet.py --authorization-mode single-admin --change-policy --control-interval-seconds 30 --poll-window-seconds 30` plus the isolated PostgreSQL/profile flags described below (separate every option and its value with a space). The fixture asserts both complete delivery and current exact authorization. Production hardware and network acceptance remain required.
 
-Candidate `v0.7.0-pilot.2` subsequently fixes Linux endpoint command-lease ownership. All 62 controller source hashes recorded by this capacity fixture still match that candidate; this workload measures controller delivery and receipts.
+Candidate `v0.7.0-pilot.3` includes the Linux command-lease fix and strict-compatible joined-controller certificate issuance. This fresh measurement records and verifies all 62 controller source hashes for that candidate.
 
 ## Historical development result · 31 October 2026
 

@@ -791,7 +791,19 @@ class PlatformManager:
                 san_host = x509.IPAddress(ipaddress.ip_address(host))
             except ValueError:
                 san_host = x509.DNSName(host)
-            certificate = x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, record["node_id"])] )).issuer_name(ca.subject).public_key(csr.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now() - timedelta(minutes=2)).not_valid_after(now() + timedelta(days=90)).add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True).add_extension(x509.SubjectAlternativeName([san_host, x509.IPAddress(ipaddress.ip_address(record["node_ip"])), x509.DNSName(record["node_id"])]), critical=False).add_extension(x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]), critical=False).sign(ca_key, hashes.SHA256())
+            server_public_key = csr.public_key()
+            certificate = (x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, record["node_id"])]))
+                .issuer_name(ca.subject).public_key(server_public_key).serial_number(x509.random_serial_number())
+                .not_valid_before(now() - timedelta(minutes=2)).not_valid_after(now() + timedelta(days=90))
+                .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+                .add_extension(x509.KeyUsage(digital_signature=True, content_commitment=False,
+                    key_encipherment=isinstance(server_public_key, rsa.RSAPublicKey), data_encipherment=False,
+                    key_agreement=False, key_cert_sign=False, crl_sign=False, encipher_only=None, decipher_only=None), critical=True)
+                .add_extension(x509.SubjectAlternativeName([san_host, x509.IPAddress(ipaddress.ip_address(record["node_ip"])), x509.DNSName(record["node_id"])]), critical=False)
+                .add_extension(x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
+                .add_extension(x509.SubjectKeyIdentifier.from_public_key(server_public_key), critical=False)
+                .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca.public_key()), critical=False)
+                .sign(ca_key, hashes.SHA256()))
             env_names = ("SEG_ENTRA_TENANT_ID", "SEG_ENTRA_CLIENT_ID", "SEG_ENTRA_REDIRECT_URI", "SEG_MANAGEMENT_PROBE_TARGET_CIDRS")
             private_profile = copy.deepcopy(profile)
             private_profile["controller_env"] = {key: os.environ[key] for key in env_names if os.environ.get(key)}

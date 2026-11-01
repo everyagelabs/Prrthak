@@ -297,7 +297,7 @@ class PlatformLivePostgresJoinAcceptanceTests(unittest.TestCase):
                     target_dir = root / "target-controller"
                     bootstrap_token = secrets.token_urlsafe(48)
                     environment = {key: value for key, value in os.environ.items() if not key.startswith("SEG_") and key != "PRTHAK_SUPERVISED_CHILD"}
-                    environment.update(SEG_SUPER_ADMIN_TOKEN=bootstrap_token, PYTHONPYCACHEPREFIX="/private/tmp/prthak-platform-test-pycache")
+                    environment.update(SEG_SUPER_ADMIN_TOKEN=bootstrap_token, PYTHONPYCACHEPREFIX=str(root.resolve() / "pycache"))
                     log = (root / "target-controller.log").open("wb")
                     child = subprocess.Popen([sys.executable, "-m", "controller", "--listen", "127.0.0.1:" + str(target_port), "--data-dir", str(target_dir),
                         "--cert", str(bootstrap_pki / "controller.pem"), "--key", str(bootstrap_pki / "controller-key.pem"), "--ca", str(bootstrap_pki / "ca.pem"), "--ca-key", str(bootstrap_pki / "ca-key.pem")], cwd=ROOT, env=environment, stdout=log, stderr=log, start_new_session=True)
