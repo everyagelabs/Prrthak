@@ -449,7 +449,7 @@ def handler_for(app):
             if method in ("POST", "PUT", "PATCH", "DELETE"):
                 if principal.get("auth_type") == "session":
                     app.auth.require_csrf(self.headers, principal)
-                if path not in ("/api/v1/auth/logout", "/api/v1/firewall/query", "/api/v1/policies/query", "/api/v1/learning-policies/query", "/api/v1/policy-rollouts/query", "/api/v1/host-default-deny/query") and role not in ("admin", "super_admin"):
+                if path not in ("/api/v1/auth/logout", "/api/v1/firewall/query", "/api/v1/policies/query", "/api/v1/learning-policies/query", "/api/v1/policy-rollouts/query", "/api/v1/host-default-deny/query", "/api/v1/alerts/query") and role not in ("admin", "super_admin"):
                     raise PermissionError("Admin or Super Admin role required")
                 origin = self.headers.get("Origin")
                 scheme = "https" if isinstance(self.connection, ssl.SSLSocket) else "http"
@@ -1040,7 +1040,13 @@ def handler_for(app):
                 window = int(query.get("window", [3600])[0])
                 self.response(200, {"items": app.store.flows(window, query.get("server_id", [None])[0])})
             elif parts == ["alerts"] and method == "GET":
-                self.response(200, {"items": sorted(app.store.all("alerts"), key=lambda item: item["created_at"], reverse=True)[:500]})
+                from .alert_views import listing as public_alerts
+                if set(query) - {"limit", "offset", "include_resolved"} or any(len(values) != 1 for values in query.values()) or query.get("include_resolved", ["false"])[0] not in ("true", "false"):
+                    raise ValueError("Use supported bounded alert pagination options")
+                self.response(200, public_alerts(app.store, {"limit": int(query.get("limit", [50])[0]), "offset": int(query.get("offset", [0])[0]), "include_resolved": query.get("include_resolved", ["false"])[0] == "true"}))
+            elif parts == ["alerts", "query"] and method == "POST":
+                from .alert_views import listing as public_alerts
+                self.response(200, public_alerts(app.store, self.body()))
             elif len(parts) == 3 and parts[0] == "alerts" and parts[2] == "ack" and method == "POST":
                 self.response(200, app.store.acknowledge(unquote(parts[1]), actor))
             elif parts == ["audit"] and method == "GET":

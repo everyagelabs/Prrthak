@@ -37,7 +37,7 @@ test('fleet setup is the default with one architecture-specific agent and no hos
  const f=fixture();await f.show();const html=f.element('#modal-content').innerHTML;
  assert.match(html,/value="fleet" selected/);assert.match(html,/any number of servers/);assert.match(html,/No hostname list, CSV or per-server download/);assert.match(html,/same binary is used on RHEL and Ubuntu/);assert.doesNotMatch(html,/id="agent-install-hostname"|name="(?:max_hosts|server_count|hostnames)"/);
  assert.match(html,/prthak-agent-0\.10\.0-linux-amd64\.tar\.gz/);assert.match(f.c.agentInstallationArchive('arm64'),/0\.10\.0-linux-arm64/);
- f.c.state.data.meta.version='<script>wrong</script>';assert.equal(f.c.agentInstallationArchive('amd64'),'prthak-agent-0.10.0-linux-amd64.tar.gz');
+ f.c.state.data.meta.version='<script>wrong</script>';assert.equal(f.c.agentInstallationArchive('amd64'),'prthak-agent-0.11.0-linux-amd64.tar.gz');
  assert.match(html,/enrollment key grants no dashboard or firewall-policy authority/);
 });
 test('one fleet request downloads only the reusable kit and never renders or persists its enrollment secret',async()=>{
@@ -47,8 +47,40 @@ test('one fleet request downloads only the reusable kit and never renders or per
  assert.equal(f.downloads.length,1);assert.equal(f.downloads[0].filename,'prthak-agent-setup.json');const kit=JSON.parse(await f.downloads[0].blob.text());assert.equal(kit.schema_version,2);assert.equal(kit.enrollment_profile_id,profileID);assert.equal(kit.enrollment_token,secret);assert.equal(kit.expected_hostname,'');assert.equal(kit.private_key,undefined);
  assert.match(f.element('#agent-installation-result').innerHTML,/Reuse this file on any number/);assert.doesNotMatch(f.element('#modal-content').innerHTML+f.element('#agent-installation-result').innerHTML,new RegExp(secret));assert.equal(JSON.stringify(f.c.state).includes(secret),false);assert.equal(f.errors.length,0);
 });
+test('preparation choices start unchecked, preserve UFW, and do not authorize live migration',async()=>{
+ const f=fixture();await f.show();const html=f.element('#modal-content').innerHTML;
+ for(const id of ['agent-install-dependencies','agent-install-ufw-assess']){const input=html.match(new RegExp('<input[^>]*id="'+id+'"[^>]*>'))?.[0];assert.ok(input);assert.doesNotMatch(input,/\schecked(?:\s|>|=)/);}
+ assert.match(html,/UFW stays active/);assert.match(html,/private UFW configuration\/status export/);assert.match(html,/does not activate firewalld or apply a migration/);
+ assert.match(html,/Full inventory fallback/);assert.match(html,/check listeners every 5 seconds/);
+ await f.submit();assert.equal(f.requests.find(row=>row.options.method==='POST').options.body.installation_options,undefined);
+});
+test('only explicitly selected preparation is included in a schema-three reusable download',async()=>{
+ for(const choices of [{install_dependencies:'on'},{assess_ufw:'on'},{install_dependencies:'on',assess_ufw:'on'}]){
+  const f=fixture({request:(path,options)=>options.method==='POST'?enrollmentResponse({schema_version:3,installation_options:options.body.installation_options}):undefined});await f.show();await f.submit(choices);
+  const options=f.requests.find(row=>row.options.method==='POST').options.body.installation_options;
+  assert.deepEqual(JSON.parse(JSON.stringify(options)),{install_dependencies:choices.install_dependencies==='on',ufw_action:choices.assess_ufw==='on'?'assess':'preserve'});
+  assert.equal(f.downloads.length,1);const kit=JSON.parse(await f.downloads[0].blob.text());assert.equal(kit.schema_version,3);assert.deepEqual(kit.installation_options,JSON.parse(JSON.stringify(options)));assert.equal(kit.enrollment_profile_id,profileID);assert.equal(kit.config.enforce,false);assert.equal(kit.config.allow_firewall_changes,false);assert.equal(f.errors.length,0);
+ }
+});
+test('unselected, changed, extra or unsupported preparation never downloads a setup file',async()=>{
+ const bad=[{requested:{},returned:{schema_version:2,installation_options:{install_dependencies:true,ufw_action:'preserve'}}},
+  {requested:{install_dependencies:'on'},returned:{schema_version:2}},
+  {requested:{install_dependencies:'on'},returned:{schema_version:3,installation_options:{install_dependencies:false,ufw_action:'assess'}}},
+  {requested:{assess_ufw:'on'},returned:{schema_version:3,installation_options:{install_dependencies:false,ufw_action:'migrate'}}},
+  {requested:{assess_ufw:'on'},returned:{schema_version:3,installation_options:{install_dependencies:false,ufw_action:'assess',command:'ufw disable'}}}];
+ for(const row of bad){const f=fixture({request:(path,options)=>options.method==='POST'?enrollmentResponse(row.returned):undefined});await f.show();await f.submit(row.requested);assert.equal(f.downloads.length,0);assert.equal(f.errors.length,1);}
+ for(const invalid of [{install_dependencies:'true'},{assess_ufw:'false'}]){const f=fixture();await f.show();await f.submit(invalid);assert.equal(f.requests.some(row=>row.options.method==='POST'),false);assert.equal(f.downloads.length,0);}
+});
+test('individual preparation preserves its hostname and never accepts a fleet identity',async()=>{
+ const response=options=>{const kit={...enrollmentResponse().kit,schema_version:3,expected_hostname:'billing-01',installation_options:options};delete kit.enrollment_profile_id;return kit;};
+ const f=fixture({request:(path,options)=>options.method==='POST'?response(options.body.installation_options):undefined});await f.show();await f.submit({setup_mode:'individual',expected_hostname:'billing-01',install_dependencies:'on'});assert.equal(f.downloads.length,1);const kit=JSON.parse(await f.downloads[0].blob.text());assert.equal(kit.expected_hostname,'billing-01');assert.equal(kit.enrollment_profile_id,undefined);assert.equal(kit.schema_version,3);
+ const mismatch=fixture({request:(path,options)=>options.method==='POST'?{...response(options.body.installation_options),enrollment_profile_id:profileID}:undefined});await mismatch.show();await mismatch.submit({setup_mode:'individual',expected_hostname:'billing-01',install_dependencies:'on'});assert.equal(mismatch.downloads.length,0);assert.equal(mismatch.errors.length,1);
+});
+test('changing a preparation checkbox fences a pending download before blur',async()=>{
+ const pending=deferred(),f=fixture({request:(path,options)=>options.method==='POST'?pending.promise:undefined});await f.show();const submission=f.submit();f.listeners.input[0]({target:{id:'agent-install-dependencies',checked:true}});pending.resolve(enrollmentResponse());await submission;assert.equal(f.downloads.length,0);assert.equal(f.form.button.disabled,false);
+});
 test('optional individual setup preserves its one-use endpoint request and installer command',async()=>{
- const f=fixture({request:(path)=>path==='/agent-installation/kit'?{...enrollmentResponse().kit,schema_version:1,expected_hostname:'billing-01'}:undefined});await f.show();
+ const f=fixture({request:(path)=>{if(path!=='/agent-installation/kit')return;const kit={...enrollmentResponse().kit,schema_version:1,expected_hostname:'billing-01'};delete kit.enrollment_profile_id;return kit;}});await f.show();
  f.c.agentInstallationChange({target:{id:'agent-install-mode',value:'individual'}});assert.match(f.element('#agent-install-scope-fields').innerHTML,/Expected hostname/);
  await f.submit({setup_mode:'individual',expected_hostname:'billing-01'});const body=f.requests.find(r=>r.path==='/agent-installation/kit').options.body;assert.equal(body.expected_hostname,'billing-01');assert.equal(body.name,undefined);assert.equal(body.validity_hours,undefined);assert.equal(f.downloads.length,1);assert.match(f.element('#agent-installation-result').innerHTML,/Use it for one endpoint/);
  assert.equal(f.c.agentInstallationCommand('ubuntu'),'sudo ./scripts/install-agent-ubuntu.sh --setup-file /root/prthak-agent-setup.json');

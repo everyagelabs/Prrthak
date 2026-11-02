@@ -188,6 +188,58 @@ esac
             self.assertNotIn('private-env-token',result.stdout+result.stderr)
             self.assertFalse(self.calls.exists());self.assertFalse(self.commands.exists())
 
+    def test_live_wrapper_preparation_respects_no_start_and_signature_failure_with_fake_commands(self):
+        # Every command/program is a fixture. Only the copied wrapper's OS data
+        # read is redirected; no real package/service/firewall operation runs.
+        wrapper=self.bundle/'scripts/install-agent-linux.sh'
+        wrapper.write_text(wrapper.read_text().replace('RELEASE_FILE=$TARGET_ROOT/etc/os-release',
+                                                       'RELEASE_FILE=$PRTHAK_TEST_OS_RELEASE'))
+        self.write_executable(self.fakebin/'id','#!/bin/sh\n[ "$1" = -u ] && echo 0\n')
+        for name in ['systemctl','systemd-run','journalctl','ss','firewall-cmd','flock']:
+            self.write_executable(self.fakebin/name,'#!/bin/sh\nexit 99\n')
+        self.write_executable(self.bundle/'scripts/install-agent.sh','#!/bin/sh\nprintf "%s\\n" "shared-installer $*" >> "$PRTHAK_FAMILY_AGENT_CALLS"\n')
+        (self.bundle/'deploy/release-public-trust.json').write_text('{}')
+        (self.bundle/'runtime-integrity.json').write_text('{}')
+        setup=self.base/'setup.json';setup.write_text('{}');setup.chmod(0o600)
+        self.write_executable(self.bundle/'seg-agent', '''#!/bin/sh
+set -eu
+printf '%s\\n' "$*" >> "$PRTHAK_FAMILY_AGENT_CALLS"
+case "$1" in
+ --check-release) exit "${PRTHAK_TEST_SIGNATURE_FAILURE:-0}";;
+ --prepare-setup)
+  cp "$PRTHAK_TEST_CONFIG" "$4/agent.json"
+  cp "$PRTHAK_TEST_CA" "$4/controller-ca.crt"
+  cp "$PRTHAK_TEST_TOKEN" "$4/enrollment-token"
+  printf '%s' '{"install_dependencies":true,"ufw_action":"assess"}' > "$4/preparation-options.json";;
+ --prepare-host) exit 0;;
+ *) exit 99;;
+esac
+''')
+        environment={**self.env,'PRTHAK_TEST_OS_RELEASE':str(self.target/'etc/os-release'),
+                     'PRTHAK_TEST_CONFIG':str(self.config),'PRTHAK_TEST_CA':str(self.ca),
+                     'PRTHAK_TEST_TOKEN':str(self.token)}
+        for no_start in [True,False]:
+            options=['--no-start'] if no_start else []
+            result=subprocess.run(['sh',str(self.bundle/'scripts/install-agent-rhel.sh'),
+                                   '--setup-file',str(setup),*options],env=environment,
+                                  capture_output=True,text=True,timeout=15)
+            self.assertEqual(result.returncode,0,result.stderr)
+            calls=self.calls.read_text()
+            self.assertEqual('--prepare-host' in calls,not no_start)
+            self.assertIn('--prepare-setup',calls);self.assertIn('--check-release',calls)
+            self.assertIn('shared-installer',calls)
+            self.assertNotIn(self.token.read_text(),calls+result.stdout+result.stderr)
+            self.calls.unlink()
+        environment['PRTHAK_TEST_SIGNATURE_FAILURE']='4'
+        result=subprocess.run(['sh',str(self.bundle/'scripts/install-agent-rhel.sh'),
+                               '--setup-file',str(setup)],env=environment,
+                              capture_output=True,text=True,timeout=15)
+        self.assertNotEqual(result.returncode,0)
+        calls=self.calls.read_text()
+        self.assertIn('--check-release',calls)
+        self.assertNotIn('--prepare-setup',calls);self.assertNotIn('--prepare-host',calls)
+        self.assertNotIn('shared-installer',calls)
+
     def test_configuration_transition_refuses_staging_or_bootstrap_inputs_before_any_execution(self):
         self.binary()
         kit=self.base/'private-configuration.json';kit.write_text('{}');kit.chmod(0o600)
@@ -244,6 +296,34 @@ esac
         self.assertEqual((self.target/'etc/seg-agent/endpoint-ca.crt').stat().st_mode&0o777,0o644)
         self.assertFalse(self.commands.exists())
 
+    @unittest.skipUnless(os.environ.get('SEG_AGENT_BINARY'), 'Set SEG_AGENT_BINARY for explicit preparation staging isolation')
+    def test_explicit_gui_preparation_is_never_executed_by_staging(self):
+        shutil.copy2(os.environ['SEG_AGENT_BINARY'],self.bundle/'seg-agent')
+        setup,value=self.real_setup()
+        value['schema_version']=3
+        value['installation_options']={'install_dependencies':True,'ufw_action':'assess'}
+        setup.write_text(json.dumps(value))
+        result=self.run_entrypoint('rhel','--setup-file',str(setup),'--no-start',config=False)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('host preparation skipped',result.stdout)
+        self.assertFalse(self.commands.exists())
+        self.assertFalse((self.target/'var/lib/seg-agent/host-preparation').exists())
+
+    @unittest.skipUnless(os.environ.get('SEG_AGENT_BINARY'), 'Set SEG_AGENT_BINARY for preparation before dependency gating')
+    def test_invalid_preparation_kit_is_rejected_before_missing_dependencies(self):
+        shutil.copy2(os.environ['SEG_AGENT_BINARY'],self.bundle/'seg-agent')
+        setup,value=self.real_setup(expired=True)
+        value['schema_version']=3
+        value['installation_options']={'install_dependencies':True,'ufw_action':'assess'}
+        setup.write_text(json.dumps(value))
+        (self.target/'usr/bin/firewall-cmd').unlink()
+        result=self.run_entrypoint('rhel','--setup-file',str(setup),'--no-start',config=False)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('expired',result.stderr)
+        self.assertNotIn('Missing target commands',result.stderr)
+        self.assertFalse(self.commands.exists())
+        self.assertFalse((self.target/'etc/seg-agent/config.json').exists())
+
     @unittest.skipUnless(os.environ.get('SEG_AGENT_BINARY'), 'Set SEG_AGENT_BINARY for setup helper CLI isolation')
     def test_setup_helper_rejects_other_modes_and_positional_arguments_before_reading_files(self):
         binary = os.environ['SEG_AGENT_BINARY']
@@ -285,7 +365,7 @@ esac
                 self.release(distro,version)
                 result=self.run_entrypoint(family,'--no-start','--ca-file',str(real_ca),'--token-file',str(self.token))
                 self.assertEqual(result.returncode,0,result.stderr)
-                self.assertIn('HTTPS CA and private one-time enrollment token ready',result.stdout)
+                self.assertIn('HTTPS CA and private enrollment credential ready',result.stdout)
                 self.assertIn('staged and enabled for the target boot',result.stdout)
                 self.assertFalse(self.commands.exists())
 
@@ -295,7 +375,7 @@ class AgentFamilyPackageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='prthak-private-package-') as temp:
             target=Path(temp)
             inputs=['scripts/package-agent.py','agent/internal/agent/types.go','agent/config.example.json','agent/README.md',
-                    'docs/managed-enforcement.md','docs/whole-server-default-deny.md','docs/traffic-capture.md','docs/fleet-enrollment.md','docs/linux-validation.md','docs/scale-validation.md','docs/ipset-enforcement.md',
+                    'docs/managed-enforcement.md','docs/whole-server-default-deny.md','docs/traffic-capture.md','docs/fleet-enrollment.md','docs/endpoint-discovery-and-preparation.md','docs/linux-validation.md','docs/scale-validation.md','docs/ipset-enforcement.md',
                     'docs/policy-signing.md','docs/linux-agent-installation.md','docs/pilot-gui-installation.md','docs/authentication.md','deploy/systemd/seg-agent.service',
                     'scripts/install-agent.sh','scripts/install-agent-linux.sh','scripts/install-agent-rhel.sh','scripts/install-agent-ubuntu.sh',
                     'scripts/prepare-managed-ipsets.py','scripts/verify-release.py']
@@ -311,9 +391,9 @@ class AgentFamilyPackageTests(unittest.TestCase):
             for archive in archives:
                 with tarfile.open(archive) as bundle:
                     names={'/'.join(Path(item.name).parts[1:]) for item in bundle.getmembers()}
-                    self.assertEqual(len(names),22)
+                    self.assertEqual(len(names),23)
                     self.assertIn('docs/authentication.md',names)
-                    for name in ['scripts/install-agent-linux.sh','scripts/install-agent-rhel.sh','scripts/install-agent-ubuntu.sh','docs/linux-agent-installation.md','docs/whole-server-default-deny.md','docs/traffic-capture.md','docs/fleet-enrollment.md']:
+                    for name in ['scripts/install-agent-linux.sh','scripts/install-agent-rhel.sh','scripts/install-agent-ubuntu.sh','docs/linux-agent-installation.md','docs/whole-server-default-deny.md','docs/traffic-capture.md','docs/fleet-enrollment.md','docs/endpoint-discovery-and-preparation.md']:
                         self.assertIn(name,names)
                         item=next(item for item in bundle.getmembers() if item.name.endswith('/'+name))
                         self.assertEqual(bundle.extractfile(item).read(),(PROJECT/name).read_bytes())

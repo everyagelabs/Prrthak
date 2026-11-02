@@ -4,11 +4,11 @@
 
 Prṛthak discovers servers and their real listening services, shows permitted source-to-service access, learns observed source/port relationships, and lets administrators review and apply firewalld changes centrally. The selected server is the destination: an access policy specifies **service/port + allowed sources**, without a separate destination field.
 
-**Pilot candidate: [v0.10.0-pilot.1](https://github.com/everyagelabs/Prrthak/tree/v0.10.0-pilot.1).** Download one reusable fleet setup and install the same matching agent package across your servers. Each server automatically creates its own key, certificate and inventory identity; no per-host kit generation or hostname CSV is required. Fleet enrollment has GUI expiry/revocation and no fixed server-count limit. See [fleet enrollment](docs/fleet-enrollment.md) and [release validation](docs/release-0.10.0-pilot.1.md). Native RHEL/Ubuntu, live Entra and DC/WAN acceptance remain deployment gates.
+**Pilot candidate: [v0.11.0-pilot.1](https://github.com/everyagelabs/Prrthak/tree/v0.11.0-pilot.1).** Download one reusable fleet setup and install the same matching agent package across your servers. Each server automatically creates its own key, certificate and inventory identity; no per-host kit generation or hostname CSV is required. Fleet enrollment has GUI expiry/revocation and no fixed server-count limit. See [fleet enrollment](docs/fleet-enrollment.md) and [release validation](docs/release-0.11.0-pilot.1.md). Native RHEL/Ubuntu, live Entra and DC/WAN acceptance remain deployment gates. This version adds fast listener-change checks, optional safe dependency/UFW assessment and paginated alerts; see [endpoint discovery and health](docs/endpoint-discovery-and-preparation.md).
 
 Private repository: [everyagelabs/Prrthak](https://github.com/everyagelabs/Prrthak). Product owner: **EveryAge Labs Private Limited**.
 
-[0.10 release behavior and validation](docs/release-0.10.0-pilot.1.md) · [0.9 capture/security release](docs/release-0.9.0-pilot.1.md) · [Whole-server default-deny workflow](docs/whole-server-default-deny.md).
+[0.11 endpoint/health release](docs/release-0.11.0-pilot.1.md) · [0.10 fleet enrollment](docs/release-0.10.0-pilot.1.md) · [0.9 capture/security release](docs/release-0.9.0-pilot.1.md) · [Whole-server default-deny workflow](docs/whole-server-default-deny.md).
 
 ## What was requested, and how it works
 
@@ -20,7 +20,7 @@ The numbered register retains the original requirements and later explicit reque
 |---|---|---|
 | R01 | A standalone project with Prṛthak branding and the requested red/white appearance | A separate controller, dashboard and endpoint-agent repository, with the bilingual product mark and a consistent interface. |
 | R02 | Automatic enrollment and central inventory | One reusable GUI-generated fleet setup supplies an expiring/revocable enrollment key and public trust. Each host creates its own local key/certificate and reports automatically. Optional individual one-use kits remain available. |
-| R03 | Discover actual services/ports and later changes | Socket, process and systemd discovery identifies services such as SSH on **2022**, rather than assuming port 22. New/changed listeners generate alerts. Fleet discovery defaults to **900 seconds**; an explicit 1–20-server pilot preset uses **60 seconds**. |
+| R03 | Discover actual services/ports and later changes | Socket, process and systemd discovery identifies services such as SSH on **2022**, rather than assuming port 22. New/changed listeners generate alerts. A native daemon checks listener changes every **5 seconds** (normally about **5–10 seconds** before reporting). Full OS/firewall discovery defaults to **900 seconds**; an explicit 1–20-server pilot preset uses **60 seconds**. Failed/unsupported fast scans retain the full-scan fallback. |
 | R04 | Allowed sources per service; destination implicit | Each target receives an effective inbound TCP/UDP source/port policy. Optional whole-server default deny adds an explicitly acknowledged host-ingress fallback; outbound and forwarded/container segmentation remain outside this adapter. |
 | R05 | One policy for a group or matching tags | Static groups, dynamic groups and tag selectors resolve the target endpoints. Membership changes produce new desired policy versions. Ordinary per-port hosts publish directly; existing whole-server default-deny hosts require a fresh review of a changed bundle. Future group members are not automatically enabled for whole-server default deny. |
 | R06 | Reusable service groups and aligned source sets | A row can reference several saved ports and its own source CIDRs, source tags and source groups. Separate rows keep different source/port relationships separate. |
@@ -159,7 +159,7 @@ sudo ./scripts/install-agent-rhel.sh --setup-file /root/prthak-agent-setup.json
 sudo ./scripts/install-agent-ubuntu.sh --setup-file /root/prthak-agent-setup.json
 ```
 
-The fleet file contains an expiring/revocable enrollment key and public trust/configuration material, with no endpoint private key. Keep it private. Each endpoint creates its own key/certificate automatically; no fixed host-count limit applies. The GUI shows fleet-profile expiry, registration count and revoke controls. Optional individual kits remain single-use/15-minute. Family installers check prerequisites; OS package installation and competing firewall-manager migration are separate operator work.
+The fleet file contains an expiring/revocable enrollment key and public trust/configuration material, with no endpoint private key. Keep it private. Each endpoint creates its own key/certificate automatically; no fixed host-count limit applies. The GUI shows fleet-profile expiry, registration count and revoke controls. Optional individual kits remain single-use/15-minute. Family installers check prerequisites. Unchecked GUI options can install missing dependencies with service-start suppression and export private UFW evidence; UFW migration remains separately reviewed. See [endpoint preparation](docs/endpoint-discovery-and-preparation.md).
 
 After the first authenticated report, verify real addresses and listeners in **Servers**. Apply business tags/locations centrally. Use the endpoint's reviewed configuration workflow to change origins, management protections or security opt-ins without editing JSON. A downloaded transition or queued request becomes effective only after the exact endpoint receipt and required checks.
 
@@ -192,9 +192,9 @@ These are **planning allocations**, not measured ceilings or a production sizing
 | Learning reserve | **256 MiB RAM** starting estimate; traffic volume/source cardinality can change the requirement |
 | CPU reservation | A dedicated core is not required by the historical passive sample; discovery/learning bursts and current-release utilization remain unqualified |
 
-The historical sample was **95 seconds in an Ubuntu 26 ARM64 container**, with an empty policy and **60/900-second** timing. It predates 0.7 and excludes firewalld, kernel memory and learning workloads. Sampled peaks are not hard limits. New GUI defaults use 30/900 seconds, so the historical sample is not a measurement of that current workload. Host firewall/kernel and business application resources need their own allowance.
+The historical sample was **95 seconds in an Ubuntu 26 ARM64 container**, with an empty policy and **60/900-second** timing. It predates 0.7 and excludes firewalld, kernel memory and learning workloads. Sampled peaks are not hard limits. New GUI defaults use 30/900 seconds plus 5-second native listener snapshots, so the historical sample is not a measurement of that current workload. The isolated kernel-snapshot microbenchmark (~1.17 ms, 66.6 KB allocated per scan) is not whole-agent CPU/RSS qualification. Host firewall/kernel and business application resources need their own allowance.
 
-The selected-server **30/60-second pilot preset** and optional continuous monitoring also need fresh CPU/RAM measurement on the target hosts. Neither changes the 900-second fleet discovery default automatically.
+The selected-server **30/60-second pilot preset** and optional continuous monitoring also need fresh CPU/RAM measurement on the target hosts. Neither changes the 900-second full-inventory fallback automatically.
 
 ### Controller and database nodes
 
@@ -228,7 +228,7 @@ These choices support the requirements above. They are not substitutes for the r
 
 ## Documentation, evidence and development
 
-The illustrated PDFs describe earlier snapshots and remain historical guides. Current 0.10 behavior and acceptance limits are recorded in the [Markdown requirements map](docs/requirements-delivery-map.md), current operational documents and [0.10 release evidence](docs/release-0.10.0-pilot.1.md).
+The illustrated PDFs describe earlier snapshots and remain historical guides. Current 0.11 behavior and acceptance limits are recorded in the [Markdown requirements map](docs/requirements-delivery-map.md), current operational documents and [0.11 release evidence](docs/release-0.11.0-pilot.1.md).
 
 - [User requirements and delivery map](output/pdf/prthak-user-requirements-and-delivery-map.pdf)
 - [Architecture and operations handbook](output/pdf/prthak-architecture-operations-guide.pdf)

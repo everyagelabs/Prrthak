@@ -2,7 +2,7 @@ package agent
 
 import "time"
 
-const Version = "0.10.0"
+const Version = "0.11.0"
 
 const LearningDiscoveryCapability = "learning_discovery_v1"
 const HostDefaultDenyCapability = "host_default_deny_v1"
@@ -70,6 +70,8 @@ type Coverage struct {
 	Error         string     `json:"error,omitempty"`
 }
 type Report struct {
+	PreparationStatus           *HostPreparationStatus      `json:"preparation_status,omitempty"`
+	FastDiscovery               *FastDiscoveryReport        `json:"fast_discovery,omitempty"`
 	TrafficCapture              *TrafficCaptureCoverage     `json:"traffic_capture,omitempty"`
 	HitMonitor                  *HitMonitorCoverage         `json:"hit_monitor,omitempty"`
 	HitMonitoring               []HitMonitorStatus          `json:"hit_monitoring,omitempty"`

@@ -144,16 +144,11 @@ func Discover(ctx context.Context, runner CommandRunner, simulate bool, hostname
 		}
 	}
 	sort.Strings(r.IPs)
-	sockets, e := runner.Run(ctx, "ss", "-H", "-lntup")
+	listeners, e := DiscoverListeners(ctx, runner)
 	if e != nil {
 		r.DiscoveryError = e.Error()
 	} else {
-		r.Listeners = ParseSockets(sockets)
-		var sockets []SocketBinding
-		if text, e := runner.Run(ctx, "systemctl", "list-sockets", "--all", "--no-legend", "--no-pager", "--plain"); e == nil {
-			sockets = ParseSystemdSockets(text)
-		}
-		r.Listeners = EnrichListeners(r.Listeners, readProcessCgroup, sockets)
+		r.Listeners = listeners
 	}
 	if s, e := runner.Run(ctx, "firewall-cmd", "--version"); e == nil {
 		r.FirewalldVersion = strings.TrimSpace(s)

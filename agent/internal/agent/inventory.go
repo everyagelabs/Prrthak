@@ -19,7 +19,7 @@ func (a *Agent) discoveryInterval() time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 func (a *Agent) discoveryDue(now time.Time) bool {
-	if a.inventory == nil || a.forceDiscovery || a.learningDiscoveryDue(now) || now.Before(a.lastDiscoveryAttempt) || now.Sub(a.lastDiscoveryAttempt) >= a.discoveryInterval() {
+	if a.inventory == nil || a.forceDiscovery || a.learningDiscoveryDue(now) || now.Before(a.lastFullDiscoveryAttempt) || now.Sub(a.lastFullDiscoveryAttempt) >= a.discoveryInterval() {
 		return true
 	}
 	retry := time.Duration(a.controlIntervalSeconds()) * time.Second
@@ -52,6 +52,7 @@ func (a *Agent) inventoryReport(ctx context.Context, now time.Time) Report {
 			}
 		}
 		a.lastDiscoveryAttempt = now
+		a.lastFullDiscoveryAttempt = now
 		if snapshot.DiscoveryError == "" {
 			a.lastDiscoverySuccess = now
 		} else if previous != nil {
@@ -66,10 +67,18 @@ func (a *Agent) inventoryReport(ctx context.Context, now time.Time) Report {
 	}
 	report := *a.inventory
 	report.AgentVersion = Version
+	report.PreparationStatus = ReadHostPreparationStatus(a.Config.StateDir)
+	if a.fastDiscoveryEnabled && !a.Simulate {
+		status := a.fastDiscoveryReport
+		report.FastDiscovery = &status
+	}
 	if !a.Simulate {
 		report.ConfigurationState = configurationState(a.Config)
 	}
 	report.Capabilities = []string{LearningDiscoveryCapability, LearningAutoAllowCapability, PollingSettingsCapability, "managed_ipsets_v1", "signed_assignments_v1", LearningIPSetCapability}
+	if a.fastDiscoveryEnabled && !a.Simulate {
+		report.Capabilities = append(report.Capabilities, FastDiscoveryCapability)
+	}
 	if !a.Simulate {
 		report.Capabilities = append(report.Capabilities, "endpoint_configuration_v1", "approval_mode_proof_v1", HostDefaultDenyCapability)
 	}

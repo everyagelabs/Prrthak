@@ -26,6 +26,7 @@ for arch in ('amd64', 'arm64'):
              (root / 'docs' / 'whole-server-default-deny.md', 'docs/whole-server-default-deny.md'),
              (root / 'docs' / 'traffic-capture.md', 'docs/traffic-capture.md'),
              (root / 'docs' / 'fleet-enrollment.md', 'docs/fleet-enrollment.md'),
+             (root / 'docs' / 'endpoint-discovery-and-preparation.md', 'docs/endpoint-discovery-and-preparation.md'),
              (root / 'docs' / 'linux-validation.md', 'docs/linux-validation.md'),
              (root / 'docs' / 'scale-validation.md', 'docs/scale-validation.md'),
              (root / 'docs' / 'ipset-enforcement.md', 'docs/ipset-enforcement.md'),
@@ -57,6 +58,10 @@ for arch in ('amd64', 'arm64'):
    Each endpoint automatically creates its own private key and certificate.
    The optional Individual setup remains single-use/15minutes. See
    docs/fleet-enrollment.md for GUI profile revocation and identity boundaries.
+   Optional unchecked GUI choices can install missing OS dependencies with
+   service-start suppression and export private UFW evidence. UFW is preserved;
+   no firewall activation or migration is performed. See
+   docs/endpoint-discovery-and-preparation.md before selecting preparation.
 3. From this extracted release directory run exactly one matching installer:
 
    sudo ./scripts/install-agent-rhel.sh --setup-file /root/prthak-agent-setup.json
@@ -64,8 +69,9 @@ for arch in ('amd64', 'arm64'):
 
    No hand-editing agent JSON, token or CA configuration is required. Public CA
    material and monitor-only settings are prepared by the validated Go helper.
-   OS packages must already be prepared; no firewall manager is switched or
-   enabled. See docs/pilot-gui-installation.md for the full GUI workflow.
+   Without explicit GUI preparation, OS prerequisites must already exist.
+   No firewall manager is switched or activated. See
+   docs/pilot-gui-installation.md for the full GUI workflow.
 
 ADVANCED COMPATIBILITY: explicit reviewed config/token/CA files remain supported.
 The following older workflow is optional, not needed for GUI-configured pilots:

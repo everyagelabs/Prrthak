@@ -110,6 +110,12 @@ func checkEnforcementUpgradeSafety(c Config, ownsConfigurationLock bool, ownRevi
 	if err := checkCommandFence(lockPath, false); err != nil {
 		return err
 	}
+	return checkEnforcementJournals(c)
+}
+
+// The caller either holds the managed lease or has just performed the read-only
+// lock/fence preflight above. Preparation rechecks while retaining both leases.
+func checkEnforcementJournals(c Config) error {
 	for _, directory := range []string{managedDirectory(c.StateDir), learningAllowDirectory(c.StateDir)} {
 		paths, e := filepath.Glob(filepath.Join(directory, "transactions", "*.json"))
 		if e != nil {

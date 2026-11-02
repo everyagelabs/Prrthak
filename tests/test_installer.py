@@ -277,7 +277,7 @@ verify_lease()
                                  os.environ['SEG_AGENT_BINARY'], str(self.config)],
                                 capture_output=True, text=True, env=self.env, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('private one-time enrollment token ready', result.stdout)
+        self.assertIn('private enrollment credential ready', result.stdout)
         self.assertFalse(self.systemctl_calls.exists())
         self.assertTrue((self.root / 'etc/systemd/system/multi-user.target.wants/seg-agent.service').is_symlink())
 

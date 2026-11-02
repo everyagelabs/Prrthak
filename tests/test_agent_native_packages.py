@@ -24,8 +24,8 @@ class AgentNativePackageTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup);self.base=Path(temporary.name).resolve()
         self.output=self.base/"output"
 
-    def bundle(self,arch="amd64",extra=(),omit=(),binary_arch=None):
-        stem="prthak-agent-0.7.0-linux-"+arch
+    def bundle(self,arch="amd64",extra=(),omit=(),binary_arch=None,version="0.7.0"):
+        stem="prthak-agent-"+version+"-linux-"+arch
         target=self.base/(stem+".tar.gz")
         elf=bytearray(64);elf[:6]=b"\x7fELF\x02\x01";elf[18:20]=struct.pack("<H",{"amd64":62,"arm64":183}[binary_arch or arch])
         with tarfile.open(target,"w:gz",format=tarfile.USTAR_FORMAT) as outgoing:
@@ -82,6 +82,13 @@ class AgentNativePackageTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.inspect(self.bundle(extra=[("{stem}/seg-agent",tarfile.REGTYPE,b"x")]))
         with self.assertRaisesRegex(ValueError,"missing"):self.inspect(self.bundle(omit=["runtime-integrity.json"]))
         with self.assertRaisesRegex(ValueError,"ELF"):self.inspect(self.bundle(binary_arch="arm64"))
+
+    def test_preparation_guide_is_required_for_new_release_and_optional_for_older_payloads(self):
+        self.inspect(self.bundle(version="0.10.0", omit=[package.PREPARATION_GUIDE]))
+        with self.assertRaisesRegex(ValueError, "missing"):
+            self.inspect(self.bundle(version="0.11.0", omit=[package.PREPARATION_GUIDE]))
+        plan, _ = self.inspect(self.bundle(version="0.11.0"))
+        self.assertIn(package.PREPARATION_GUIDE, plan["files"])
 
     def test_compressed_expansion_and_entry_bounds_are_enforced(self):
         archive=self.bundle()

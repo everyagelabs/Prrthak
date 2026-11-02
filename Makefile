@@ -39,6 +39,7 @@ package-controller:
 check:
 	PYTHONPYCACHEPREFIX=$(CURDIR)/.local/pycache $(PYTHON) -m compileall -q controller scripts tests
 	node --check dashboard/policy-catalogue-page.js
+	node --check dashboard/alerts-catalogue-page.js
 	node --check dashboard/account-menu.js
 	node --check dashboard/risk-page.js
 	node --check dashboard/app.js

@@ -38,6 +38,8 @@ func main() {
 	prepareStart := flag.Bool("prepare-start", false, "reset readiness generation before a systemd restart; no controller or firewall request")
 	prepareSetup := flag.String("prepare-setup", "", "validate a private GUI setup file and prepare fixed data files; no network or firewall operations")
 	setupOutput := flag.String("setup-output", "", "empty owned 0700 output directory for --prepare-setup")
+	prepareHost := flag.String("prepare-host", "", "explicit GUI setup file for protected OS dependency preparation and private UFW assessment")
+	prepareFamily := flag.String("prepare-family", "", "native OS package family for --prepare-host (rhel or ubuntu)")
 	applyConfiguration := flag.String("apply-configuration", "", "apply an independently approved private endpoint configuration kit locally")
 	rollbackConfiguration := flag.String("rollback-configuration", "", "independent systemd configuration rollback journal")
 	checkConfiguration := flag.String("check-configuration", "", "read-only signature and exact local-config check for a private endpoint configuration kit")
@@ -50,6 +52,28 @@ func main() {
 	flag.Parse()
 	if *installationLeaseFD != -1 && (*installationLeaseFD < 3 || !*check && !*checkUpgrade || *checkRoot != "") {
 		log.Fatal("installation lease descriptor is supported only by canonical native installer preflight")
+	}
+	if *prepareHost != "" || *prepareFamily != "" {
+		invalid := flag.NArg() != 0 || *prepareHost == "" || (*prepareFamily != "rhel" && *prepareFamily != "ubuntu") || *releaseManifest == "" || *releaseTrust == "" || *releaseBinary == "" || *releaseUnit == ""
+		flag.Visit(func(value *flag.Flag) {
+			switch value.Name {
+			case "prepare-host", "prepare-family", "release-manifest", "release-trust", "release-binary", "release-unit":
+			default:
+				invalid = true
+			}
+		})
+		if invalid {
+			log.Fatal("host preparation requires only its explicit setup, family and signed runtime files")
+		}
+		signalCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+		defer stopSignals()
+		ctx, cancel := context.WithTimeout(signalCtx, 35*time.Minute)
+		defer cancel()
+		if err := agent.PrepareHostFromSetup(ctx, *prepareHost, *prepareFamily, *releaseManifest, *releaseTrust, *releaseBinary, *releaseUnit); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("Explicit host preparation complete; UFW and firewall service activation remain unchanged. Private assessment metadata is reported after enrollment.")
+		return
 	}
 	if *checkRelease {
 		invalid := flag.NArg() != 0 || *releaseManifest == "" || *releaseTrust == "" || *releaseBinary == "" || *releaseUnit == ""
@@ -267,7 +291,7 @@ func main() {
 		if enrolled {
 			fmt.Println("Prṛthak (पृथक्) configuration validated: existing mTLS identity ready")
 		} else {
-			fmt.Println("Prṛthak (पृथक्) configuration validated: HTTPS CA and private one-time enrollment token ready")
+			fmt.Println("Prṛthak (पृथक्) configuration validated: HTTPS CA and private enrollment credential ready")
 		}
 		return
 	}

@@ -715,6 +715,9 @@ class Store:
             raise ValueError("Invalid collector status")
         from .learning import report_fields, acknowledge_discovery
         agent_version, capabilities, learning_discovery_ids = report_fields(value)
+        from .endpoint_diagnostics import fast_discovery, preparation_status
+        fast_receipt = fast_discovery(value["fast_discovery"]) if "fast_discovery" in value else None
+        preparation_receipt = preparation_status(value["preparation_status"]) if "preparation_status" in value else None
         with self.lock, self.meta() as db:
             if getattr(db, "dialect", "sqlite") != "postgresql":
                 # Separate controller/store instances must serialize before
@@ -730,6 +733,12 @@ class Store:
             previous_apply_status = server.get("apply_status", "preview")
             server.update({"hostname": hostname, "ips": ips, "last_seen": stamp(), "applied_version": applied_version, "apply_status": apply_status, "collector_status": collector_status, "ufw_active": bool(value.get("ufw_active", False)), "discovery_performed": discovery_performed, "control_interval_seconds": control_interval})
             server.update({"agent_version": agent_version, "capabilities": capabilities})
+            if fast_receipt is not None:
+                server["fast_discovery"] = fast_receipt
+            elif "fast_listener_discovery_v1" not in capabilities:
+                server.pop("fast_discovery", None)
+            if preparation_receipt is not None:
+                server["preparation_status"] = preparation_receipt
             from .hit_monitoring import report_status as report_hit_status
             report_hit_status(self, db, server, value)
             if value.get("configuration_state") is not None:
@@ -1181,7 +1190,9 @@ class Store:
         sessions = session_page.pop("items")
         policy_page=public_policies(self,"managed")
         policies=policy_page.pop("items")
-        alerts = sorted(self.all("alerts"), key=lambda item: item["created_at"], reverse=True)
+        from .alert_views import listing as public_alerts
+        alert_page = public_alerts(self)
+        alerts = alert_page.pop("items")
         flows = self.flows()
         total = len(servers)
         # Reuse this compact fleet projection for catalogue/group counts. Do not
@@ -1195,11 +1206,11 @@ class Store:
         groups=sorted((self._public_group(group,servers,catalog) for group in self.all("groups")),key=lambda item:item["name"].casefold())
         capture_counts={"connections":0,"packets":0,"log_records":0}
         for flow in flows:capture_counts[flow["count_unit"]]+=flow["count"]
-        stats = {"total_servers": total, "healthy_servers": sum(server["status"] == "healthy" for server in servers), "offline_servers": sum(server["status"] == "offline" for server in servers), "warning_servers": sum(server["status"] == "warning" for server in servers), "active_learning": session_page["active_total"], "active_alerts": sum(alert["status"] == "open" for alert in alerts), "policy_count": policy_page["total"], "observed_events": capture_counts["log_records"], "observed_events_unit":"legacy_log_records", "capture_counts":capture_counts,"capture_counts_scope":"bounded_last_hour_relationships", "discovered_services": sum(len(server.get("listeners", [])) for server in servers), "synced_servers": sum(server.get("apply_status") == "synced" and server.get("applied_version") == server.get("desired_version") for server in servers)}
+        stats = {"total_servers": total, "healthy_servers": sum(server["status"] == "healthy" for server in servers), "offline_servers": sum(server["status"] == "offline" for server in servers), "warning_servers": sum(server["status"] == "warning" for server in servers), "active_learning": session_page["active_total"], "active_alerts": alert_page["open_count"], "policy_count": policy_page["total"], "observed_events": capture_counts["log_records"], "observed_events_unit":"legacy_log_records", "capture_counts":capture_counts,"capture_counts_scope":"bounded_last_hour_relationships", "discovered_services": sum(len(server.get("listeners", [])) for server in servers), "synced_servers": sum(server.get("apply_status") == "synced" and server.get("applied_version") == server.get("desired_version") for server in servers)}
         learned_page=public_policies(self,"learned")
         learned_policies=learned_page.pop("items")
         from . import __version__
-        return {"servers": servers, "policies": policies, "policy_pagination": policy_page, "learning_policies": learned_policies, "learning_policy_pagination": learned_page, "groups": groups, "service_groups": service_group_listing(self), "locations": locations, "learning_sessions": sessions, "learning_session_pagination": session_page, "alerts": alerts[:500], "flows": flows, "stats": stats, "meta": {"demo": demo, "synthetic": demo, "version": __version__, "traffic_retention_hours": self.retention_hours, "storage": "Shared PostgreSQL HA baseline" if self.ha else "SQLite development baseline", "ha": self.ha, "generated_at": stamp()}}
+        return {"servers": servers, "policies": policies, "policy_pagination": policy_page, "learning_policies": learned_policies, "learning_policy_pagination": learned_page, "groups": groups, "service_groups": service_group_listing(self), "locations": locations, "learning_sessions": sessions, "learning_session_pagination": session_page, "alerts": alerts, "alert_pagination": alert_page, "flows": flows, "stats": stats, "meta": {"demo": demo, "synthetic": demo, "version": __version__, "traffic_retention_hours": self.retention_hours, "storage": "Shared PostgreSQL HA baseline" if self.ha else "SQLite development baseline", "ha": self.ha, "generated_at": stamp()}}
 
 
     def firewall_inventory(self, selected=None, **options):

@@ -29,6 +29,7 @@ MAX_ENTRIES = 64
 HOST_DENY_GUIDE = "docs/whole-server-default-deny.md"
 TRAFFIC_CAPTURE_GUIDE = "docs/traffic-capture.md"
 FLEET_GUIDE = "docs/fleet-enrollment.md"
+PREPARATION_GUIDE = "docs/endpoint-discovery-and-preparation.md"
 ALLOWED = {
     "seg-agent", "INSTALL.txt", "runtime-integrity.json", "deploy/release-public-trust.json",
     "agent/config.example.json", "agent/README.md", "deploy/systemd/seg-agent.service",
@@ -37,6 +38,7 @@ ALLOWED = {
     HOST_DENY_GUIDE,
     TRAFFIC_CAPTURE_GUIDE,
     FLEET_GUIDE,
+    PREPARATION_GUIDE,
 }
 BUILDER_DOCKERFILE = """FROM debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4
 RUN apt-get update && apt-get install --no-install-recommends -y python3 rpm dpkg-dev gzip coreutils && rm -rf /var/lib/apt/lists/*
@@ -123,7 +125,7 @@ def inspect_bundle(archive, payload):
                 raise ValueError("Release must contain unique allowlisted regular files only")
             found[relative] = item
         release = tuple(map(int, version.split('.')))
-        required = ALLOWED - ({HOST_DENY_GUIDE} if release < (0, 8, 0) else set()) - ({TRAFFIC_CAPTURE_GUIDE} if release < (0, 9, 0) else set()) - ({FLEET_GUIDE} if release < (0, 10, 0) else set())
+        required = ALLOWED - ({HOST_DENY_GUIDE} if release < (0, 8, 0) else set()) - ({TRAFFIC_CAPTURE_GUIDE} if release < (0, 9, 0) else set()) - ({FLEET_GUIDE} if release < (0, 10, 0) else set()) - ({PREPARATION_GUIDE} if release < (0, 11, 0) else set())
         if not required <= found.keys():
             raise ValueError("Release is missing installation or signed-runtime files")
         payload.mkdir(mode=0o755)

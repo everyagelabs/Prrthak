@@ -1,6 +1,6 @@
 #!/bin/sh
 # Distro/architecture preflight for an independently verified, extracted bundle.
-# Package installation and firewall migration remain explicit administrator work.
+# Optional package preparation is explicit GUI data; UFW is always preserved.
 set -eu
 umask 077
 
@@ -21,9 +21,11 @@ Usage: $PROGRAM --setup-file /root/prthak-agent-setup.json [--binary FILE]
              no configuration argument is required and nothing is installed.
 Live installation requires root and Linux. --root staging requires --no-start
 and reads the target's etc/os-release and installed command files.
-No package, firewall rule, UFW setting or firewalld service is changed by preflight.
+Read-only checks/staging never install packages or change a firewall service.
 The shared installer enables/starts only seg-agent after credential validation.
 --setup-file consumes the private data-only GUI download; no config/token/CA editing.
+Explicit GUI preparation can install missing dependencies with startup suppression
+and export a private UFW assessment. It never disables UFW or activates firewalld.
 USAGE
 }
 CHECK_ONLY=0
@@ -130,6 +132,34 @@ fi
 [ -f "$BINARY" ] && [ -x "$BINARY" ] || { printf '%s\n' "Missing executable Linux $ARCH agent. Extract the matching verified release, or use --binary FILE for a reviewed build." >&2; exit 1; }
 [ -f "$SCRIPT_DIR/install-agent.sh" ] || { echo 'Shared secure installer is missing from this bundle.' >&2; exit 1; }
 
+# Private kit validation and signed runtime verification precede every optional
+# package action. Never source/evaluate data downloaded from the controller.
+if [ -n "$SETUP_FILE" ]; then
+  MANIFEST=$PROJECT_ROOT/runtime-integrity.json
+  TRUST=$PROJECT_ROOT/deploy/release-public-trust.json
+  if [ -f "$TARGET_ROOT/etc/seg-agent/release-public-trust.json" ]; then TRUST=$TARGET_ROOT/etc/seg-agent/release-public-trust.json; fi
+  if [ -z "$TARGET_ROOT" ] || [ -f "$MANIFEST" ]; then
+    [ -f "$MANIFEST" ] && [ -f "$TRUST" ] || { echo 'A signed runtime manifest and independently established public release trust are required.' >&2; exit 1; }
+    "$BINARY" --check-release --release-manifest "$MANIFEST" --release-trust "$TRUST" --release-binary "$BINARY" --release-unit "$PROJECT_ROOT/deploy/systemd/seg-agent.service"
+  fi
+  SETUP_WORK=$(mktemp -d "${TMPDIR:-/tmp}/prthak-agent-setup.XXXXXXXX")
+  SETUP_WORK=$(CDPATH= cd -- "$SETUP_WORK" && pwd -P)
+  trap 'rm -rf -- "$SETUP_WORK"' 0
+  trap 'exit 1' 1 2 15
+  "$BINARY" --prepare-setup "$SETUP_FILE" --setup-output "$SETUP_WORK"
+  CONFIG_SOURCE=$SETUP_WORK/agent.json
+  CA_SOURCE=$SETUP_WORK/controller-ca.crt
+  TOKEN_SOURCE=$SETUP_WORK/enrollment-token
+  if [ -f "$SETUP_WORK/endpoint-ca.crt" ]; then ENDPOINT_CA_SOURCE=$SETUP_WORK/endpoint-ca.crt; fi
+  if [ -f "$SETUP_WORK/preparation-options.json" ]; then
+    if [ -z "$TARGET_ROOT" ] && [ "$NO_START" -eq 0 ]; then
+      "$BINARY" --prepare-host "$SETUP_FILE" --prepare-family "$FAMILY" --release-manifest "$MANIFEST" --release-trust "$TRUST" --release-binary "$BINARY" --release-unit "$PROJECT_ROOT/deploy/systemd/seg-agent.service"
+    else
+      printf '%s\n' 'Staging/--no-start: explicit host preparation skipped; no package/service/firewall action is permitted.'
+    fi
+  fi
+fi
+
 available() {
   if [ -z "$TARGET_ROOT" ]; then
     command -v "$1" >/dev/null 2>&1
@@ -166,18 +196,6 @@ fi
 if [ -n "$CONFIGURATION_FILE" ]; then
   exec "$BINARY" --apply-configuration "$CONFIGURATION_FILE"
 fi
-if [ -n "$SETUP_FILE" ]; then
-  SETUP_WORK=$(mktemp -d "${TMPDIR:-/tmp}/prthak-agent-setup.XXXXXXXX")
-  SETUP_WORK=$(CDPATH= cd -- "$SETUP_WORK" && pwd -P)
-  trap 'rm -rf -- "$SETUP_WORK"' 0
-  trap 'exit 1' 1 2 15
-  "$BINARY" --prepare-setup "$SETUP_FILE" --setup-output "$SETUP_WORK"
-  CONFIG_SOURCE=$SETUP_WORK/agent.json
-  CA_SOURCE=$SETUP_WORK/controller-ca.crt
-  TOKEN_SOURCE=$SETUP_WORK/enrollment-token
-  if [ -f "$SETUP_WORK/endpoint-ca.crt" ]; then ENDPOINT_CA_SOURCE=$SETUP_WORK/endpoint-ca.crt; fi
-fi
-
 # Reconstruct argv with quoted values; never evaluate or log token contents.
 set -- "$SCRIPT_DIR/install-agent.sh"
 [ -z "$TARGET_ROOT" ] || set -- "$@" --root "$TARGET_ROOT"

@@ -1,4 +1,4 @@
-# GUI-configured 20-server pilot (0.10.0)
+# GUI-configured 20-server pilot (0.11.0)
 
 Configure Prṛthak in the GUI. The installer and fixed local manager generate
 protected files; no manual `.env`, agent JSON, token or CA editing is required.
@@ -51,7 +51,7 @@ flowchart LR
 
 ## 2. Stage the verified release and run one controller installer
 
-Obtain `prthak-controller-0.10.0.tar.gz` and its detached `.signature.json`.
+Obtain `prthak-controller-0.11.0.tar.gz` and its detached `.signature.json`.
 Verify exact archive bytes **before extraction/execution**, using an independently
 approved public release-signing pin and verifier. A public key downloaded beside
 an unknown archive does not establish trust. The project signing authority is
@@ -122,12 +122,15 @@ alone is not native OS, live tenant, or external failover acceptance.
 The intended pilot matrix is RHEL 8/9 and Ubuntu 26.04 on x86_64/amd64 or
 aarch64/arm64; native acceptance on those VMs remains pending. Prepare `systemd`,
 `firewalld`, `ca-certificates`, `util-linux` (for `flock`) and `iproute` (RHEL) or `iproute2` (Ubuntu) through
-approved repositories. Family installers check prerequisites; they do not run
-apt/dnf, start firewalld, disable UFW or migrate existing rules. Package hooks
-may activate services, so stage OS work with management access protected.
+approved repositories. By default family installers check prerequisites. The
+GUI has separate unchecked options to install missing dependencies with journaled
+startup suppression and assess/export UFW privately. Neither starts firewalld,
+disables UFW or migrates existing rules. Unsupported administrator overrides or
+uncertain package state block automatic preparation; native acceptance is pending.
+See [endpoint preparation](endpoint-discovery-and-preparation.md).
 
-Stage and independently verify `prthak-agent-0.10.0-linux-amd64.tar.gz` or
-`prthak-agent-0.10.0-linux-arm64.tar.gz`, then extract to a protected root-owned
+Stage and independently verify `prthak-agent-0.11.0-linux-amd64.tar.gz` or
+`prthak-agent-0.11.0-linux-arm64.tar.gz`, then extract to a protected root-owned
 release directory. Use its signed runtime manifest and independently approved
 public trust. The static Go endpoint needs no Git, Python or Go compiler/runtime.
 
@@ -184,8 +187,13 @@ the first authenticated endpoint report, not merely an installed file.
 
 In **Servers**, verify agent-reported IPs, fresh heartbeat/discovery and actual
 listeners. NAT/LB connection source addresses do not replace reported server IPs.
-A new service appears after the next successful discovery (15 minutes by
-default); failed scans retain the last successful inventory.
+The first report after every agent restart refreshes OS/firewall/service facts.
+A native 5-second socket check triggers an immediate verified listener refresh
+on change (normally about 5–10 seconds plus delivery). Failed/unsupported checks
+retain the separately scheduled full-scan fallback (15 minutes by default) and
+last good inventory. An agent missing accepted reports for more than
+max(180 seconds, three control intervals) raises a critical offline alert on the
+next 30-second evaluator pass; resumed reports record recovery.
 
 Create DC/cloud locations and subnet mappings in the GUI, then assign central
 tags individually/in bulk or import exact-IP CSV profiles. Manual assignment
@@ -333,7 +341,10 @@ The historical sample was **95 seconds in an Ubuntu 26 ARM64 container**, with
 an empty policy and **60/900-second** control/discovery timing. It predates 0.7,
 used no enforcement or learning, and excludes firewalld/D-Bus, kernel/source-set
 memory and journal storage. It is not native RHEL/systemd acceptance. The current
-GUI profile is 30/900 seconds, so these numbers do not measure that workload.
+GUI profile is 30/900 seconds with additional 5-second native listener snapshots,
+so these numbers do not measure that current workload. The kernel-snapshot
+microbenchmark in [endpoint discovery](endpoint-discovery-and-preparation.md)
+is not a whole-agent CPU/RSS qualification.
 Peaks are sampled observations, not enforced resource limits. Application and
 host firewall resources need their own allowance. Preserve the original
 [agent resource method and evidence](agent-resources.md) when interpreting them.

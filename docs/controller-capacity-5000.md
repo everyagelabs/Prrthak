@@ -1,6 +1,33 @@
 # 5,000-server controller capacity
 
-## Current 0.10 acceptance · 2 November 2026
+## Current 0.11 acceptance · 2 November 2026
+
+The endpoint/health build passed the same isolated policy-delivery profile with
+fresh current-runtime registry/key claims and 5,000 virtual mTLS identities.
+Certificate/inventory preparation is outside the phase timers.
+
+| Phase | Verified identities | Elapsed |
+| --- | ---: | ---: |
+| Initial signed delivery and receipts | 5,000 | 15.850 s |
+| Actual Admin policy PUT, publication and full 30 s polling window | 5,000 | **31.869 s** |
+| Warm polling, 100 discovery reports and 10,000 typed observations | 5,000 | 13.229 s |
+
+Publication took 1.857 seconds, included in the total. Every changed version,
+digest, source matrix and current single-Admin authority was verified. There
+were zero final failures, six transient policy retries and four report retries.
+Exactly 5,000 connection and 5,000 denied-packet observations were retained in
+separate units, with no batch pending after drain. Policy/report/ingest p95 was
+88.335/178.072/3292.471 ms. Runtime source hashes remained unchanged; both fresh
+owned fixture databases were removed.
+
+Profile: two workers × 32 threads, 64 clients, metadata/traffic pools 8/2,
+30-second control / 900-second full discovery, private PostgreSQL 16.15 on a
+shared ARM64 development host. The [public result](../output/capacity/controller-5000-0.11-result.json)
+records workload, source hashes and cleanup. This does not measure 5,000 native
+fast-check agents/collectors, actual firewalld changes, startup enrollment storms,
+large alert-history endurance, live Entra, DC/WAN/HA or native OS acceptance.
+
+## Historical 0.10 acceptance · 2 November 2026
 
 The reusable-enrollment build retains the 60-second ordinary policy-delivery target on the isolated profile below. This uses fresh current-runtime certificate registry/key claims and 5,000 virtual mTLS identities; certificate preparation is outside the phase timers. It does not measure a legacy-registry migration or an enrollment storm.
 

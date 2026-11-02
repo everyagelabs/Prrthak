@@ -14,6 +14,11 @@ import (
 )
 
 type Agent struct {
+	fastDiscoveryEnabled        bool
+	nextFastDiscovery           time.Time
+	fastListenerFingerprint     string
+	fastDiscoveryReport         FastDiscoveryReport
+	listenerSnapshot            func(context.Context) (listenerSnapshot, error)
 	trafficCapture              nativeCapture
 	nextCaptureCheck            time.Time
 	captureCoverage             TrafficCaptureCoverage
@@ -40,6 +45,7 @@ type Agent struct {
 	nextRuleCheck               time.Time
 	inventory                   *Report
 	lastDiscoveryAttempt        time.Time
+	lastFullDiscoveryAttempt    time.Time
 	lastDiscoverySuccess        time.Time
 	forceDiscovery              bool
 	discoveryPending            bool
@@ -638,6 +644,9 @@ func (a *Agent) Run(ctx context.Context, once bool) error {
 		}
 		return nil
 	} // one-shot sync never leaves a background collector running.
+	a.fastDiscoveryEnabled = !a.Simulate
+	// Baseline precedes the first full inventory, closing the startup race.
+	a.fastDiscoveryTick(ctx, a.currentTime())
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
@@ -651,6 +660,7 @@ func (a *Agent) Run(ctx context.Context, once bool) error {
 	defer ticker.Stop()
 	for {
 		now := time.Now().UTC()
+		fastChanged := a.fastDiscoveryTick(ctx, a.currentTime())
 		if !now.Before(nextSync) {
 			if e := a.Sync(ctx); e != nil {
 				_ = a.writeReadyStatus("sync_retrying", e)
@@ -666,12 +676,19 @@ func (a *Agent) Run(ctx context.Context, once bool) error {
 				delay = a.learningDiscoveryRetryInterval()
 			}
 			nextSync = now.Add(delay)
+			fastChanged = false // Sync already reports the exact pending scan.
 		}
 		if requested, e := a.consumeDiscoveryRequest(); e != nil {
 			log.Printf("manual service discovery request: %v", e)
 		} else if requested || a.discoveryDue(a.currentTime()) {
 			if e = a.report(ctx); e != nil {
 				log.Printf("manual service discovery report: %v", e)
+			}
+			fastChanged = false
+		}
+		if fastChanged {
+			if e := a.report(ctx); e != nil {
+				log.Printf("fast listener discovery report: %v", e)
 			}
 		}
 		now = time.Now().UTC()

@@ -1,6 +1,6 @@
 # RHEL and Ubuntu endpoint installers
 
-**Preferred 0.10 GUI flow:** download one private **Fleet setup** through **Install
+**Preferred 0.11 GUI flow:** download one private **Fleet setup** through **Install
 agent**, copy the same file to the servers as root-owned 0600 at `/root/prthak-agent-setup.json`, then run
 `sudo ./scripts/install-agent-rhel.sh --setup-file /root/prthak-agent-setup.json`
 or the Ubuntu wrapper on each host. No manual JSON/token/CA editing or per-host
@@ -24,7 +24,7 @@ The scripts have staged/mocked acceptance checks. Native RHEL 8/9 and Ubuntu hos
 
 ## Prepare the endpoint and release
 
-1. Arrange required OS packages through approved RHEL/Ubuntu repositories and your normal change process. The entrypoints check them and print the missing command/package set; they never run `dnf`, `apt`, disable UFW, enable firewalld or migrate firewall rules. Installing the firewalld **package itself** can start/enable its service through package hooks, so review current firewall rules/UFW, management access and the intended service state before that separate operation. RHEL requires appropriate repository/subscription access.
+1. In the GUI, optionally tick **Install missing OS dependencies** and/or **Assess/export UFW for migration**; both start unchecked. The same verified installer command validates the private schema-3 kit, uses bounded native apt/dnf operations with journaled service-start suppression, and preserves UFW and existing firewalld activity. Existing unsafe/uncertain startup overrides block preparation. Without those options, entrypoints only check prerequisites and print missing commands. RHEL requires approved repository/subscription access. UFW migration remains separate. See [preparation safeguards and private receipt](endpoint-discovery-and-preparation.md).
 2. Use the matching `linux-amd64` archive for `uname -m` = `x86_64`/`amd64`, or `linux-arm64` for `aarch64`/`arm64`. An extracted bundle has one `seg-agent` binary; source checkouts select `agent/bin/seg-agent-linux-ARCH`. `--binary FILE` is available for an explicitly reviewed build.
 3. Verify the exact archive's detached Ed25519 signature **before extraction**, using an independently distributed public trust manifest and approved verifier. Downloading a public key next to an untrusted archive does not establish trust. Verification can run on an administration workstation; the static installed agent has no Python dependency. The current local project release key is not an independently approved organizational release authority. See [release signing and trust](policy-signing.md).
 
@@ -33,13 +33,13 @@ An administration-workstation verification example, using approved Python 3.10+ 
 ```sh
 python3 /approved/tools/verify-release.py \
   --public-trust-file /approved/trust/prthak-release-public-trust.json \
-  --signature prthak-agent-0.10.0-linux-amd64.tar.gz.signature.json \
-  prthak-agent-0.10.0-linux-amd64.tar.gz
+  --signature prthak-agent-0.11.0-linux-amd64.tar.gz.signature.json \
+  prthak-agent-0.11.0-linux-amd64.tar.gz
 sudo install -d -o root -g root -m 0755 /opt/prthak/agent-releases
 sudo tar --no-same-owner --no-same-permissions \
-  -xzf /protected/releases/prthak-agent-0.10.0-linux-amd64.tar.gz \
+  -xzf /protected/releases/prthak-agent-0.11.0-linux-amd64.tar.gz \
   -C /opt/prthak/agent-releases
-cd /opt/prthak/agent-releases/prthak-agent-0.10.0-linux-amd64
+cd /opt/prthak/agent-releases/prthak-agent-0.11.0-linux-amd64
 ```
 
 Use the ARM64 filenames on ARM64. Transfer the already verified archive through your protected release path before extraction; execute privileged installers from protected root-owned release files. Obtain the verifier and public pin through the approved independent channel. RHEL 8's default Python 3.6 cannot run this verifier.
@@ -86,7 +86,7 @@ sudo ./scripts/install-agent-ubuntu.sh \
 
 The platform check is read-only and does not validate enrollment credentials or running service health. The actual install runs the agent's read-only configuration/CA/token and pending-transaction preflight before replacement. Token values never enter command-line arguments. The common installer enables/starts **seg-agent only**; it does not enable firewalld. Keep existing identity/state on upgrades. A pending enforcement/rollback transaction blocks replacement.
 
-The running agent enrolls and reports its actual hostname, addresses and listeners; the server then appears automatically in the dashboard. Initial discovery happens at startup; periodic discovery defaults to 15 minutes. Inspect:
+The running agent enrolls and reports its actual hostname, addresses and listeners; the server then appears automatically in the dashboard. Full discovery happens at each process startup/restart. Native socket checks run every 5 seconds; verified listener changes normally report in about 5–10 seconds plus delivery. Full OS/firewall discovery remains on its separately configured 15-minute default; failed/unsupported fast scans retain that fallback. Inspect:
 
 ```sh
 sudo systemctl status seg-agent.service

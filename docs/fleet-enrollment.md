@@ -30,8 +30,10 @@ not a measurement of a simultaneous enrollment storm.
 
    Ubuntu uses `install-agent-ubuntu.sh` with the same argument. The installer
    selects the bundled CPU binary, enables/starts `seg-agent.service` and keeps
-   its existing host-prerequisite checks. It does not prepare OS packages,
-   migrate UFW or activate firewall enforcement.
+   its host-prerequisite checks. Optional unchecked GUI preparation can install
+   missing dependencies with service-start suppression and export private UFW
+   evidence. It preserves UFW and does not activate firewalld or enforcement.
+   See [endpoint preparation](endpoint-discovery-and-preparation.md).
 
 ```mermaid
 flowchart LR

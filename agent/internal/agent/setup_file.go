@@ -20,15 +20,16 @@ const maxSetupCABytes = 128 * 1024
 const maxFleetSetupLifetime = 30 * 24 * time.Hour
 
 type setupFile struct {
-	SchemaVersion       int             `json:"schema_version"`
-	IssuedAt            string          `json:"issued_at"`
-	ExpiresAt           string          `json:"expires_at"`
-	ExpectedHostname    string          `json:"expected_hostname,omitempty"`
-	EnrollmentProfileID string          `json:"enrollment_profile_id,omitempty"`
-	Config              json.RawMessage `json:"config"`
-	ControllerCA        string          `json:"controller_ca_pem"`
-	EndpointCA          string          `json:"endpoint_ca_pem,omitempty"`
-	EnrollmentToken     string          `json:"enrollment_token"`
+	SchemaVersion       int                     `json:"schema_version"`
+	IssuedAt            string                  `json:"issued_at"`
+	ExpiresAt           string                  `json:"expires_at"`
+	ExpectedHostname    string                  `json:"expected_hostname,omitempty"`
+	EnrollmentProfileID string                  `json:"enrollment_profile_id,omitempty"`
+	Config              json.RawMessage         `json:"config"`
+	ControllerCA        string                  `json:"controller_ca_pem"`
+	EndpointCA          string                  `json:"endpoint_ca_pem,omitempty"`
+	EnrollmentToken     string                  `json:"enrollment_token"`
+	InstallationOptions *HostPreparationOptions `json:"installation_options,omitempty"`
 }
 
 // setupPath rejects aliases and writable non-sticky ancestors before touching
@@ -184,14 +185,23 @@ func parseSetup(data []byte, hostname string, now time.Time) (Config, setupFile,
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&value) != nil || (value.SchemaVersion != 1 && value.SchemaVersion != 2) || len(value.Config) == 0 {
+	if decoder.Decode(&value) != nil || (value.SchemaVersion != 1 && value.SchemaVersion != 2 && value.SchemaVersion != 3) || len(value.Config) == 0 {
 		return Config{}, value, errors.New("setup file has an unsupported schema or field")
 	}
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(data, &fields) != nil {
 		return Config{}, value, errors.New("setup file has an unsupported schema or field")
 	}
-	if value.SchemaVersion == 1 {
+	_, hasProfile := fields["enrollment_profile_id"]
+	fleet := value.SchemaVersion == 2 || value.SchemaVersion == 3 && hasProfile
+	if value.SchemaVersion != 3 {
+		if _, present := fields["installation_options"]; present {
+			return Config{}, value, errors.New("host preparation requires setup schema 3")
+		}
+	} else if value.InstallationOptions == nil || validateHostPreparationOptions(*value.InstallationOptions, fields["installation_options"]) != nil {
+		return Config{}, value, errors.New("setup preparation options must explicitly select supported preparation")
+	}
+	if !fleet {
 		// A profile is a new explicit contract, never a way to reinterpret a
 		// historical one-use token as reusable fleet authority.
 		if _, present := fields["enrollment_profile_id"]; present {
@@ -206,16 +216,16 @@ func parseSetup(data []byte, hostname string, now time.Time) (Config, setupFile,
 	}
 	expires, err := time.Parse(time.RFC3339Nano, value.ExpiresAt)
 	if err != nil || !expires.After(now) || !expires.After(issued) || issued.After(now.Add(2*time.Minute)) {
-		if value.SchemaVersion == 1 {
+		if !fleet {
 			return Config{}, value, errors.New("setup file has expired or exceeds its 15-minute validity")
 		}
 		return Config{}, value, errors.New("setup file has expired or has invalid validity timestamps")
 	}
 	lifetime := expires.Sub(issued)
-	if value.SchemaVersion == 1 && lifetime > 15*time.Minute {
+	if !fleet && lifetime > 15*time.Minute {
 		return Config{}, value, errors.New("setup file has expired or exceeds its 15-minute validity")
 	}
-	if value.SchemaVersion == 2 && (lifetime < time.Hour || lifetime > maxFleetSetupLifetime) {
+	if fleet && (lifetime < time.Hour || lifetime > maxFleetSetupLifetime) {
 		return Config{}, value, errors.New("fleet setup validity must be between one hour and 30 days")
 	}
 	if value.ExpectedHostname != "" && (!regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$`).MatchString(value.ExpectedHostname) || value.ExpectedHostname != hostname) {
@@ -224,7 +234,7 @@ func parseSetup(data []byte, hostname string, now time.Time) (Config, setupFile,
 	if !regexp.MustCompile(`^[A-Za-z0-9_-]{32,256}$`).MatchString(value.EnrollmentToken) {
 		return Config{}, value, errors.New("setup file has an invalid enrollment token")
 	}
-	if value.SchemaVersion == 2 && len(value.EnrollmentToken) != 64 {
+	if fleet && len(value.EnrollmentToken) != 64 {
 		return Config{}, value, errors.New("fleet setup has an invalid enrollment credential")
 	}
 	c := defaultConfig()
@@ -280,8 +290,14 @@ func PrepareSetupFile(path, output, hostname string, now time.Time) error {
 	if value.EndpointCA != "" {
 		files["endpoint-ca.crt"] = []byte(value.EndpointCA)
 	}
+	if value.InstallationOptions != nil {
+		files["preparation-options.json"], err = json.Marshal(value.InstallationOptions)
+		if err != nil {
+			return errors.New("setup preparation options cannot be encoded")
+		}
+	}
 	created := []string{}
-	for _, name := range []string{"agent.json", "controller-ca.crt", "endpoint-ca.crt", "enrollment-token"} {
+	for _, name := range []string{"agent.json", "controller-ca.crt", "endpoint-ca.crt", "enrollment-token", "preparation-options.json"} {
 		content, present := files[name]
 		if !present {
 			continue

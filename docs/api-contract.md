@@ -346,3 +346,32 @@ After impact review, save `configuration` through the existing
 removed previous preset members and precedence conflicts are explicit.
 The normal fleet discovery default remains 900 seconds unless the operator
 changes it. This preset neither enables monitoring nor changes access policy.
+
+
+## Endpoint diagnostics and alert navigation (0.11)
+
+Authenticated inventory reports can include `fast_discovery` and
+`preparation_status`. These are bounded observations, not policy authority.
+The controller rejects invalid fields/types/timestamps before storing a report.
+A diagnostic-only cached report cannot replace or freshen listener inventory.
+Public server detail/inventory preserves validated receipts. UFW raw rule
+contents are never part of this contract; only the fixed private endpoint
+export reference is accepted. Unknown service activity is omitted, not false.
+See [receipt semantics](endpoint-discovery-and-preparation.md).
+
+`GET /api/v1/alerts` supports `limit` (default 50, maximum 100), `offset` and
+`include_resolved=true|false` (default false). `POST /api/v1/alerts/query` is
+read-only navigation with the same pagination plus `server_ids`,
+`listener_server_ids`, `search_server_ids`, `ports` and literal `search`.
+Read Only may query; normal session CSRF/origin requirements still apply.
+Acknowledgement remains an Admin mutation. The selected endpoint scopes are
+filters, never authorization grants.
+
+A page returns `items`, `total`, `all_count`, `unresolved_count`, `critical_count`,
+`unacknowledged_count`, `open_count`, `limit`, `offset`, `has_more` and
+`include_resolved`. Counts cover the complete matching scope independently of
+page size. Rows use stable created-time/ID ordering. The ordinary overview
+includes 50 unresolved summaries and `alert_pagination` with exact aggregate
+counts; newer resolved history cannot conceal an older open outage. Large
+navigation details are explicitly marked omitted rather than loaded without a
+bound. Lateral-movement events retain target-endpoint scope matching.

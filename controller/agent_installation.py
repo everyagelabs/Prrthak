@@ -36,7 +36,20 @@ def _interval(value, low, high, name):
     return value
 
 
-KIT_FIELDS = {"family", "architecture", "controller_url", "control_url", "discovery_url", "interval_seconds", "discovery_interval_seconds", "controller_ca_pem"}
+KIT_FIELDS = {"family", "architecture", "controller_url", "control_url", "discovery_url", "interval_seconds", "discovery_interval_seconds", "controller_ca_pem", "installation_options"}
+
+
+def _installation_options(body):
+    if "installation_options" not in body:
+        return None
+    value = body["installation_options"]
+    if not isinstance(value, dict) or set(value) != {"install_dependencies", "ufw_action"}:
+        raise ValueError("Select supported endpoint preparation options only")
+    if type(value["install_dependencies"]) is not bool or not isinstance(value["ufw_action"], str) or value["ufw_action"] not in ("preserve", "assess"):
+        raise ValueError("Use a dependency-install boolean and preserve or assess UFW")
+    if not value["install_dependencies"] and value["ufw_action"] == "preserve":
+        raise ValueError("Choose a preparation action or omit installation_options")
+    return {"install_dependencies": value["install_dependencies"], "ufw_action": value["ufw_action"]}
 
 
 def _validated(app, body, valid_until=None):
@@ -96,17 +109,20 @@ def create_kit(app, body, actor):
     hostname = body.get("expected_hostname", "")
     if not isinstance(hostname, str) or len(hostname) > 253 or hostname and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", hostname):
         raise ValueError("Use the endpoint's exact hostname or leave it empty for automatic enrollment")
+    options = _installation_options(body)
     validated = _validated(app, body)
     # Finish all validation before minting the one-use credential.
     token = app.store.create_token(("GUI setup " + (hostname or "endpoint"))[:120], actor)
     issued = stamp(parse_time(token["expires_at"]) - timedelta(minutes=15))
-    return {"schema_version": 1, "issued_at": issued, "expires_at": token["expires_at"],
-            "expected_hostname": hostname, "enrollment_token": token["token"], **validated}
+    return {"schema_version": 3 if options else 1, "issued_at": issued, "expires_at": token["expires_at"],
+            "expected_hostname": hostname, "enrollment_token": token["token"], **validated,
+            **({"installation_options": options} if options else {})}
 
 
 def create_fleet_kit(app, body, actor):
     if not isinstance(body, dict) or set(body) - KIT_FIELDS - {"name", "validity_hours"}:
         raise ValueError("Provide shared fleet settings only; no per-server hostname or tags")
+    options = _installation_options(body)
     validity_hours = body.get("validity_hours", 24)
     if isinstance(validity_hours, bool) or not isinstance(validity_hours, int) or not 1 <= validity_hours <= 720:
         raise ValueError("Fleet enrollment validity must be 1 to 720 hours")
@@ -115,6 +131,7 @@ def create_fleet_kit(app, body, actor):
     validated = _validated(app, body, valid_until)
     from .fleet_enrollment import create
     profile, token = create(app.store, body.get("name", "Fleet enrollment"), validity_hours, actor, issued_at=issued)
-    kit = {"schema_version": 2, "enrollment_profile_id": profile["id"], "expected_hostname": "",
-           "issued_at": issued, "expires_at": profile["expires_at"], "enrollment_token": token, **validated}
+    kit = {"schema_version": 3 if options else 2, "enrollment_profile_id": profile["id"], "expected_hostname": "",
+           "issued_at": issued, "expires_at": profile["expires_at"], "enrollment_token": token, **validated,
+           **({"installation_options": options} if options else {})}
     return {"profile": profile, "kit": kit}

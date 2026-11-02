@@ -4,7 +4,7 @@ import tempfile
 import types
 import unittest
 
-from controller.agent_installation import create_kit
+from controller.agent_installation import create_kit, create_fleet_kit
 from controller.pki import Signer, init_ca
 from controller.store import Store
 
@@ -64,6 +64,54 @@ class AgentKitTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             create_kit(self.app, self.body, "demo")
         self.assertEqual(self.store.all("tokens"), [])
+
+    def test_preparation_is_explicit_schema_three_with_existing_enrollment_lifetimes(self):
+        from controller.store import parse_time
+        for options in ({"install_dependencies": True, "ufw_action": "preserve"},
+                        {"install_dependencies": False, "ufw_action": "assess"},
+                        {"install_dependencies": True, "ufw_action": "assess"}):
+            with self.subTest(options=options):
+                individual = create_kit(self.app, {**self.body, "installation_options": options}, "admin")
+                self.assertEqual(individual["schema_version"], 3)
+                self.assertEqual(individual["installation_options"], options)
+                self.assertEqual(individual["expected_hostname"], "billing-01")
+                self.assertNotIn("enrollment_profile_id", individual)
+                self.assertEqual((parse_time(individual["expires_at"]) - parse_time(individual["issued_at"])).total_seconds(), 900)
+                body = {key: value for key, value in self.body.items() if key != "expected_hostname"}
+                fleet = create_fleet_kit(self.app, {**body, "name": "Prepared fleet", "installation_options": options}, "admin")
+                kit = fleet["kit"]
+                self.assertEqual(kit["schema_version"], 3)
+                self.assertEqual(kit["installation_options"], options)
+                self.assertEqual(kit["enrollment_profile_id"], fleet["profile"]["id"])
+                self.assertFalse(kit["expected_hostname"])
+                self.assertEqual((parse_time(kit["expires_at"]) - parse_time(kit["issued_at"])).total_seconds(), 24 * 3600)
+                for current in (individual, kit):
+                    self.assertFalse(current["config"]["enforce"])
+                    self.assertFalse(current["config"]["allow_firewall_changes"])
+                    self.assertFalse(current["config"]["learning_auto_allow"])
+                    self.assertNotIn(current["enrollment_token"], json.dumps(self.store.all("tokens") + self.store.all("audit")))
+
+    def test_invalid_or_unselected_preparation_never_mints_a_credential(self):
+        fleet_body = {key: value for key, value in self.body.items() if key != "expected_hostname"}
+        malformed = (None, True, {}, {"install_dependencies": True},
+                     {"install_dependencies": "true", "ufw_action": "preserve"},
+                     {"install_dependencies": 1, "ufw_action": "preserve"},
+                     {"install_dependencies": False, "ufw_action": "preserve"},
+                     {"install_dependencies": False, "ufw_action": "migrate"},
+                     {"install_dependencies": True, "ufw_action": ["preserve"]},
+                     {"install_dependencies": True, "ufw_action": "assess", "command": "ufw disable"})
+        for value in malformed:
+            for callback, body in ((create_kit, self.body), (create_fleet_kit, fleet_body)):
+                with self.subTest(value=value, callback=callback.__name__), self.assertRaises(ValueError):
+                    callback(self.app, {**body, "installation_options": value}, "admin")
+        self.assertEqual(self.store.all("tokens"), [])
+        self.assertEqual(self.store.all("audit"), [])
+
+    def test_omitted_preparation_preserves_the_legacy_fleet_schema(self):
+        body = {key: value for key, value in self.body.items() if key != "expected_hostname"}
+        result = create_fleet_kit(self.app, body, "admin")
+        self.assertEqual(result["kit"]["schema_version"], 2)
+        self.assertNotIn("installation_options", result["kit"])
 
 
 if __name__ == "__main__":
