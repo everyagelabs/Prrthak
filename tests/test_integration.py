@@ -125,7 +125,7 @@ class EndToEndTests(unittest.TestCase):
                     page = response.read().decode()
                     self.assertIn('Prṛthak', page)
                     self.assertIn('पृथक्', page)
-                    self.assertIn('EveryAge Labs Private Limited. All rights reserved.', page)
+                    self.assertIn('Airtel Payments Bank. All rights reserved.', page)
                     conn.close()
 
     def test_one_billing_policy_covers_twenty_servers_and_new_members(self):
