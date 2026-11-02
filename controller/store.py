@@ -162,6 +162,8 @@ class Store:
             initialize_notifications(db)
             from .auth import initialize as initialize_auth
             initialize_auth(db)
+            from .local_auth import initialize as initialize_local_auth
+            initialize_local_auth(db)
             from .server_management import initialize as initialize_server_management
             initialize_server_management(db)
             from .managed import initialize as initialize_managed, backfill

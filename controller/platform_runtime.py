@@ -34,7 +34,7 @@ META_TABLES = (
     "endpoint_configuration_reviews",
     "hit_monitors", "hit_monitor_targets", "hit_monitor_reviews",
     "notification_settings", "notification_revisions", "notification_reviews", "notification_deliveries",
-    "alerts", "audit", "auth_sessions", "auth_states", "auth_users", "bundle_history",
+    "alerts", "audit", "auth_sessions", "auth_states", "auth_users", "auth_local_attempts", "bundle_history",
     "controller_nodes", "firewall_changes", "groups", "learning_allow_history",
     "learning_allow_hosts", "learning_allow_policies", "learning_evidence",
     "learning_evidence_receipts", "learning_policy_previews", "locations",
@@ -363,7 +363,7 @@ def _join_locked(source_dir, profile, *, connector=None):
         if prior.get("deployment_id") != profile["deployment_id"] or prior.get("epoch") != profile["epoch"]:
             raise RuntimeSafetyError("Local storage is already fenced for another deployment")
     rows, proof, fingerprint, backup = _snapshot_source(directory, profile["deployment_id"])
-    setup_only = {"audit", "auth_users", "auth_sessions", "auth_states", "maintenance_backups", "maintenance_plans", "maintenance_settings"}
+    setup_only = {"audit", "auth_users", "auth_sessions", "auth_states", "auth_local_attempts", "maintenance_backups", "maintenance_plans", "maintenance_settings"}
     if any(values for table, values in rows["metadata"].items() if table not in setup_only) or any(rows["traffic"].values()):
         raise RuntimeSafetyError("Joining nodes must have no local inventory, policy, traffic or firewall authority; local data is never merged")
     if any(rows["metadata"].values()) and profile.get("join_preserve_local_snapshot") is not True:

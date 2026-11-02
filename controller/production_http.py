@@ -63,6 +63,13 @@ def application(app):
                 callback()
             return value
         request.body = read_body
+        def read_saml_body():
+            value = handler_type.saml_body(request)
+            callback = getattr(connection, "_prthak_body_read", None)
+            if callback:
+                callback()
+            return value
+        request.saml_body = read_saml_body
         request.headers = Message()
         for key, value in environ.items():
             if key.startswith("HTTP_"):

@@ -4,9 +4,11 @@
 
 Prṛthak discovers servers and their real listening services, shows permitted source-to-service access, learns observed source/port relationships, and lets administrators review and apply firewalld changes centrally. The selected server is the destination: an access policy specifies **service/port + allowed sources**, without a separate destination field.
 
-**Pilot candidate: [v0.14.0-pilot.1](https://github.com/everyagelabs/Prrthak/tree/v0.14.0-pilot.1).** Download one reusable fleet setup and install the same matching agent package across your servers. Each server automatically creates its own key, certificate and inventory identity; no per-host kit generation or hostname CSV is required. Fleet enrollment has GUI expiry/revocation and no fixed server-count limit. See [fleet enrollment](docs/fleet-enrollment.md) and [release validation](docs/release-0.14.0-pilot.1.md). Native RHEL/Ubuntu, live Entra and DC/WAN acceptance remain deployment gates. This candidate fixes the ten findings in the [audit remediation record](docs/audit-remediation-0.14.md), including merged-author revocation, cleanup authority, restart recovery, denied capture, truthful readback, retained-history polling and complete metadata review. It retains [live bulk rollout and per-port verification](docs/policy-rollout-verification.md), exact duplicate bypass and automatic tag/group tracking. Complete Traffic/Audit navigation, Read Only alert navigation and [GUI source-set preparation](docs/source-bank-preparation.md) remain available.
+**Pilot candidate: [v0.15.0-pilot.1](https://github.com/everyagelabs/Prrthak/tree/v0.15.0-pilot.1).** Download one reusable fleet setup and install the same matching agent package across your servers. Each server automatically creates its own key, certificate and inventory identity; no per-host kit generation or hostname CSV is required. Fleet enrollment has GUI expiry/revocation and no fixed server-count limit. See [fleet enrollment](docs/fleet-enrollment.md) and [release validation](docs/release-0.15.0-pilot.1.md). Native RHEL/Ubuntu, live Entra and DC/WAN acceptance remain deployment gates. This candidate adds Local/SAML login and retains the fixes for the ten findings in the [audit remediation record](docs/audit-remediation-0.14.md), including merged-author revocation, cleanup authority, restart recovery, denied capture, truthful readback, retained-history polling and complete metadata review. It retains [live bulk rollout and per-port verification](docs/policy-rollout-verification.md), exact duplicate bypass and automatic tag/group tracking. Complete Traffic/Audit navigation, Read Only alert navigation and [GUI source-set preparation](docs/source-bank-preparation.md) remain available.
 
 Private repository: [Prṛthak](https://github.com/everyagelabs/Prrthak). Product owner: **Airtel Payments Bank**.
+
+**Local + SSO authentication in current source:** fresh empty installations offer temporary `admin` / `admin` as Super Admin, with a mandatory password change before workspace access. Local users, Microsoft Entra OIDC and configured SAML use the same three roles. Only Super Admin provisions accounts and grants roles. See [Local and SAML login](docs/local-and-saml-login.md); the illustrated pilot baseline has not been regenerated for these screens.
 
 [0.13 rollout verification](docs/release-0.13.0-pilot.1.md) · [0.12 GUI completion release](docs/release-0.12.0-pilot.1.md) · [0.11 endpoint/health](docs/release-0.11.0-pilot.1.md) · [0.10 fleet enrollment](docs/release-0.10.0-pilot.1.md) · [0.9 capture/security release](docs/release-0.9.0-pilot.1.md) · [Whole-server default-deny workflow](docs/whole-server-default-deny.md).
 
@@ -36,7 +38,7 @@ The numbered register retains the original requirements and later explicit reque
 | R16 | Advanced DC/cloud graphics, status pulses and communication lines | A bounded topology shows DC containers, current endpoint health, observed links and recent events. Historical links stay labelled; motion can be paused and respects reduced-motion preferences. |
 | R17 | Alert when a previously-up or policy-allowed service is down | Prior listener disappearance, explicit expectations and ports permitted by effective ordinary/learned policy intent are checked. A changed policy expectation requires a successful **post-change fresh scan**. Stale/offline/failed discovery means unknown; withdrawing an expectation is not labelled service recovery. |
 | R18 | Unexpected/closed-port and possible lateral-movement alerts | Opt-in closed-port observations feed single-host probing and bounded **same-source, same-port/protocol, multi-host** correlation. Alerts identify possible activity, destinations and coverage limits; they do not prove compromise or automatically block sources. |
-| R19 | Managed enforcement, lockout protection, rollback and history | An authorized Entra Admin's Save/Apply directly publishes ordinary per-port intent. Changed whole-server default-deny bundles require their dedicated acknowledgement. Endpoint opt-ins, current authority, SSH/controller health checks, mutation journals and rollback still guard live changes. Desired, applied and uncertain outcomes remain distinct. |
+| R19 | Managed enforcement, lockout protection, rollback and history | An authorized local or SSO Admin's Save/Apply directly publishes ordinary per-port intent. Changed whole-server default-deny bundles require their dedicated acknowledgement. Endpoint opt-ins, current authority, SSH/controller health checks, mutation journals and rollback still guard live changes. Desired, applied and uncertain outcomes remain distinct. |
 
 ### Installation, platform operations and rollout
 
@@ -45,8 +47,8 @@ The numbered register retains the original requirements and later explicit reque
 | R20 | Configurable agent URLs, timing and scoped central polling | GUI settings and reviewed endpoint configuration cover trusted origins, management protections and security opt-ins. Global/group/tag/server overrides have desired/applied receipts. New GUI kits/fleet defaults use **30-second control / 900-second discovery**; a reviewed selected-server pilot preset uses **30/60** without changing fleet defaults. |
 | R21 | A lightweight RHEL/Ubuntu service and installers | A compiled Go systemd agent needs no endpoint Go/Python runtime. Family installers consume a private setup file and check prerequisites. Optional inert RPM/DEB payloads deliver the verified release before explicit activation. Native OS acceptance remains a separate gate. |
 | R22 | Preserve inventory IPs despite control-path NAT | Inventory uses authenticated agent-reported interface addresses, not the HTTP peer address. Application traffic retains the source IP observed by the destination kernel. Original clients behind application-path NAT need separate network mappings/logs. |
-| R23 | Entra SSO, exactly three roles and Super Admin ownership of users | Read Only, Admin and Super Admin are enforced by the API. Admin manages servers/tags/policies directly; Super Admin additionally manages application users and platform/security settings. Actions retain individual Entra attribution. |
-| R24 | GUI configuration with one installer command and no manual file editing | `--gui-setup` creates protected initial configuration; Settings handles initial verified Entra setup and runtime settings. Agent setup downloads and reviewed configuration transitions avoid hand-editing agent JSON. OS preparation and secure credential/file retrieval still require the host operator. |
+| R23 | Entra SSO, exactly three roles and Super Admin ownership of users | Read Only, Admin and Super Admin are enforced by the API. Admin manages servers/tags/policies directly; Super Admin additionally manages application users and platform/security settings. Local, Entra OIDC and SAML identities retain individual attribution; the same application roles apply to each source. |
+| R24 | GUI configuration with one installer command and no manual file editing | `--gui-setup` creates protected initial configuration; Users & access manages local/SAML accounts and sign-in settings; Settings handles verified Entra setup and runtime settings. Agent setup downloads and reviewed configuration transitions avoid hand-editing agent JSON. OS preparation and secure credential/file retrieval still require the host operator. |
 | R25 | Multiple controllers/DCs, shared data and GUI joining | The same appliance installer supports a shared PostgreSQL/etcd/Patroni deployment, reviewed joining and management-only members after the three DB voters. Real DC/quorum/fencing acceptance remains pending. |
 | R26 | GUI cluster credentials and service operations | Fixed local-manager actions manage supported service operations and staged replication-password rotation with per-voter barriers and fresh authentication verification. A queued action is not reported as applied. |
 | R27 | GUI data-root/storage management | Typed, reviewed storage operations preserve ownership, persistent state and rollback boundaries through the fixed manager. |
@@ -67,12 +69,13 @@ The numbered register retains the original requirements and later explicit reque
 | R42 | Install the same agent/setup on any number of servers | Reuse the matching CPU package and one fleet setup file; no per-host generation or CSV. Separate local keys and unique enrolled identities, atomic retries and GUI profile expiry/revocation preserve endpoint identity. No fixed enrollment-count limit is imposed. |
 | R43 | OS-neutral policy form and live bulk application/traffic results | Backend resolves exact endpoint intent; the top-right Rollouts panel separates agent readback from per-port native allow/deny witnesses. No traffic remains Awaiting/Unverified; unsupported provenance remains Unavailable. See [verification](docs/policy-rollout-verification.md). |
 | R44 | Duplicate rules automatically bypassed for each server | Canonical duplicate rows/sources and overlapping permissions are merged. Existing identical owned rules use fresh readback without access-rule writes; an actual agent receipt identifies Already present. Conflicts and uncertain ownership remain distinct. |
+| R45 | Local and SSO account sources, first-login password change and shared roles | A fresh empty estate receives temporary local `admin` / `admin` as Super Admin and must change its password before workspace access. Super Admin provisions local/Entra/SAML users and roles; new/reset local users must change their temporary password. SAML metadata configuration and account/password operations are GUI-owned. [Procedure](docs/local-and-saml-login.md). |
 
 ## Architecture and communication
 
 ```mermaid
 flowchart LR
-    Browser["Administrator browser"] -->|"HTTPS 8787 / Entra + CSRF"| Management["Management listener"]
+    Browser["Administrator browser"] -->|"HTTPS 8787 / Local or SSO + CSRF"| Management["Management listener"]
     Agent["Go endpoint agent / systemd"] -->|"mTLS 8788: policy and authorization"| Control["Control listener"]
     Agent -->|"mTLS 8789: reports and flow batches"| Discovery["Discovery listener"]
     Management --> API["Python API / compiler / background jobs"]
@@ -91,7 +94,7 @@ Business packets go directly to the destination server; the controller is not a 
 
 | Channel | Default | Identity / purpose |
 |---|---:|---|
-| Management | TCP 8787 | Browser HTTPS, Entra sessions, roles and CSRF-protected operations |
+| Management | TCP 8787 | Browser HTTPS, local/Entra/SAML sessions, roles and CSRF-protected operations |
 | Control | TCP 8788 | Endpoint mTLS; policy polling, authorization/configuration witnesses and renewal |
 | Discovery | TCP 8789 | Token/CSR enrollment, then endpoint mTLS for reports and durable flow uploads |
 | SSH health witness | Actual protected SSH port, e.g. 22 or 2022 | Read-only banner verification during applicable enforcement checks |
@@ -145,9 +148,9 @@ From the verified release directory, run the installer once:
 sudo ./scripts/install-controller.sh --gui-setup
 ```
 
-The installer detects a safe management address, preserves installed identity on rerun, and prints the setup URL plus the **path** of the private initial Super Admin credential. Retrieve it through the approved privileged channel; its value is not printed. Verify initial TLS trust before signing in.
+The installer detects a safe management address, preserves installed identity on rerun and displays the setup URL. Verify its HTTPS hostname/certificate before signing in. On a fresh empty account database, use local `admin` / `admin`, then complete the mandatory 12–256-character password change before any workspace operation. Bootstrap is never recreated by a restart or by adding SSO. Existing Entra estates retain their users and do not receive default local credentials; an existing Super Admin can add local accounts explicitly.
 
-In **Settings**, configure the approved hostname/certificate, initial site/origin, candidate-verified Entra sign-in, runtime profile, storage and other platform settings. The fixed manager writes protected files and performs supervised changes. There is no anonymous remote setup wizard or generic `.env` editor. Existing Entra provider/secret/callback changes and joined-profile convergence now use reviewed, supervised migration: the authorized Super Admin verifies the candidate sign-in, saves/applies the exact change, and each registered controller verifies readiness before shared cutover. Keep old credentials and HTTPS aliases available for rollback. External DNS/LB changes and live-tenant acceptance remain deployment work. See [provider migration](docs/authentication.md#active-provider-changes-rotation-and-joined-convergence).
+In **Settings**, configure the approved hostname/certificate, initial site/origin, runtime profile, storage and other platform settings. In **Users & access**, create local or SSO accounts, choose roles and configure SAML from public IdP metadata. Existing Microsoft Entra OIDC setup remains in **Settings → Setup**, including candidate verification. The fixed manager writes protected files and performs supervised changes. There is no anonymous remote setup wizard or generic `.env` editor. Existing Entra provider/secret/callback changes and joined-profile convergence now use reviewed, supervised migration: the authorized Super Admin verifies the candidate sign-in, saves/applies the exact change, and each registered controller verifies readiness before shared cutover. Keep old credentials and HTTPS aliases available for rollback. External DNS/LB changes and live-tenant acceptance remain deployment work. See [provider migration](docs/authentication.md#active-provider-changes-rotation-and-joined-convergence).
 
 ### RHEL or Ubuntu endpoint
 
@@ -174,6 +177,8 @@ See [GUI pilot installation](docs/pilot-gui-installation.md), [Linux agent insta
 | Read Only | Inspect permitted inventory, policies, traffic, alerts and review history; cannot mutate access or platform settings |
 | Admin | Add, edit and delete servers/tags/groups/policies; save and apply supported firewall and learning actions directly |
 | Super Admin | Admin capabilities plus application users/roles and privileged platform/security operations |
+
+These roles apply equally to Local and SSO accounts. Any local user can change their own password from the top-right account menu after supplying the current password. New/reset accounts must replace their temporary password; only Super Admin can reset another local user, which revokes that user’s sessions. Passwords use salted scrypt hashes in the shared database, not plaintext `.env` or browser storage. SAML requires signed responses and assertions, an exact provisioned NameID and SP-initiated login; no email/group/JIT role grant is performed. Human-login changes use the existing endpoint protocol, so 0.14 agents remain compatible.
 
 An authorized Admin saves/applies normal server, tag and policy changes directly, with no checker or selectable approval mode. On whole-server default-deny hosts, a changed effective bundle waits for a fresh dedicated review and manual downtime acknowledgement. Signed exact scope/digests, live role/provider authority, local enforcement opt-ins and rollback remain mandatory. Explicit imported deny/restrictive changes, restrictive learned edits/removal and destructive recovery retain separate confirmations by that same actor. Super Admin handles application users and privileged platform operations. Initial and changed Entra configuration still require verified candidate sign-in and supervised readiness. Shared tokens remain restricted lab mechanisms.
 
@@ -230,12 +235,12 @@ These choices support the requirements above. They are not substitutes for the r
 
 ## Documentation, evidence and development
 
-The current [illustrated PDF](docs/guide/prthak-pilot-0.14.0.pdf) and [HTML guide](docs/guide/prthak-pilot-0.14.0.html) describe the GUI installation and operational flows, communication, roles, sizing and evidence limits. Older illustrated PDFs remain historical. Current 0.14 behavior and acceptance limits are recorded in the [Markdown requirements map](docs/requirements-delivery-map.md), current operational documents and [0.14 release evidence](docs/release-0.14.0-pilot.1.md).
+The [0.14 illustrated PDF](docs/guide/prthak-pilot-0.14.0.pdf) and [HTML guide](docs/guide/prthak-pilot-0.14.0.html) remain the unchanged pilot baseline for installation, communication, sizing and operational evidence. They have not been regenerated for the Local/SAML login addition; use [current authentication steps](docs/local-and-saml-login.md) for those screens. Older illustrated PDFs remain historical. The historical 0.14 behavior and acceptance limits are recorded in the [Markdown requirements map](docs/requirements-delivery-map.md), current operational documents and [0.14 release evidence](docs/release-0.14.0-pilot.1.md).
 
 - [User requirements and delivery map](output/pdf/prthak-user-requirements-and-delivery-map.pdf)
 - [Architecture and operations handbook](output/pdf/prthak-architecture-operations-guide.pdf)
 - [Illustrated deployment and onboarding guide](output/pdf/prthak-deployment-onboarding-guide.pdf)
-- [API contract](docs/api-contract.md), [architecture](docs/architecture.md) and [authentication](docs/authentication.md)
+- [API contract](docs/api-contract.md), [architecture](docs/architecture.md), [authentication](docs/authentication.md) and [Local/SAML login](docs/local-and-saml-login.md)
 - [Managed enforcement](docs/managed-enforcement.md), [imported firewall management](docs/firewall-management.md) and [policy signing](docs/policy-signing.md)
 - [Controller sizing](docs/controller-vm-requirements.md), [5,000-server capacity](docs/controller-capacity-5000.md), [scale evidence](docs/scale-validation.md) and [Linux validation](docs/linux-validation.md)
 - [0.7 review remediation and remaining gates](docs/review-remediation-0.7.md) and [optional native endpoint packages](docs/native-agent-packages.md)
@@ -246,7 +251,7 @@ The repository contains `controller/`, `agent/`, `dashboard/`, `deploy/appliance
 
 Keep runtime databases, `.local/`, private setup files, secrets, keys, certificates, backup archives and environment files out of Git. Review packaged artifacts and release trust separately from source commits. Release evidence must identify its exact source revision, configuration, test scope and skips; a previous release's aggregate does not validate later changes.
 
-**Acceptance still pending:** the real 20-server pilot; native RHEL/Ubuntu deployment matrix; live Entra tenant; actual DC/WAN partitions and watchdog fencing; real 5,000-endpoint lifecycle/enforcement workload; and independent deployment-specific security assessment. Isolated tests and local capacity fixtures do not close those gates.
+**Acceptance still pending:** the real 20-server pilot; native RHEL/Ubuntu deployment matrix; live organization Entra/SAML and MFA; actual DC/WAN partitions and watchdog fencing; real 5,000-endpoint lifecycle/enforcement workload; and independent deployment-specific security assessment. Isolated tests and local capacity fixtures do not close those gates.
 
 ---
 

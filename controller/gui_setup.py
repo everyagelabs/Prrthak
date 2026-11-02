@@ -48,7 +48,7 @@ def _convergence_needed(manager, state):
 
 
 def _effective_blockers(manager, state):
-    if not manager.app.auth.enabled and state.get("entra_configured"):
+    if not manager.app.auth.config.enabled and state.get("entra_configured"):
         return ["Wait for the configured sign-in provider to finish restarting before another change"]
     return []
 
@@ -103,7 +103,8 @@ def _authority(manager, principal):
         raise PermissionError("Use an authenticated Super Admin")
     with manager.app.store.read_meta() as db:
         manager.app.auth._require_super(principal, db)
-    return digest([principal["actor"], manager.app.auth.config.fingerprint])
+        session = manager.app.store._get(db, "auth_sessions", principal.get("_session_id", ""))
+    return digest([principal["actor"], session["config"] if session else manager.app.auth.config.fingerprint])
 
 
 def _public(plan):
@@ -116,7 +117,7 @@ def status(manager, principal, client=None):
         state = _state(manager, client)
     except (ValueError, ManagerUnavailable) as error:
         return {"installed": False, "capabilities": {"configuration": False}, "environment": {},
-                "entra_configured": bool(manager and manager.app and manager.app.auth.enabled),
+                "entra_configured": bool(manager and manager.app and manager.app.auth.config.enabled),
                 "setup_pending": None, "blockers": [str(error)]}
     authority = _authority(manager, principal)
     blockers = _effective_blockers(manager, state)
@@ -145,7 +146,7 @@ def status(manager, principal, client=None):
             "revision": state["expected_revision"], "configuration_digest": state["digest"],
             "environment": {key: value for key, value in _effective_environment(manager, state).items() if key in (*AUTH_PUBLIC, *RUNTIME)},
             "convergence_required": _convergence_needed(manager, state), "transition": __import__("controller.provider_lifecycle", fromlist=["get"]).get(manager),
-            "entra_configured": bool(manager.app.auth.enabled or state.get("entra_configured")), "setup_pending": _public(latest) if latest else None,
+            "entra_configured": bool(manager.app.auth.config.enabled or state.get("entra_configured")), "setup_pending": _public(latest) if latest else None,
             "blockers": blockers}
 
 
@@ -216,7 +217,9 @@ def preview(manager, body, principal, client=None):
         candidate = changed_auth or converging
         if candidate:
             same_tenant = environment[AUTH_PUBLIC[0]].lower() == current.tenant_id
-            expected_oid = (principal.get("user") or {}).get("object_id", "") if same_tenant else body.get("candidate_object_id", "")
+            expected_oid = ((principal.get("user") or {}).get("object_id", "")
+                            if same_tenant and principal.get("auth_provider", "entra") == "entra"
+                            else body.get("candidate_object_id", ""))
             from .auth import _guid
             expected_oid = _guid(expected_oid, "Reviewed candidate Super Admin Object ID")
             if not secret:
@@ -228,8 +231,9 @@ def preview(manager, body, principal, client=None):
                 raise ValueError("Confirm that old and candidate HTTPS aliases remain reachable through migration")
             environment[AUTH_PUBLIC[3]] = ""
     elif any(environment[key] for key in AUTH_PUBLIC) or secret:
-        if manager.app.store.ha or manager.active_profile() or manager.app.store.all("auth_users"):
-            raise ValueError("Initial Entra setup requires the standalone bootstrap controller with no application users")
+        directory_users = [user for user in manager.app.store.all("auth_users") if user.get("provider", "entra") == "entra"]
+        if manager.app.store.ha or manager.active_profile() or directory_users:
+            raise ValueError("Initial Entra setup requires the standalone controller with no existing Entra users")
         config = EntraConfig(environment[AUTH_PUBLIC[0]], environment[AUTH_PUBLIC[1]], environment[AUTH_PUBLIC[2]], secret, environment[AUTH_PUBLIC[3]])
         if not config.enabled or not config.bootstrap_oid:
             raise ValueError("Select the existing Entra Object ID of the first Super Admin")
@@ -247,6 +251,8 @@ def preview(manager, body, principal, client=None):
         request["provider_epoch"] = os.environ["PRTHAK_PROVIDER_EPOCH"]
     if secret:
         request["client_secret"] = secret
+    with manager.app.store.read_meta() as db:
+        maker_session = manager.app.store._get(db, "auth_sessions", principal.get("_session_id", ""))
     plan = {"id": identifier, "created_at": now().isoformat(timespec="microseconds"), "expires_at": stamp(now() + timedelta(minutes=10)),
             "authority": authority, "created_by": principal["actor"], "can_apply": True, "blockers": [],
             "confirmation_nonce": secrets.token_urlsafe(24), "confirmation_phrase": "APPLY CONTROLLER SETUP " + identifier[:8].upper(),
@@ -255,6 +261,7 @@ def preview(manager, body, principal, client=None):
             "binding_digest": binding(request), "request_ref": manager.vault.put(json.dumps(request)),
             "candidate_oid": expected_oid, "maker_session_id": principal.get("_session_id"), "maker_user_id": (principal.get("user") or {}).get("id"),
             "previous_auth_fingerprint": current.fingerprint, "provider_authority": provider_authority, "previous_origin": current.origin if current.enabled else "",
+            "maker_auth_fingerprint": maker_session["config"] if maker_session else current.fingerprint,
             "requires_independent": False,
             "cross_origin_verification": bool(candidate and current.enabled and config.origin != current.origin),
             "summary": {"environment": environment, "client_secret_supplied": bool(body.get("client_secret")), "agent_ports": {"changed": changing_ports, "previous": previous_ports, "desired": desired_ports, "enrolled_endpoints": endpoint_count, "external_aliases_acknowledged": body.get("acknowledge_agent_aliases", False), "requirement": "Keep both old and new agent URLs alive through an external load balancer until signed endpoint transition kits are applied and verified. This change updates this node publisher; it does not configure external routing."}, "runtime_controller": manager.app.controller_id, "retire_previous_tenant": bool(current.enabled and environment[AUTH_PUBLIC[0]].lower() != current.tenant_id), "candidate_object_id": expected_oid, "initial_entra": bool(candidate and not current.enabled), "provider_change": bool(current.enabled and changed_auth), "converge_profile": converging,
@@ -399,7 +406,7 @@ def _live_maker(manager, plan):
     with manager.app.store.read_meta() as db:
         session = manager.app.store._get(db, "auth_sessions", plan.get("maker_session_id", ""))
         user = manager.app.store._get(db, "auth_users", plan.get("maker_user_id", ""))
-        if not session or not user or user.get("enabled") is not True or user.get("role") != "super_admin" or session.get("user_id") != user.get("id") or parse_time(session["expires_at"]) <= now() or session.get("config") != plan["previous_auth_fingerprint"]:
+        if not session or not user or user.get("enabled") is not True or user.get("role") != "super_admin" or session.get("user_id") != user.get("id") or parse_time(session["expires_at"]) <= now() or session.get("config") != plan.get("maker_auth_fingerprint", plan["previous_auth_fingerprint"]):
             raise AuthDenied("The reviewing Super Admin session is no longer live")
 
 

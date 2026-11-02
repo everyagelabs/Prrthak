@@ -47,6 +47,40 @@ func TestDirectApprovalDigestMatchesPythonUnicodeAndHTMLEscaping(t *testing.T) {
 		t.Fatal("Python ASCII DEL escaping differs")
 	}
 }
+
+func TestLocalAndSAMLActorFieldsRemainBoundInControllerProof(t *testing.T) {
+	for _, provider := range []string{"local", "saml"} {
+		t.Run(provider, func(t *testing.T) {
+			raw, _ := json.Marshal(singleAdminProofFixture())
+			var proof map[string]any
+			if err := json.Unmarshal(raw, &proof); err != nil {
+				t.Fatal(err)
+			}
+			realm := "11111111-1111-4111-8111-111111111111"
+			person := "22222222-2222-4222-8222-222222222222"
+			subject := map[string]any{"user_id": realm + ":" + person, "tenant_id": realm,
+				"object_id": person, "actor": provider + ":" + realm + ":" + person,
+				"auth_provider": provider, "auth_config": strings.Repeat("a", 64), "role": "admin"}
+			if provider == "local" {
+				subject["credential_version"] = strings.Repeat("c", 32)
+			}
+			proof["requester"], proof["submitted_by"], proof["approved_by"] = subject, subject, subject
+			delete(proof, "binding_digest")
+			proof["binding_digest"] = directApprovalDigest(proof)
+			raw, _ = json.Marshal(proof)
+			if err := validateEndpointApproval(defaultConfig(), raw, "host-a", time.Now(), false, "learning"); err != nil {
+				t.Fatal("attributed provider proof was rejected", err)
+			}
+			// All actor metadata remains covered, even when this endpoint only
+			// needs the identity and operation scope from the signed assignment.
+			subject["auth_provider"] = "changed"
+			raw, _ = json.Marshal(proof)
+			if validateEndpointApproval(defaultConfig(), raw, "host-a", time.Now(), false) == nil {
+				t.Fatal("changed provider attribution escaped the proof binding")
+			}
+		})
+	}
+}
 func TestSingleAdminRejectsChangedActorProviderScopeAndRetiredModes(t *testing.T) {
 	for _, change := range []func(*endpointApprovalProof){
 		func(p *endpointApprovalProof) { p.ApprovedBy.UserID = "another" }, func(p *endpointApprovalProof) { p.SubmittedBy.TenantID = "other" },

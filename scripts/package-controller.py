@@ -204,10 +204,14 @@ Docker Engine and Composev2. After verified extraction, run once:
 
   sudo ./scripts/install-controller.sh --gui-setup
 
-Open the printed HTTPS /settings URL. The private initial credential FILE path
-is printed separately; obtain it through your approved secure channel. Complete
-site/TLS, initial Entra candidate sign-in and runtime configuration in the GUI.
-No manual .env editing is required. Read docs/pilot-gui-installation.md.
+Open the printed HTTPS /settings URL. On a fresh empty account database, sign in
+with local username admin and temporary password admin. Change the password
+before entering the workspace. Existing installations retain their accounts;
+upgrades never recreate this default credential. Complete site/TLS and runtime
+configuration in the GUI. SSO is optional: configure SAML in Users & access or
+Entra OIDC through Settings after local setup. Read docs/local-and-saml-login.md
+and docs/pilot-gui-installation.md. No token-file retrieval or manual .env editing
+is required for normal GUI setup.
 Advanced --env-file installation remains supported for existing deployments.
 
 The installer builds images and fetches base images/OS/Python packages, etcd and

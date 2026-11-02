@@ -66,7 +66,7 @@ func validateEndpointApproval(c Config, raw json.RawMessage, serverID string, no
 	if a.UserID == "" || a.UserID != b.UserID || a.UserID != d.UserID || a.TenantID == "" || a.TenantID != b.TenantID || a.TenantID != d.TenantID ||
 		!validDigest(proof.PlanDigest) || proof.PlanID == "" || !validDigest(proof.ProviderAuthority["fingerprint"]) ||
 		proof.ProviderAuthority["epoch"] != "" && !validDigest(proof.ProviderAuthority["epoch"]) {
-		return errors.New("single-admin authority requires one attributed Entra actor and provider binding")
+		return errors.New("single-admin authority requires one attributed administrator and provider binding")
 	}
 	if err := validateDirectApprovalBinding(raw, proof.BindingDigest); err != nil {
 		return err

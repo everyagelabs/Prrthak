@@ -40,7 +40,7 @@ ID = re.compile(r"[a-f0-9]{32}")
 SHA = re.compile(r"[a-f0-9]{64}")
 TERMINAL = frozenset(("completed", "cancelled"))
 IMMUTABLE = ("audit", "bundle_history", "policy_revisions", "service_group_revisions", "managed_outcomes", "learning_allow_history")
-CURRENT = ("auth_users", "maintenance_backups", "managed_rollouts", "learning_allow_hosts", "learning_allow_policies", "notification_settings", "notification_revisions", "notification_deliveries", "endpoint_configuration_reviews", "hit_monitors", "hit_monitor_targets", "policy_deployments", "policy_deployment_targets")
+CURRENT = ("auth_users", "auth_local_attempts", "maintenance_backups", "managed_rollouts", "learning_allow_hosts", "learning_allow_policies", "notification_settings", "notification_revisions", "notification_deliveries", "endpoint_configuration_reviews", "hit_monitors", "hit_monitor_targets", "policy_deployments", "policy_deployment_targets")
 SAFETY_TABLES = (*IMMUTABLE, *CURRENT, "managed_approvals", "servers", "retired_endpoints", "maintenance_settings", "tokens", "firewall_changes")
 _OWNER = secrets.token_hex(16)
 _ADMITTED = set()
@@ -388,10 +388,10 @@ def _overlay_safety(db, safety, recovery_id):
     # business inventory. An old archive cannot re-enable a pilot or old SSO.
     for value in _json_rows(db,"maintenance_settings"):
         key=value['id']
-        if key in ('controller_provider_authority','controller_provider_transition','approval_settings') or key.startswith(('controller_provider_plan:','approval_settings_review:','provider_revoked_learning_proof:','platform_join:')):
+        if key in ('controller_provider_authority','controller_provider_transition','approval_settings','local_auth_realm','saml_configuration') or key.startswith(('controller_provider_plan:','approval_settings_review:','provider_revoked_learning_proof:','platform_join:')):
             db.execute('DELETE FROM maintenance_settings WHERE id=?',(key,))
     for key,value in current_settings.items():
-        if key in ('controller_provider_authority','controller_provider_transition') or key.startswith(('controller_provider_plan:','provider_revoked_learning_proof:')) or key.startswith('platform_join:') and value.get('consumed') is True:
+        if key in ('controller_provider_authority','controller_provider_transition','local_auth_realm','saml_configuration') or key.startswith(('controller_provider_plan:','provider_revoked_learning_proof:')) or key.startswith('platform_join:') and value.get('consumed') is True:
             Store._put(db,'maintenance_settings',value)
     pilot=current_settings.get('approval_settings')
     if pilot:

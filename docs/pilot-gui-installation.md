@@ -1,6 +1,6 @@
-# GUI-configured 20-server pilot (0.14.0)
+# GUI-configured 20-server pilot (0.15.0)
 
-Use the [current illustrated PDF](guide/prthak-pilot-0.14.0.pdf) or [HTML guide](guide/prthak-pilot-0.14.0.html) alongside this detailed runbook. Both describe this candidate; older illustrated exports remain historical.
+Use the unchanged [0.14 illustrated PDF](guide/prthak-pilot-0.14.0.pdf) or [HTML guide](guide/prthak-pilot-0.14.0.html) as the installation/operations baseline. They have not been regenerated for the new login screens. This runbook and [Local/SAML login](local-and-saml-login.md) describe current authentication; older illustrated exports remain historical.
 
 Configure Prṛthak in the GUI. The installer and fixed local manager generate
 protected files; no manual `.env`, agent JSON, token or CA editing is required.
@@ -24,10 +24,11 @@ HTTPS certificates. The managed appliance separates these listeners:
 
 | Initiator → destination | Default published TCP port | Purpose and authentication |
 | --- | ---: | --- |
-| Browser → management controller/LB | **8787** | Dashboard/API; initial private Super Admin credential, then Entra session + CSRF |
+| Browser → management controller/LB | **8787** | Dashboard/API; local password or configured Entra/SAML session + CSRF |
 | Endpoint → control controller/LB | **8788** | Policy/protection checks and certificate renewal; enrolled endpoint mTLS |
 | Endpoint → discovery controller/LB | **8789** | One-use enrollment, then authenticated inventory/reports and temporary evidence |
-| Controller → Microsoft Entra | **443** | Discovery, token exchange and signing keys; browser also needs approved Microsoft sign-in/MFA access |
+| Controller → Microsoft Entra (when OIDC configured) | **443** | Discovery, token exchange and signing keys; browser also needs approved Microsoft sign-in/MFA access |
+| Browser → SAML IdP (when configured) | **443** | SP-initiated SSO; browser posts the signed IdP response to the management ACS URL |
 
 The endpoint initiates HTTPS connections; there is no agent inbound management
 listener to open. A configured controller SSH/health probe has its own approved
@@ -43,7 +44,7 @@ does not activate PostgreSQL HA or require voters/watchdogs.
 
 ```mermaid
 flowchart LR
-  Browser["Browser / Entra user"] -->|"Management HTTPS 8787"| API["Controller API"]
+  Browser["Browser / local or SSO user"] -->|"Management HTTPS 8787"| API["Controller API"]
   Agent["systemd endpoint agent"] -->|"Control HTTPS 8788 / mTLS"| API
   Agent -->|"Discovery HTTPS 8789 / enrollment then mTLS"| API
   API --> Meta["Inventory / tags / policy versions"]
@@ -53,7 +54,7 @@ flowchart LR
 
 ## 2. Stage the verified release and run one controller installer
 
-Obtain `prthak-controller-0.14.0.tar.gz` and its detached `.signature.json`.
+Obtain `prthak-controller-0.15.0.tar.gz` and its detached `.signature.json`.
 Verify exact archive bytes **before extraction/execution**, using an independently
 approved public release-signing pin and verifier. A public key downloaded beside
 an unknown archive does not establish trust. The project signing authority is
@@ -70,10 +71,14 @@ No `.env` file is required in this mode. The installer detects a safe management
 address and creates private bootstrap settings. Unsafe detection is rejected.
 Rerunning preserves installed identity, credentials and GUI-owned configuration.
 
-The installer prints the HTTPS setup URL and the **path** of the private initial
-Super Admin credential, not its value. Retrieve it through the approved
-privileged secret/file-management channel. Verify initial TLS fingerprint/trust
-through that channel before signing in. There is no anonymous remote wizard.
+The installer displays the HTTPS setup URL. Verify initial certificate trust
+through the approved private channel, then use the fresh local `admin` / `admin`
+login and complete its mandatory password change. Normal GUI setup does not
+require retrieving a token file or reading a credential through the CLI. A
+legacy private setup token may still be prepared internally for compatibility;
+it is not the local-user login procedure. Existing account databases retain
+their users and do not receive a new default account. There is no anonymous
+remote wizard.
 
 Signed runtime checks cover application source, agent/service bytes and the
 configured Docker bootstrap/host-manager startup paths. Mutable GUI settings,
@@ -84,40 +89,80 @@ keys under separate approved custody; endpoints receive public trust only.
 
 ## 3. Complete initial GUI setup
 
-1. Open **Settings → Setup** as the initial Super Admin. A local preview cannot
-   change an installed controller.
-2. Use **HTTPS certificates** to import approved PEM/PKCS#12 material or generate
-   a hostname certificate. Establish browser/agent trust in the public CA.
-3. Use **Site & cluster settings** to set the site and intended initial origin.
-   Finish initial origin preparation before enrollment. Physical addressing,
-   DNS/LB routing and real failover remain external. A standalone pilot stays
-   one node; managed shared DB activation requires three eligible distinct-site
-   voters and approved native watchdog fencing.
-4. Return at the exact stable HTTPS origin. Choose the recommended runtime:
+1. Open the trusted HTTPS setup URL. On a fresh empty account database, sign in
+   with local username **admin** and temporary password **admin**. It receives
+   **Super Admin**, not the lower Admin role. Replace the password with
+   **12–256 characters** before entering the workspace. Until then only the
+   restricted password-change session is available.
+2. Open **Settings → Setup** after the password change. A synthetic local
+   preview cannot change an installed controller. Use **HTTPS certificates**
+   for approved PEM/PKCS#12 material or hostname generation; establish
+   browser/agent trust in the approved public CA.
+3. Use **Site & cluster settings** for the site and intended origin. Finish
+   origin preparation before enrollment. Physical addressing, DNS/LB routing
+   and real failover remain external. A standalone pilot stays one node;
+   managed shared DB activation requires three eligible distinct-site voters
+   and approved native watchdog fencing.
+4. Return at the exact stable HTTPS origin and choose the recommended runtime:
    AUTO workers, 32 threads, metadata/traffic pools 8/2 and a 5-second wait.
    SQLite uses one worker; AUTO selects two after PostgreSQL activation. Review
    all controller connections before raising worker/pool counts.
-5. In Entra, register a single-tenant confidential **Web** application with the
-   exact redirect `https://YOUR-ORIGIN/api/v1/auth/callback`, including its port
-   when required. Configure tenant assignment/MFA in Entra; Prṛthak does not
-   create directory users or register the application for you.
-6. In Setup enable initial Entra configuration. Enter tenant ID, application
-   client ID, callback, client-secret value and the first existing user's
-   **Object ID**. Review the generated public settings; secrets are not returned.
-7. Test candidate sign-in as that exact user. Signature, tenant, nonce,
-   PKCE/state and browser binding are checked. This creates no app user/session
-   and does not activate the provider.
-8. Resume the verified review, type the exact phrase and activate. The fixed
-   manager writes protected settings/secret files, supervises restart/readback,
-   and retains exact previous material for verified rollback on failure.
-9. Sign in normally through Entra. The first permitted identity becomes Super
-   Admin; the empty-access-table guard stops subsequent bootstrap grants. In
-   **Users & access**, provision additional users as needed. Only Super Admin
-   can create any role, including Read Only. No environment cleanup is needed.
+5. In **Users & access**, create local or configured SSO users and assign
+   Read Only, Admin or Super Admin. Only Super Admin creates users or changes
+   roles. New/reset local users must replace their temporary password at first
+   login. Any local user can later use **Account → Change password** with their
+   current password. A Super Admin reset revokes that user's active sessions.
+
+The local default is created once, only for an empty retained account database.
+Restarting, adding SSO or later account changes cannot recreate it. Existing
+Entra estates retain their users; an existing enabled Super Admin can explicitly
+add local accounts. Local credentials use salted scrypt hashes in the shared
+database. Password and role management need no `.env`/JSON edit or token-file
+retrieval. See [the detailed login procedure](local-and-saml-login.md).
+
+### Optional SAML SSO
+
+Remain signed in as a fully authenticated Super Admin and open **Users & access
+→ Configure SAML**. Enter the stable application HTTPS origin and SP Entity ID,
+upload/paste the IdP's public metadata XML, and enable the provider. The GUI
+displays the reply/ACS URL `/api/v1/auth/saml/callback` and provides SP metadata.
+Configure the IdP to sign **both response and assertion**, use a persistent
+NameID and accept unsigned SP authentication requests. Only SP-initiated login
+is accepted.
+
+Add each intended SSO user with its exact NameID and one application role.
+Email/group/role claims do not create users or grant privileges automatically.
+SAML configuration lives in the shared database and compares the form-open
+revision before saving. A stale save keeps the draft and requires refresh/review.
+Local accounts remain available; changing SAML settings signs out existing SAML
+sessions, including a SAML caller who changes their own provider.
+
+### Optional Microsoft Entra OIDC
+
+Use **Settings → Setup** to configure a single-tenant confidential **Web**
+application with exact callback `https://YOUR-ORIGIN/api/v1/auth/callback`,
+including its port when needed. Configure assignment/MFA in Entra. Enter tenant
+ID, application client ID, callback, client-secret value and the intended
+existing user's actual Entra **Object ID**. A local or SAML application ID
+cannot substitute for that directory Object ID.
+
+Test candidate sign-in as that exact user. Signature, tenant, nonce, PKCE/state
+and browser binding are checked without creating an ordinary app user/session
+or activating the provider. Resume the verified review, type its exact phrase
+and activate. The fixed manager writes protected settings/secret files,
+supervises restart/readback and retains previous material for rollback.
+
+After activation, the configured identity completes normal Entra sign-in. It
+can receive the first Entra Super Admin record only when there are no retained
+Entra users; local/SAML accounts do not block this explicit initial grant. Any
+retained Entra user, including a disabled one, prevents repeat bootstrap.
+Provision additional users in **Users & access** after that sign-in. Local
+accounts remain separate. No manual environment cleanup is required.
 
 Initial Entra activation remains standalone/pre-HA. Active provider changes and
-joined-profile convergence use the reviewed flows below; candidate verification
-alone is not native OS, live tenant, or external failover acceptance.
+joined-profile convergence use the reviewed flow below. Neither candidate
+verification nor locally signed test fixtures establish live IdP/MFA, native OS
+or external failover acceptance.
 
 ## 4. Prepare endpoints
 
@@ -131,10 +176,10 @@ disables UFW or migrates existing rules. Unsupported administrator overrides or
 uncertain package state block automatic preparation; native acceptance is pending.
 See [endpoint preparation](endpoint-discovery-and-preparation.md).
 
-Stage and independently verify `prthak-agent-0.14.0-linux-amd64.tar.gz` or
-`prthak-agent-0.14.0-linux-arm64.tar.gz`, then extract to a protected root-owned
+Stage and independently verify `prthak-agent-0.15.0-linux-amd64.tar.gz` or
+`prthak-agent-0.15.0-linux-arm64.tar.gz`, then extract to a protected root-owned
 release directory. Use its signed runtime manifest and independently approved
-public trust. The static Go endpoint needs no Git, Python or Go compiler/runtime.
+public trust. The static Go endpoint needs no Git, Python or Go compiler/runtime. Existing 0.14 agents remain protocol-compatible with the human-login addition; they need no reinstall solely to enable local/SAML accounts.
 
 ## 5. Download one fleet setup for all endpoints
 
@@ -224,7 +269,7 @@ For a fresh endpoint reporting `endpoint_configuration_v1`:
 1. Open **Install agent → Configure an enrolled endpoint**. Choose its
    exact host. Select local opt-ins, protected management CIDRs, actual SSH ports
    (including 2022 where used), firewalld zone and channel origins in the GUI.
-2. The current Entra Admin/Super Admin saves the exact reviewed configuration
+2. The current local or SSO Admin/Super Admin saves the exact reviewed configuration
    directly. No checker or selectable approval mode is needed. Local root
    application of the signed kit remains the explicit endpoint opt-in.
 3. Download the signed `prthak-endpoint-configuration.json`. Its lifetime is at
@@ -285,7 +330,7 @@ Database recovery is Super Admin only. An active-provider change uses one curren
 Super Admin's verified candidate and exact Apply action; all-node preparation,
 authority cutover and rollback protections remain.
 
-Audit/signed delivery uses `single_admin` evidence bound to the current Entra
+Audit/signed delivery uses `single_admin` evidence bound to the current local or SSO
 identity, exact intent/digest and provider authority epoch. Live role revocation,
 stale previews and changed provider authority stop new admission. Old pending
 maker/checker or retired pilot reviews cannot be promoted; historical evidence
@@ -297,8 +342,9 @@ configuration; direct workflow changes no RBAC permission.
 
 A current **Super Admin** changes Entra tenant/client/callback or secret values.
 In **Settings → Setup**, enable provider review and enter
-the candidate values. Same-tenant verification uses the requesting Super Admin;
-a new tenant requires the exact reviewed target Super Admin Object ID. The
+the candidate values. A same-tenant change by an Entra Super Admin verifies
+that same directory person. A local/SAML operator or a new tenant supplies the
+exact reviewed candidate Entra Super Admin Object ID. The
 candidate signs in without receiving app access. The same current Super Admin
 applies the exact frozen review once.
 
@@ -318,7 +364,8 @@ member is not counted as success. Fingerprint **and opaque provider epoch** gate
 human/control authorization, readiness and future controller joins. Sessions and
 unfinished approval authority are invalidated at cutover; fresh review is
 required. A new tenant grants only the exact verified target Super Admin and
-retires old-tenant accounts. Provision additional new-tenant users as needed after sign-in.
+retires previous-tenant Entra accounts. Local/SAML account records are retained,
+although the coordinated cutover invalidates sessions and unfinished reviews. Provision additional new-tenant users as needed after sign-in.
 
 When Setup reports a joined encrypted-profile/file mismatch, use its reviewed
 **convergence** path and fresh current-Super candidate sign-in. The fixed manager
@@ -387,7 +434,7 @@ and the original [resource measurements](agent-resources.md).
 
 Fresh 0.7 release evidence is recorded with its exact source/configuration and
 skips; this runbook supplies no invented test totals. Native RHEL/Ubuntu systemd,
-firewalld/SELinux/SSH checks, the real 20-server pilot, live Entra/MFA, DC/WAN
+firewalld/SELinux/SSH checks, the real 20-server pilot, live Entra/SAML/MFA, DC/WAN
 partitions, watchdog fencing and a real 5,000-endpoint workload remain external
 acceptance work. A standalone pilot or locally signed identity fixture does not
 validate HA, an organization tenant or production readiness.

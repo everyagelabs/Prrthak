@@ -76,7 +76,7 @@ def verify_changed_policy(policy, previous_receipt, expected_services):
         raise RuntimeError("Edited policy source/service matrix was not delivered exactly")
 
 
-def verify_direct_authority(policy, identity, fingerprint, epoch=""):
+def verify_direct_authority(policy, identity, fingerprint, epoch="", *, provider=None, expected_subject=None):
     """Demand current, compact direct Admin evidence, not merely HTTP success."""
     enforcement = policy.get("enforcement", {})
     proof = enforcement.get("approval_proof") or {}
@@ -92,6 +92,21 @@ def verify_direct_authority(policy, identity, fingerprint, epoch=""):
             or proof.get("binding_digest") != digest({key:value for key,value in proof.items() if key!="binding_digest"})
             or "pilot" in proof or len(json.dumps(proof,separators=(",",":"))) > 16384):
         raise RuntimeError("Current exact per-host single_admin authorization was not delivered")
+    if provider is not None:
+        if (provider not in ("entra", "local", "saml") or subject.get("auth_provider", "entra") != provider
+                or not subject.get("user_id") or subject.get("user_id") != subject.get("tenant_id", "") + ":" + subject.get("object_id", "")
+                or subject.get("actor") != provider + ":" + subject["user_id"]
+                or expected_subject is None or subject != expected_subject):
+            raise RuntimeError("The delivered authority belongs to a different authentication provider or subject")
+        try:
+            if any(str(uuid.UUID(subject[key])) != subject[key] for key in ("tenant_id", "object_id")):
+                raise ValueError()
+        except (KeyError, ValueError, TypeError, AttributeError):
+            raise RuntimeError("The delivered authority does not have its canonical provider identity") from None
+        if provider == "local" and (not isinstance(subject.get("credential_version"), str)
+                                     or len(subject["credential_version"]) != 32
+                                     or any(char not in "0123456789abcdef" for char in subject["credential_version"])):
+            raise RuntimeError("The delivered local authority omitted its exact credential version")
 
 
 def verify_observation_lease(policy, identity, addresses, expected_deployment_id=None):
@@ -128,6 +143,122 @@ def seeded_person(store, config, oid, role):
     return principal, {"Cookie":SESSION_COOKIE+"="+raw,"X-CSRF-Token":principal["csrf_token"],"Origin":config.origin}
 
 
+def private_saml_configuration(origin):
+    """Public metadata for an ephemeral private fixture; never contacts an IdP."""
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+    from controller.saml_auth import SAMLConfig
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Private capacity fixture IdP")])
+    certificate = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+                   .serial_number(x509.random_serial_number()).not_valid_before(now()-timedelta(days=1))
+                   .not_valid_after(now()+timedelta(days=2)).sign(key, hashes.SHA256()))
+    import base64
+    public = base64.b64encode(certificate.public_bytes(serialization.Encoding.DER)).decode()
+    metadata = ('<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" '
+                'xmlns:ds="http://www.w3.org/2000/09/xmldsig#" entityID="https://private-capacity-idp.invalid/entity">'
+                '<md:IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">'
+                '<md:KeyDescriptor use="signing"><ds:KeyInfo><ds:X509Data><ds:X509Certificate>' + public +
+                '</ds:X509Certificate></ds:X509Data></ds:KeyInfo></md:KeyDescriptor>'
+                '<md:NameIDFormat>urn:oasis:names:tc:SAML:2.0:nameid-format:persistent</md:NameIDFormat>'
+                '<md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" '
+                'Location="https://private-capacity-idp.invalid/sso"/></md:IDPSSODescriptor></md:EntityDescriptor>')
+    value = {"enabled": True, "origin": origin, "sp_entity_id": origin+"/private-capacity-sp",
+             "idp_metadata_xml": metadata, "display_name": "Private capacity SAML fixture"}
+    return SAMLConfig.from_value(value), value
+
+
+def seeded_application_person(auth, role, *, provider):
+    """Canonical completed local/SAML account plus a persisted fixture session.
+
+    No password authentication or IdP response is timed or represented as a
+    real sign-in. The normal application authenticator validates the seeded
+    session before it is allowed to publish this fixture's policy.
+    """
+    from controller.auth import SESSION_COOKIE
+    from controller.local_auth import write_fence
+    store = auth.store
+    if provider == "local":
+        user = auth.local.prepare_user({"provider": "local", "username": "private-capacity-"+role,
+                                       "password": secrets.token_urlsafe(40), "role": role,
+                                       "display_name": "Private capacity "+role})
+        user["password_change_required"] = False
+        with store.lock, store.meta() as db:
+            write_fence(db)
+            store._put(db, "auth_users", user)
+            result = auth.local._issue(db, user)
+        session_cookie = result["cookies"][0].split(";", 1)[0]
+        origin = auth.local.origin
+    elif provider == "saml":
+        user = auth.saml.user({"subject": "private-capacity-"+role, "role": role,
+                               "display_name": "Private capacity "+role})
+        raw = secrets.token_urlsafe(32)
+        with store.lock, store.meta() as db:
+            write_fence(db)
+            store._put(db, "auth_users", user)
+            store._put(db, "auth_sessions", {"id": hashlib.sha256(raw.encode()).hexdigest(),
+                       "user_id": user["id"], "provider": "saml", "config": auth.saml.fingerprint,
+                       "created_at": stamp(), "expires_at": stamp(now()+timedelta(hours=4))})
+        session_cookie = SESSION_COOKIE+"="+raw
+        origin = auth.saml.config.origin
+    else:
+        raise ValueError("Application identity fixture requires local or SAML")
+    principal = auth.authenticate({"Cookie": session_cookie})
+    if (not principal or principal.get("auth_provider") != provider or principal.get("role") != role
+            or principal.get("password_change_required")):
+        raise RuntimeError("The private application session did not authenticate its exact completed account")
+    return principal, {"Cookie": session_cookie, "X-CSRF-Token": principal["csrf_token"], "Origin": origin}
+
+
+def seed_administrative_fixture(store, origin, provider):
+    """Prepare either provider outside measured policy-delivery phase timers."""
+    from controller import approvals
+    from controller.auth import EntraAuth, EntraConfig
+    if provider == "entra":
+        config = EntraConfig(str(uuid.uuid4()), str(uuid.uuid4()), origin+"/api/v1/auth/callback", secrets.token_urlsafe(32))
+        auth = EntraAuth(store, config, provider=object())
+        store.approval_auth_fingerprint = config.fingerprint
+        store.approval_tenant_id = config.tenant_id
+        principal, admin_headers = seeded_person(store, config, str(uuid.uuid4()), "admin")
+        _, setup_headers = seeded_person(store, config, str(uuid.uuid4()), "super_admin")
+        epoch = secrets.token_hex(32)
+        with store.lock, store.meta() as db:
+            store._put(db, "maintenance_settings", {"id": "controller_provider_authority", "fingerprint": config.fingerprint, "epoch": epoch})
+        environment = {"SEG_ENTRA_TENANT_ID": config.tenant_id, "SEG_ENTRA_CLIENT_ID": config.client_id,
+                       "SEG_ENTRA_REDIRECT_URI": config.redirect_uri, "SEG_ENTRA_CLIENT_SECRET": config.client_secret,
+                       "PRTHAK_PROVIDER_EPOCH": epoch}
+        fingerprint = config.fingerprint
+    elif provider in ("local", "saml"):
+        from controller.authentication import Authentication
+        auth = Authentication(store, entra=EntraAuth(store, EntraConfig()), origin=origin, bootstrap=False)
+        if provider == "saml":
+            from controller.saml_auth import SAMLAuth
+            config, value = private_saml_configuration(origin)
+            revision_epoch = secrets.token_hex(32)
+            fingerprint = digest({"configuration_fingerprint": config.fingerprint, "epoch": revision_epoch})
+            with store.lock, store.meta() as db:
+                store._put(db, "maintenance_settings", {"id": "saml_configuration", "config": value,
+                           "revision": 1, "config_digest": digest(value), "realm_id": config.realm_id,
+                           "configuration_fingerprint": config.fingerprint, "epoch": revision_epoch,
+                           "fingerprint": fingerprint, "created_at": stamp()})
+            auth.saml = SAMLAuth(store, config)
+        else:
+            fingerprint = auth.local.fingerprint
+        principal, admin_headers = seeded_application_person(auth, "admin", provider=provider)
+        _, setup_headers = seeded_application_person(auth, "super_admin", provider=provider)
+        environment, epoch = {}, ""
+    else:
+        raise ValueError("Choose entra, local or saml for the identity fixture")
+    with store.read_meta() as db:
+        subject = approvals.identity(store, db, principal["actor"], principal)
+    if subject.get("auth_provider", "entra") != provider or subject.get("auth_config") != fingerprint:
+        raise RuntimeError("Private fixture identity did not retain its actual provider authority")
+    return {"auth": auth, "principal": principal, "admin_headers": admin_headers, "setup_headers": setup_headers,
+            "environment": environment, "fingerprint": fingerprint, "epoch": epoch, "subject": subject}
+
+
 def run(args):
     # Never inherit live service/tenant/cluster credentials into a benchmark.
     metadata_dsn = os.environ.get(args.metadata_dsn_env, "")
@@ -136,6 +267,8 @@ def run(args):
         if name.startswith(("SEG_", "PRTHAK_")):
             os.environ.pop(name)
     token = secrets.token_urlsafe(40)
+    authentication_provider = getattr(args, "authentication_provider", "entra")
+    measured_provider = authentication_provider if args.authorization_mode == "single-admin" else "local"
     result = {"virtual_identities": args.agents, "cycles_per_identity": args.cycles,
               "actual_agent_processes": 0, "kernel_traffic_collected": False,
               "transport": "Gunicorn bounded gthread, real TLS and unique registered mTLS certificates",
@@ -144,9 +277,15 @@ def run(args):
               "http_workers": args.workers, "http_threads_per_worker": args.threads,
               "cadence": args.cadence, "policy_services": 2, "approved_sources_per_service": args.policy_sources,
               "authorization_mode":args.authorization_mode,
+              "authentication_provider": measured_provider,
               "verification_lease_delivery": args.verification_capable,
               "native_verification_witnesses_generated": False,
-              "administrative_identity_fixture":"Persisted private Entra-shaped Admin session; no live Microsoft sign-in/token exchange" if args.authorization_mode=="single-admin" else "Legacy private token monitor fixture",
+              "administrative_identity_fixture":({
+                  "entra": "Persisted private Entra-shaped Admin session; no live Microsoft sign-in/token exchange",
+                  "local": "Persisted canonical local Admin session; strong-password preparation and completed-change state seeded outside timing",
+                  "saml": "Persisted canonical SAML Admin session with ephemeral private IdP metadata; no IdP assertion exchange or MFA",
+              }[measured_provider] if args.authorization_mode=="single-admin" else
+                  "Persisted private Local Super Admin session for monitor setup only; no live enforcement authority"),
               "actual_midrun_policy_edit": args.change_policy, "configured_control_interval_seconds": args.control_interval_seconds,
               "changed_policy_poll_window_seconds": args.poll_window_seconds,
               "postgres_worker_pool": {"metadata_max":args.db_pool_meta_max,"traffic_max":args.db_pool_traffic_max,"wait_seconds":args.db_pool_wait_seconds},
@@ -155,7 +294,7 @@ def run(args):
               "source_files_sha256_at_launch":{str(path.relative_to(ROOT)):hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted((ROOT/"controller").glob("*.py"))},
               "fixture_sha256":hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
               "control_interval_target_seconds": 60, "phase_results": [],
-              "boundaries": ["Virtual identities are not Linux agent processes", "No firewall/enforcement/SSH/systemd tests", "Certificates and inventory are seeded before measurement; enrollment storm excluded", "No WAN latency, site failover or long-duration soak", "Flow/discovery payloads are explicitly synthetic", "PostgreSQL mode uses two private databases on one instance; replication and synchronous WAN commits are not exercised"]}
+              "boundaries": ["Virtual identities are not Linux agent processes", "No firewall/enforcement/SSH/systemd tests", "Certificates, inventory and administrative identity/password/provider preparation precede measurement; enrollment/sign-in storms excluded", "No WAN latency, site failover or long-duration soak", "Flow/discovery payloads are explicitly synthetic", "PostgreSQL mode uses two private databases on one instance; replication and synchronous WAN commits are not exercised"]}
     with tempfile.TemporaryDirectory(prefix="prthak-http-scale-") as temporary:
         directory = Path(temporary)
         reservation=socket.socket();reservation.bind(("127.0.0.1",0));port=reservation.getsockname()[1];reservation.close()
@@ -185,20 +324,22 @@ def run(args):
         app = App(store, signer=signer, tokens={"super_admin": token}, controller_id="private-http-scale", site="private-fixture", state_dir=state,
                   controller_certificate=pki / "controller.pem", controller_private_key=pki / "controller-key.pem")
         trust = app.platform.policy_signer().public_trust()
-        principal=None;admin_headers={"Authorization":"Bearer "+token};setup_headers=dict(admin_headers);provider_environment={}
+        principal=None;admin_headers={};setup_headers={};provider_environment={}
         fixture_origin="https://127.0.0.1:"+str(port)
+        authentication_started = time.monotonic()
+        authentication = seed_administrative_fixture(store, fixture_origin, measured_provider)
+        app.auth = authentication["auth"]
+        admin_headers, setup_headers = authentication["admin_headers"], authentication["setup_headers"]
+        provider_environment = authentication["environment"]
+        fingerprint, epoch, authority_subject = authentication["fingerprint"], authentication["epoch"], authentication["subject"]
+        result["authentication_preparation_seconds"] = round(time.monotonic()-authentication_started, 3)
+        result["authentication_prepared_before_phase_timers"] = True
         if args.authorization_mode=="single-admin":
-            from controller.auth import EntraAuth, EntraConfig
-            config=EntraConfig(str(uuid.uuid4()),str(uuid.uuid4()),fixture_origin+"/api/v1/auth/callback",secrets.token_urlsafe(32))
-            app.auth=EntraAuth(store,config,provider=object())
-            store.approval_auth_fingerprint=config.fingerprint;store.approval_tenant_id=config.tenant_id
-            principal,admin_headers=seeded_person(store,config,str(uuid.uuid4()),"admin")
-            _,setup_headers=seeded_person(store,config,str(uuid.uuid4()),"super_admin")
-            epoch=secrets.token_hex(32)
-            with store.lock,store.meta() as db:store._put(db,"maintenance_settings",{"id":"controller_provider_authority","fingerprint":config.fingerprint,"epoch":epoch})
-            provider_environment={"SEG_ENTRA_TENANT_ID":config.tenant_id,"SEG_ENTRA_CLIENT_ID":config.client_id,"SEG_ENTRA_REDIRECT_URI":config.redirect_uri,"SEG_ENTRA_CLIENT_SECRET":config.client_secret,"PRTHAK_PROVIDER_EPOCH":epoch}
+            principal = authentication["principal"]
             result["policy_actor_role"]="admin"
-            result["human_auth_boundary"]="The policy PUT uses actual HTTPS cookie/session/CSRF authorization against the seeded Admin; OIDC/MFA itself is outside this benchmark"
+            result["human_auth_boundary"]="The policy PUT uses actual HTTPS cookie/session/CSRF authorization against the seeded "+measured_provider+" Admin; password login/first-change and IdP/MFA exchanges are outside this benchmark"
+        else:
+            admin_headers = dict(setup_headers)
         from cryptography import x509
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import ec
@@ -360,7 +501,7 @@ def run(args):
                             if policy["server_id"]!=identity:raise RuntimeError("Policy endpoint binding failed")
                             verify(policy,trust)
                             if args.authorization_mode=="single-admin":
-                                verify_direct_authority(policy,identity,config.fingerprint,epoch)
+                                verify_direct_authority(policy,identity,fingerprint,epoch,provider=measured_provider,expected_subject=authority_subject)
                                 authority_receipts[identity]={key:policy[key] for key in ("version","digest","enforcement")}
                                 if args.verification_capable:
                                     verify_observation_lease(policy, identity, report["ips"], fixture_policy["deployment"]["id"])
@@ -387,7 +528,7 @@ def run(args):
                                 report["control_interval_seconds"]=polling["control_interval_seconds"]
                                 report["discovery_interval_seconds"]=polling["discovery_interval_seconds"]
                         if status==304 and args.authorization_mode=="single-admin":
-                            verify_direct_authority(authority_receipts.get(identity,{}),identity,config.fingerprint,epoch)
+                            verify_direct_authority(authority_receipts.get(identity,{}),identity,fingerprint,epoch,provider=measured_provider,expected_subject=authority_subject)
                             if args.verification_capable:
                                 verify_observation_lease(authority_receipts[identity], identity, report["ips"], fixture_policy["deployment"]["id"])
                                 with stats_lock:verified_observation_leases+=1
@@ -426,6 +567,7 @@ def run(args):
                 phase={"cycle":cycle+1,"identities":args.agents,"successful_cycles":successful,"seconds":round(elapsed,3),"cycles_per_second":round(successful/elapsed,2),"covers_60_second_cycle_target":successful==args.agents and elapsed<=60,"discovery_reports":len(discovery),"synthetic_flow_events":len(learners)*args.flow_events if session else 0}
                 if args.authorization_mode=="single-admin":
                     phase["verified_current_direct_authorities"]=verified_authorities
+                    phase["verified_authentication_provider"]=measured_provider
                     if verified_authorities!=args.agents:failures.append({"operation":"direct_authority_delivery","error":"Not every identity received its current compact direct Admin authority"})
                 if args.verification_capable:
                     phase["verified_passive_observation_leases"] = verified_observation_leases
@@ -491,7 +633,8 @@ def main():
     parser.add_argument("--threads",type=int,default=32)
     parser.add_argument("--timeout",type=int,default=15)
     parser.add_argument("--cadence",choices=("adaptive","strict"),default="adaptive",help="adaptive mirrors the native agent; strict always sends a second report for comparison")
-    parser.add_argument("--authorization-mode",choices=("monitor","single-admin"),default="monitor",help="single-admin seeds a current local Entra session, saves symbolic enforce intent and measures its real signed per-host authority; never contacts Microsoft")
+    parser.add_argument("--authorization-mode",choices=("monitor","single-admin"),default="monitor",help="single-admin seeds a current provider session, saves symbolic enforce intent and measures its real signed per-host authority; no live IdP exchange")
+    parser.add_argument("--authentication-provider",choices=("entra","local","saml"),default="entra",help="Administrative provider for single-admin fixture (default Entra); passwords/provider sessions are seeded outside phase timers; monitor setup uses Local")
     parser.add_argument("--change-policy",action="store_true",help="Edit the real source policy before cycle2; include compile/publication and verify all new versions/digests/sources")
     parser.add_argument("--verification-capable",action="store_true",help="Advertise current verification-capable agents and verify their signed passive leases; no kernel witnesses or firewall enforcement are simulated")
     parser.add_argument('--retained-learning-sessions', type=int, default=0, help='Seed 0..100 expired full-fleet sessions before timing; exercises history-independent delivery')
@@ -514,6 +657,8 @@ def main():
         parser.error('Retained history must contain 0..100 expired sessions')
     if args.verification_capable and args.authorization_mode != "single-admin":
         parser.error("Observation-lease delivery requires the exact single-admin publication fixture")
+    if args.authentication_provider != "entra" and args.authorization_mode != "single-admin":
+        parser.error("The authentication-provider selector requires the single-admin policy fixture")
     if not 1<=args.agents<=20000 or not 1<=args.cycles<=10 or not 1<=args.concurrency<=256 or not 1<=args.workers<=8 or not 2<=args.threads<=128 or not 1<=args.timeout<=120 or not 1<=args.policy_sources<=1000 or not 0<=args.learning_agents<=1000 or not 0<=args.flow_events<=2000 or not 0<=args.discovery_agents<=args.agents:
         parser.error("Benchmark arguments exceed bounded fixture limits")
     if args.change_policy and args.cycles<2 or not math.isfinite(args.poll_window_seconds) or not 0<=args.poll_window_seconds<=60 or not 5<=args.control_interval_seconds<=3600:

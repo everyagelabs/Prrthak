@@ -412,7 +412,8 @@ class EntraAuth:
             assert_auth_current(self, db)
             self._prune(db)
             user = self.store._get(db, "auth_users", identifier)
-            if user is None and object_id == self.config.bootstrap_oid and not self.store._all(db, "auth_users"):
+            if (user is None and object_id == self.config.bootstrap_oid
+                    and not any(value.get("provider", "entra") == "entra" for value in self.store._all(db, "auth_users"))):
                 user = self._user({"object_id": object_id, "role": "super_admin"})
                 user["display_name"] = _claim_text(claims.get("name"), 200) or "Initial Super Admin"
                 user["email"] = _claim_email(claims)

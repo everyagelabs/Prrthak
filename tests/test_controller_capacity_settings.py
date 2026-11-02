@@ -1,11 +1,15 @@
 """Capacity settings cannot bypass appliance validation or protected reinstall."""
 import importlib.util
 import copy
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import timedelta
+import io
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -152,6 +156,134 @@ class DirectAuthorityFixtureAssertions(unittest.TestCase):
                         {'provider_authority':{'fingerprint':self.fingerprint,'epoch':'old'}},{'binding_digest':'f'*64}):
             with self.subTest(changes=changes),self.assertRaises(RuntimeError):
                 fixture.verify_direct_authority({**self.policy,'enforcement':{**self.policy['enforcement'],'approval_proof':{**base,**changes}}},self.identity,self.fingerprint,self.epoch)
+
+
+class AuthenticationProviderFixtureAssertions(unittest.TestCase):
+    def prepare(self, provider):
+        from controller.store import Store
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        store = Store(directory.name)
+        prepared = fixture.seed_administrative_fixture(store, 'https://127.0.0.1:18443', provider)
+        return store, prepared
+
+    def proof_policy(self, prepared):
+        subject = copy.deepcopy(prepared['subject'])
+        proof = {'scheme':'prthak-maker-checker-v1','mode':'single_admin','stage':'approved',
+                 'requester':subject,'submitted_by':subject,'approved_by':subject,
+                 'scope':{'kind':'managed_policy','server_ids':['host']},
+                 'provider_authority':{'fingerprint':prepared['fingerprint'],'epoch':prepared['epoch']}}
+        proof['binding_digest'] = fixture.digest(proof)
+        return {'version':2,'digest':'current-policy','enforcement':{'authorized':True,'confirmation_count':1,
+                'approved_version':2,'approved_digest':'current-policy','approval_proof':proof}}
+
+    def test_local_fixture_uses_completed_real_credentials_and_exact_version_bound_session(self):
+        from controller.authentication import validate_current_principal
+        from controller.local_auth import SCRYPT_ALGORITHM
+        store, prepared = self.prepare('local')
+        principal = prepared['auth'].authenticate(prepared['admin_headers'])
+        self.assertEqual(principal['auth_provider'], 'local')
+        self.assertEqual(principal['role'], 'admin')
+        self.assertFalse(principal['password_change_required'])
+        self.assertEqual(prepared['auth'].authenticate(prepared['setup_headers'])['role'], 'super_admin')
+        self.assertEqual(prepared['environment'], {})
+        self.assertEqual(prepared['epoch'], '')
+        self.assertNotIn('Authorization', prepared['admin_headers'])
+        self.assertEqual(len(store.all('auth_users')), 2)
+        self.assertNotIn('admin', {user['username'] for user in store.all('auth_users')})
+        with store.read_meta() as db:
+            current = validate_current_principal(store, db, principal)
+        self.assertEqual(current['password_hash']['algorithm'], SCRYPT_ALGORITHM)
+        self.assertEqual(prepared['subject']['credential_version'], current['credential_version'])
+        fixture.verify_direct_authority(self.proof_policy(prepared), 'host', prepared['fingerprint'],
+                                        provider='local', expected_subject=prepared['subject'])
+
+    def test_entra_default_fixture_retains_its_original_actor_and_epoch(self):
+        store, prepared = self.prepare('entra')
+        self.assertTrue(prepared['principal']['actor'].startswith('entra:'))
+        self.assertEqual(prepared['subject'].get('auth_provider', 'entra'), 'entra')
+        self.assertEqual(prepared['epoch'], prepared['environment']['PRTHAK_PROVIDER_EPOCH'])
+        with patch.dict(os.environ, prepared['environment']):
+            self.assertEqual(prepared['auth'].authenticate(prepared['admin_headers'])['role'], 'admin')
+        fixture.verify_direct_authority(self.proof_policy(prepared), 'host', prepared['fingerprint'], prepared['epoch'],
+                                        provider='entra', expected_subject=prepared['subject'])
+
+    @unittest.skipUnless(all(importlib.util.find_spec(name) for name in ('cryptography', 'onelogin', 'xmlsec', 'lxml')),
+                         'Install controller/requirements.txt for canonical SAML fixture validation')
+    def test_saml_fixture_uses_current_canonical_metadata_epoch_and_individual_subject(self):
+        from controller.authentication import provider_fingerprint, validate_current_principal
+        store, prepared = self.prepare('saml')
+        principal = prepared['auth'].authenticate(prepared['admin_headers'])
+        self.assertEqual(principal['auth_provider'], 'saml')
+        self.assertEqual(principal['role'], 'admin')
+        self.assertEqual(principal['actor'], 'saml:'+principal['user']['id'])
+        self.assertEqual(principal['user']['subject'], 'private-capacity-admin')
+        self.assertEqual(prepared['environment'], {})
+        config = store.get('maintenance_settings', 'saml_configuration')
+        self.assertEqual(config['config_digest'], fixture.digest(config['config']))
+        self.assertEqual(prepared['fingerprint'], fixture.digest({'configuration_fingerprint': config['configuration_fingerprint'],
+                                                                 'epoch': config['epoch']}))
+        with store.read_meta() as db:
+            self.assertEqual(provider_fingerprint(store, db, 'saml'), prepared['fingerprint'])
+            validate_current_principal(store, db, principal)
+        fixture.verify_direct_authority(self.proof_policy(prepared), 'host', prepared['fingerprint'],
+                                        provider='saml', expected_subject=prepared['subject'])
+
+    def test_provider_substitution_cannot_pass_even_with_a_fresh_binding_digest(self):
+        _, prepared = self.prepare('local')
+        policy = self.proof_policy(prepared)
+        proof = policy['enforcement']['approval_proof']
+        subject = {**proof['requester'], 'auth_provider':'entra', 'actor':'entra:'+proof['requester']['user_id']}
+        proof.update(requester=subject, submitted_by=subject, approved_by=subject)
+        proof['binding_digest'] = fixture.digest({key:value for key,value in proof.items() if key!='binding_digest'})
+        with self.assertRaises(RuntimeError):
+            fixture.verify_direct_authority(policy, 'host', prepared['fingerprint'], provider='local', expected_subject=prepared['subject'])
+
+    def test_missing_local_credential_version_cannot_be_counted_as_provider_authority(self):
+        _, prepared = self.prepare('local')
+        policy = self.proof_policy(prepared)
+        proof = policy['enforcement']['approval_proof']
+        subject = {key:value for key,value in proof['requester'].items() if key!='credential_version'}
+        proof.update(requester=subject, submitted_by=subject, approved_by=subject)
+        proof['binding_digest'] = fixture.digest({key:value for key,value in proof.items() if key!='binding_digest'})
+        with self.assertRaises(RuntimeError):
+            fixture.verify_direct_authority(policy, 'host', prepared['fingerprint'], provider='local', expected_subject=subject)
+
+    def test_noncanonical_subject_cannot_pass_an_otherwise_exact_provider_assertion(self):
+        _, prepared = self.prepare('local')
+        policy = self.proof_policy(prepared)
+        proof = policy['enforcement']['approval_proof']
+        subject = {**proof['requester'], 'tenant_id':'not-a-canonical-realm'}
+        subject['user_id'] = subject['tenant_id']+':'+subject['object_id']
+        subject['actor'] = 'local:'+subject['user_id']
+        proof.update(requester=subject, submitted_by=subject, approved_by=subject)
+        proof['binding_digest'] = fixture.digest({key:value for key,value in proof.items() if key!='binding_digest'})
+        with self.assertRaises(RuntimeError):
+            fixture.verify_direct_authority(policy, 'host', prepared['fingerprint'], provider='local', expected_subject=subject)
+
+
+class AuthenticationProviderArgumentAssertions(unittest.TestCase):
+    def invoke(self, extra):
+        with tempfile.TemporaryDirectory() as directory:
+            args = ['benchmark-mtls-fleet.py', '--output', str(Path(directory)/'result.json'), *extra]
+            with patch('sys.argv', args), patch.object(fixture, 'run', return_value={
+                    'all_http_cycles_succeeded': True, 'all_cycle_targets_met': True}) as run, redirect_stdout(io.StringIO()):
+                fixture.main()
+            return run.call_args.args[0]
+
+    def test_entra_remains_the_default_single_admin_provider(self):
+        self.assertEqual(self.invoke(['--authorization-mode','single-admin']).authentication_provider, 'entra')
+
+    def test_local_and_saml_provider_choices_are_explicit_single_admin_fixtures(self):
+        for provider in ('local', 'saml'):
+            with self.subTest(provider=provider):
+                self.assertEqual(self.invoke(['--authorization-mode','single-admin','--authentication-provider',provider]).authentication_provider, provider)
+
+    def test_unknown_provider_and_selector_without_direct_authority_fail_before_preparation(self):
+        for extra in (['--authentication-provider','unknown'], ['--authentication-provider','local'], ['--authentication-provider','saml']):
+            with self.subTest(extra=extra), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                self.invoke(extra)
+            self.assertEqual(error.exception.code, 2)
 
 
 if __name__ == '__main__': unittest.main()

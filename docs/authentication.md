@@ -1,115 +1,107 @@
-# Microsoft Entra ID sign-in and application access
+# Local accounts, SSO and application access
 
-This is the implemented organizational sign-in path. It requires a real, single-tenant Entra application and HTTPS origin configured by the deployment owner. Repository tests use synthetic identities and locally signed RSA tokens; no live organization tenant is connected by those tests.
+Prṛthak supports two account sources: **Local** username/password accounts and **SSO** identities authenticated by Microsoft Entra ID OIDC or SAML 2.0. Both sources use the same three application roles. A Super Admin provisions each account and its role; email, directory groups and IdP role claims never create or promote users automatically.
+
+The [Local and SAML login guide](local-and-saml-login.md) gives the current GUI steps. The existing [GUI pilot installation](pilot-gui-installation.md) supplies the unchanged one-command installer procedure. Authentication changes do not require an endpoint-agent installation or new agent protocol; the 0.14 agents remain compatible. The 0.14 illustrated pilot guide is a baseline and has not been regenerated for the new login screens.
 
 ## Prerequisites
 
-- Use the verified controller release. Its managed image supplies the Python/PyJWT dependencies; a separate source-development environment must install `controller/requirements.txt`.
-- A stable application origin, for example `https://prthak.example.internal`, with DNS and TLS trusted by browsers and agents.
-- Permission in the intended tenant to configure the Web application and enterprise application, plus an approved Conditional Access/MFA policy.
-- Controller egress to `login.microsoftonline.com:443` for discovery, token exchange and signing keys. Browser access to the organization's approved Microsoft sign-in/MFA endpoints over HTTPS is also required. Proxy/firewall owners supply the current Microsoft endpoint allowlist.
-- An existing Entra user Object ID for the initial Super Admin. Use the tenant user's Object ID, not email, application object ID or client ID.
-- GUI-generated private provider/secret files and the same committed provider authority on every HA controller; joined profiles converge through the reviewed manager flow.
+- Use the independently verified controller release. Its managed image supplies the controller authentication dependencies; source-development environments install `controller/requirements.txt`.
+- Prepare a stable HTTPS application origin, trusted certificate, DNS and time synchronization. Local password login and browser sessions require HTTPS; an HTTP synthetic preview does not activate production accounts or provider configuration.
+- Use the same shared metadata database across HA controllers. Accounts, password hashes, sessions, role assignments, local bootstrap state and SAML configuration are durable database state.
+- For SAML, obtain the intended IdP's **public metadata XML** and permission to configure its enterprise application. Configure the exact SP Entity ID, HTTPS reply/ACS URL and persistent NameID. The IdP must sign both the response and assertion and accept unsigned SP authentication requests. SAML metadata is uploaded in the GUI, not fetched from a user-supplied URL.
+- For Entra OIDC, prepare a single-tenant confidential Web application, its client secret, exact HTTPS callback and the intended Entra Super Admin Object ID. The controller needs outbound HTTPS to `login.microsoftonline.com:443` for discovery, token exchange and signing keys; browsers need the organization's approved sign-in/MFA endpoints. Directory assignment and Conditional Access/MFA remain IdP-owned configuration.
 
-## Register and configure Entra
+No manual `.env`, JSON or password-file editing is part of the supported GUI procedure. The fixed manager still writes protected deployment settings; local password hashes and SAML configuration live in the shared metadata database. Password values are not stored in `.env`, returned by user listings or written into audit details.
 
-1. In Microsoft Entra admin center, open **App registrations > New registration**. Choose accounts in this organizational directory only (single tenant).
-2. Add a **Web** redirect URI matching `https://prthak.example.internal/api/v1/auth/callback`, replacing the hostname with the stable origin. This is a confidential Web client even though the dashboard uses JavaScript; do not configure a SPA redirect or implicit grant for this implementation.
-3. Record **Directory (tenant) ID** and **Application (client) ID**. Create a client secret in **Certificates & secrets** and protect its value through approved secret management. The implementation supports a client secret, not certificate-based client assertions.
-4. Configure enterprise-application assignment and Conditional Access/MFA under organizational policy. These complement the application access table; directory assignment or app-role claims alone do not grant a Prṛthak role. Requested scopes are `openid profile email`; Microsoft Graph directory write permissions are not used.
+## Fresh local bootstrap and password changes
 
-Microsoft references: [register an application](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app?tabs=client-secret), [Web redirect configuration](https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-redirect-uri), and [application access management](https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/what-is-access-management).
+On the **first start of an empty account database**, Prṛthak creates local username **`admin`** with temporary password **`admin`** and role **Super Admin**. The username does not imply the lower Admin role. The first login issues a restricted password-change session: no inventory, policy, user-management or platform operation is available until the password is replaced.
 
-## GUI configuration and bootstrap (0.7.0)
+Enter the current password, a new password of **12–256 characters** and its confirmation. Passwords are case-sensitive and not trimmed; control characters are rejected and the encoded value is limited to 1,024 UTF-8 bytes. A successful change rotates the session, revokes other sessions for that account and opens the workspace. The forced-change screen cannot be dismissed to bypass the server-side restriction.
 
-The supported pilot procedure is [GUI pilot installation](pilot-gui-installation.md):
-run the verified controller installer once with `--gui-setup`, then configure
-certificates, the stable hostname/origin and provider in **Settings → Setup**.
-The fixed manager generates private settings and the service-readable secret
-file. No `.env`/JSON editing, secret command argument or manual environment
-cleanup belongs in this flow. Retrieve the initial private Super Admin credential
-through the approved privileged channel; the installer prints its path only.
-There is no anonymous remote configuration wizard.
+The initial account is seeded once. A durable bootstrap marker prevents its recreation on restart, after SSO configuration or after later account changes. Any retained account record, including a disabled one, makes the database an existing deployment: upgrading an Entra estate does **not** add an `admin`/`admin` backdoor. Its existing Super Admin can create an explicitly chosen local account through **Users & access**.
 
-Enter tenant/client IDs, exact Web callback, client-secret value and first
-existing user's Object ID in the GUI. Candidate OIDC verifies that identity
-without creating a user/session or activating SSO. After exact review and
-activation, the first normal login creates the initial Super Admin; a nonempty
-access table stops further bootstrap grants. Provision additional users as needed
-in **Users & access**; only Super Admin can do so. Initial provider activation is standalone/pre-HA.
+Every newly created or reset local account receives a temporary password and must change it at its next login. Any enabled local user, including Read Only, can change their own password through the top-right **Account → Change password** menu by supplying the current password. Only Super Admin can reset another local user's password; reset revokes that user's sessions and restores the mandatory next-login change. Directory passwords remain managed by the IdP.
 
-Legacy environment-based deployments remain a compatibility path; the
-[environment example](../.env.example) documents that format. They are not the
-GUI pilot instructions. Never move secrets into JavaScript, source control,
-URLs or command arguments, or configure both raw and file-based client secrets.
-Existing joined controllers use the reviewed convergence path below instead of
-manual repair. Directory registration, assignment and MFA still happen in Entra.
+Local credentials use salted, bounded **scrypt** hashes. Login attempts and password verification are rate-limited, with shared per-account attempt state and generic sign-in errors. Raw passwords are never kept in browser storage or application account records. Session tokens are random and stored hashed; role, enabled status, provider configuration and local credential version are checked on subsequent requests.
 
-## Active provider changes, rotation and joined convergence
-
-Use **Settings → Setup** for an existing provider's tenant/client/callback or
-client-secret change. The requesting current Super Admin reviews the exact
-public values and hidden credential replacement, then verifies the candidate.
-Same-tenant verification must identify that requesting Super Admin. A tenant
-migration freezes an explicit target-tenant Object ID; its candidate login is
-identity proof only, not just-in-time provisioning.
-
-After candidate verification, the same live, enabled current-tenant Super Admin
-applies the exact reviewed digest/nonce/phrase in one action.
-Admin and Read Only cannot authorize provider changes. Keep the previous
-credentials and callbacks valid through verified completion so rollback remains
-usable. Candidate proof, a saved review or a queued job is not activation.
-
-For a changed callback origin, retain both HTTPS aliases and certificate trust.
-The original authenticated GUI supplies a two-minute, one-use verification code.
-Open the candidate origin's verification page and enter the code there; the code
-is never placed in a URL. Complete Microsoft sign-in and return to refresh the
-original exact review. Normal login on an old alias redirects to the reviewed
-canonical origin before creating a host-only browser-binding cookie.
-
-The registered controller set is frozen. Each node prepares its local
-revision/digest, applies through its fixed manager and verifies before shared
-authority flips. Runtime/port changes affect the review creator; peers preserve
-their own runtime settings. A failed or unavailable member cannot supply a
-success receipt; retained native context supports verified rollback.
-
-A public provider fingerprint **and opaque authority epoch** gate human/control
-admission, readiness and future joins. Old reviews cannot be reused after a
-secret-only epoch change. Cutover removes old sessions and invalidates unfinished
-approval authority. New-tenant cutover grants the exact reviewed target Super
-Admin and retires previous-tenant accounts; it does not copy directory roles.
-Provision any additional target-tenant users after normal sign-in. Live provider/MFA,
-site partitions and native rollback still need deployment acceptance.
-
-For joined controllers running from an encrypted cluster profile, Setup can
-review convergence into protected local provider files after a fresh current
-Super Admin candidate sign-in. Effective provider/epoch values then win over
-retained profile overrides; the old protected material remains rollback context.
-Convergence does not silently replace a different provider or disable guards.
-
-## Exactly three roles
+## Exactly three roles for both account sources
 
 | Capability | `read_only` | `admin` | `super_admin` |
 | --- | --- | --- | --- |
-| View infrastructure, policies, traffic, alerts and activity | Yes | Yes | Yes |
+| View permitted infrastructure, policies, traffic, alerts and activity | Yes | Yes | Yes |
+| Change own local password after verifying current password | Yes | Yes | Yes |
 | Create/update/retire servers; manage locations, tags and groups | No | Yes | Yes |
 | Manage policies, learning, enrollment and reviewed firewall operations | No | Yes | Yes |
 | List/create any application user; assign any of the three roles | No | No | Yes |
-| Change/disable/reactivate users; revoke sessions | No | No | Yes |
-| Change platform settings, certificates, notifications; request/approve database recovery | No | No | Yes |
+| Change/disable/reactivate users; reset local passwords; revoke sessions | No | No | Yes |
+| Change platform, sign-in, certificate and notification settings; perform guarded database recovery | No | No | Yes |
 
-Read Only is view-only. Admin and Read Only cannot create even another Read Only user or promote themselves. Super Admin additionally owns exclusive user management and sensitive platform/certificate/notification/recovery operations. A Super Admin cannot change their own role or disable themselves; the last enabled Super Admin is protected.
+Admin and Read Only cannot create even another Read Only account or promote themselves. Super Admin cannot change their own role or disable their own account; the last enabled Super Admin is protected. Changing an account's role or enabled status revokes its sessions. Password changes and resets affect only local passwords; they do not modify Microsoft or SAML directory credentials.
 
-In **Users & access**, a Super Admin chooses **Add Entra user**, enters an existing user's Entra Object ID, selects a role and creates the application access record. Display name/email are labels, not identity or role authority. This does not create a person in Entra and does not call Microsoft Graph. There is no general just-in-time provisioning. Disabled records may be reactivated. Local role/enablement changes revoke existing sessions immediately.
+In **Users & access → Add user**, choose **Local account**, **SSO · Microsoft Entra ID** or **SSO · SAML**. Enter a local username and temporary password, an existing Entra Object ID, or the exact SAML subject/NameID respectively, then choose one role. Existing identity bindings cannot be edited into another account type. Display name and email are labels, not identity or role authority. SSO provisioning creates an application access record, not a directory account.
+
+## Configure SAML in the GUI
+
+A fully authenticated Super Admin opens **Users & access → Configure SAML**, enters the stable HTTPS origin and SP Entity ID, then uploads or pastes the IdP metadata XML. Supply public metadata and certificates only, never a private key. The GUI validates and saves the configuration to the shared database. There is no separate service restart or CLI configuration step.
+
+The default routes are:
+
+| Purpose | URL relative to the approved application origin |
+| --- | --- |
+| SP metadata XML | `/api/v1/auth/saml/metadata` |
+| Start an SP-initiated sign-in | `/api/v1/auth/saml/login` |
+| Assertion Consumer Service / Reply URL | `/api/v1/auth/saml/callback` |
+
+Configure the IdP with the exact Entity ID and ACS URL. Select a persistent NameID, enable **signed SAML response and signed assertion**, and allow unsigned AuthnRequests. IdP-initiated/unsolicited login is not accepted. A Super Admin must add the exact NameID as an SSO user and choose its role before that person can enter Prṛthak. No email alias, group membership or role attribute substitutes for this record.
+
+The SAML toolkit validates XML structure and signatures against the reviewed metadata certificates. The controller also binds issuer, audience, destination, recipient, `InResponseTo`, time and one-use request/response identifiers. Browser-bound RelayState prevents an assertion from being consumed in another browser. The SAML callback's temporary cookie uses `SameSite=None; Secure` for the cross-site POST; ordinary application sessions remain `SameSite=Lax; Secure; HttpOnly`.
+
+Changing the SAML configuration invalidates existing SAML sign-in state, sessions and future authority from the old configuration. A SAML Super Admin who changes their own provider is returned to sign-in. Local accounts remain available. Invalid or unavailable SAML dependencies hold SAML sign-in without silently disabling local access. Existing installed firewall rules are not deleted merely because an IdP configuration changes; future actions still require current authority.
+
+## Register and configure Microsoft Entra OIDC
+
+The existing Microsoft sign-in remains available alongside local accounts and configured SAML. It uses OIDC, not the SAML callback described above.
+
+1. In Microsoft Entra admin center, create an **App registration** for accounts in this organizational directory only.
+2. Add a confidential **Web** redirect URI matching `https://prthak.example.internal/api/v1/auth/callback`, replacing the hostname with the approved origin. Do not select a SPA callback or implicit grant for this adapter.
+3. Record the Directory tenant ID and Application client ID, create a client secret and obtain the intended Entra user's immutable Object ID. Email, an application object ID and a client ID cannot replace a user's Object ID.
+4. Configure enterprise-application assignment and Conditional Access/MFA under organizational policy. Prṛthak requests `openid profile email`; it does not use Microsoft Graph directory-write permissions or import IdP role/group claims as application roles.
+
+Microsoft references: [register an application](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app?tabs=client-secret), [Web redirect configuration](https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-redirect-uri), and [application access management](https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/what-is-access-management).
+
+### GUI setup and existing deployments
+
+After the one-command controller install, change the fresh local bootstrap password, then use **Settings → Setup** for Entra tenant/client/callback, client-secret and candidate Super Admin configuration. The fixed manager writes private settings and supervises readiness and rollback. Candidate sign-in proves the exact reviewed Entra identity without creating an ordinary session or activating pending settings.
+
+After initial activation, the exact configured Entra Super Admin completes normal sign-in. That identity can receive the first Entra Super Admin record only when there are no retained Entra accounts; local/SAML records do not block this explicit flow. Retained Entra records, including disabled ones, prevent repeat bootstrap. Candidate verification alone creates no application account before activation.
+
+A local or SAML operator must enter the candidate's **actual Entra Object ID**. Their own local/SAML object identifier is not reused as an Entra identity. Existing Entra accounts remain provisioned when local authentication is introduced; a Super Admin can add local users without replacing or relinking directory users.
+
+The legacy environment-based Entra configuration remains a compatibility path, documented in the [environment example](../.env.example). It is not an instruction to hand-edit production files for this GUI flow. Never move client secrets into JavaScript, Git, URLs or command arguments, or configure both raw and file-based client secrets.
+
+## Active provider changes, rotation and joined convergence
+
+Use **Settings → Setup** for existing Entra tenant/client/callback or client-secret changes. A current Super Admin reviews the exact public values and hidden credential replacement, verifies the expected candidate, then applies the exact digest/nonce/phrase. No Admin or Read Only user can authorize provider changes. A saved review, candidate proof or queued job is not activation.
+
+For a same-tenant change by an Entra Super Admin, the candidate must identify that same directory person. A local/SAML operator or a new-tenant migration supplies the explicit reviewed candidate Object ID. Candidate verification grants no general just-in-time access; activation admits only the exact reviewed SSO target. Retain previous credentials and HTTPS aliases through verified completion so rollback remains usable.
+
+For a changed callback origin, the original authenticated GUI provides a two-minute one-use verification code. Open the candidate origin's verification page, enter that code there, complete Microsoft sign-in and refresh the original review. The code is not placed in a URL. Normal login on an old alias redirects to the canonical origin before creating its host-only browser-binding cookie.
+
+The registered controller set is frozen. Each node prepares its local revision/digest, applies through its fixed manager and verifies before shared authority flips. Runtime/port changes affect the review creator; peers retain their own runtime settings. A failed or unavailable member cannot supply a success receipt. The retained native context supports rollback, and joined encrypted profiles use reviewed convergence into protected local provider files rather than manual repair.
+
+Entra provider fingerprints and authority epochs fence current login/control admission and future joins. Cutover invalidates old sessions and unfinished authority; new-tenant migration retires previous-tenant Entra records and admits the exact reviewed SSO Super Admin. Local and SAML account records are not converted into Entra users. Live provider/MFA, site partitions and native rollback remain deployment acceptance work.
 
 ## Session and operational behavior
 
-The browser starts at `GET /api/v1/auth/login`. The controller uses authorization code + PKCE S256, one-use state, nonce and browser binding. The callback validates Microsoft's signature, tenant, issuer, audience and time, then finds enabled access by `tid:oid`. Successful sign-in creates a hashed, fixed eight-hour local session. Cookies are Secure, HttpOnly and SameSite=Lax. Mutations require CSRF protection. Legacy bearer tokens are ignored in Entra mode.
+Local login posts credentials to `/api/v1/auth/local`. Microsoft OIDC starts at `/api/v1/auth/login` with authorization code, PKCE S256, state, nonce and browser binding. SAML starts at its separate login route and accepts only a matching SP-initiated POST response. Successful full sign-in creates an application session; initial/reset local passwords receive the restricted change-only session first.
 
-Role authority is the shared database, never Entra role/group/email claims. Local disablement, role changes and session revocation apply across HA nodes. Entra-side disablement/policy changes apply at next sign-in; no Continuous Access Evaluation or token refresh is implemented. Sign out removes the local session; the Microsoft browser session may remain signed in.
+Application session cookies are Secure, HttpOnly, host-only and SameSite=Lax. Mutations require session CSRF protection and approved origins. Credential changes rotate sessions, and logout removes the application session. An IdP browser session may remain signed in after local application logout. Legacy shared role tokens remain explicit lab/compatibility mechanisms and do not authorize installed production firewall changes.
 
-For acceptance, test all three roles, unprovisioned/disabled identities, wrong tenant, state/nonce replay, role changes and revocation, secret rotation, expiry, both controller backends and actual tenant Conditional Access/MFA. Signed test tokens and synthetic UI screenshots do not replace this exercise. See [API contract](api-contract.md).
+Role authority is the shared database. Account disablement, role changes, password reset and session revocation apply across controllers. IdP-side disablement and Conditional Access changes apply at next SSO sign-in; no Continuous Access Evaluation or background directory password synchronization is claimed.
 
+Repository tests use locally signed OIDC and SAML fixtures, browser/CSRF integration fixtures and isolated databases. They do not contact a live organization IdP. Deployment acceptance must check all three roles, first-password/reset flows, disabled/unprovisioned users, actual metadata/certificates, SSO and MFA, wrong issuer/audience, replay, expiry and HA session behavior against the intended environment. See the [API contract](api-contract.md).
 
 ## Direct administrative changes
 
@@ -137,7 +129,7 @@ Database recovery is Super Admin only. An active-provider change uses one curren
 Super Admin's verified candidate and exact Apply action; all-node preparation,
 authority cutover and rollback protections remain.
 
-Audit/signed delivery uses `single_admin` evidence bound to the current Entra
+Audit/signed delivery uses `single_admin` evidence bound to the current local or SSO
 identity, exact intent/digest and provider authority epoch. Live role revocation,
 stale previews and changed provider authority stop new admission. Old pending
 maker/checker or retired pilot reviews cannot be promoted; historical evidence
@@ -148,13 +140,13 @@ configuration; direct workflow changes no RBAC permission.
 ## Endpoint security configuration and release trust
 
 Human sessions and endpoint identity have separate purposes. Install the signed
-0.7 endpoint package once using its GUI-generated, private monitor-only setup
+matching verified endpoint package once using its GUI-generated, private monitor-only setup
 file and the matching RHEL/Ubuntu family installer. That bootstrap grants no
 managed-enforcement, imported-rule, auto-allow or unexpected-port opt-in.
 
 For later changes, use **Install agent → Configure an enrolled endpoint**: choose the exact fresh
 host, local flags, protected management CIDRs/SSH ports, zone and management/
-control/discovery origins in the GUI. The current Entra Admin/Super Admin saves
+control/discovery origins in the GUI. The current local or SSO Admin/Super Admin saves
 that exact reviewed configuration directly. Transfer the signed
 `prthak-endpoint-configuration.json` privately as root-owned 0600. Run one matching
 verified family installer, for example:
@@ -222,6 +214,9 @@ change to this installer. These allocations match the [README sizing scope](../R
 
 ## Separate endpoint and signing identities
 
-Human Entra sessions do not enroll agents. Endpoint mTLS leaves last 90 days, support authenticated renewal in the 30-day window and tracked 24-hour overlap, and have exact registry revocation plus separately issued one-time recovery credentials. `ca_cert` pins controller web HTTPS; when its corporate/public issuer differs from the endpoint issuer, set `endpoint_ca_cert` to the independently trusted public enrollment CA. Install it before agent preflight: the stock `--ca-file` copies only web trust. Neither renewal nor recovery may replace locally pinned roots using response material.
+Human local or SSO sessions do not enroll agents. Endpoint mTLS leaves last 90 days, support authenticated renewal in the 30-day window and tracked 24-hour overlap, and have exact registry revocation plus separately issued one-time recovery credentials. `ca_cert` pins controller web HTTPS; when its corporate/public issuer differs from the endpoint issuer, set `endpoint_ca_cert` to the independently trusted public enrollment CA. Install it before agent preflight: the stock `--ca-file` copies only web trust. Neither renewal nor recovery may replace locally pinned roots using response material.
 
-Ed25519 assignment public keys are pinned separately from both CA chains. A TLS certificate change does not authorize an assignment-signer change. Settings → Certificates displays the public trust/fingerprints; use an independent approved distribution path for initial trust. See [policy and release signing](policy-signing.md) and [the illustrated guide](guide/prthak-deployment-guide.html).
+Ed25519 assignment public keys are pinned separately from both CA chains. A TLS certificate change does not authorize an assignment-signer change. Settings → Certificates displays the public trust/fingerprints; use an independent approved distribution path for initial trust. See [policy and release signing](policy-signing.md) and [the illustrated pilot baseline](guide/prthak-pilot-0.14.0.html).
+
+
+© 2026 Airtel Payments Bank. All rights reserved.

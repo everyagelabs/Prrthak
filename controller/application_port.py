@@ -236,13 +236,14 @@ def _details(manager):
     app = getattr(manager, "app", None)
     configured_origin = (profile or {}).get("controller_origin") or os.environ.get("CONTROLLER_ORIGIN", "")
     sso_origin = None
-    if app and getattr(app, "auth", None) and app.auth.enabled:
-        sso_origin = app.auth.config.origin
+    directory = getattr(getattr(app, "auth", None), "config", None)
+    if directory is not None and directory.enabled:
+        sso_origin = directory.origin
     elif not context.get("demo"):
         from .auth import EntraConfig
         auth = EntraConfig.from_env({**os.environ, **(profile or {}).get("controller_env", {})})
         sso_origin = auth.origin if auth.enabled else None
-    if not configured_origin:
+    if not configured_origin or not sso_origin:
         if app:
             store = app.store
         elif profile:
@@ -252,8 +253,15 @@ def _details(manager):
             from .recovery import _facade
             store = _facade(manager.data_dir)
         with store.read_meta() as db:
-            config = store._get(db, "maintenance_settings", "appliance_cluster") or {}
-        configured_origin = config.get("controller_origin", "")
+            if not configured_origin:
+                config = store._get(db, "maintenance_settings", "appliance_cluster") or {}
+                configured_origin = config.get("controller_origin", "")
+            if not sso_origin:
+                record = store._get(db, "maintenance_settings", "saml_configuration") or {}
+                config = record.get("config", record) if isinstance(record, dict) else {}
+                if isinstance(config, dict) and config.get("enabled") is True:
+                    from .local_auth import LocalAuth
+                    sso_origin = LocalAuth._origin(config.get("origin"))
     source["controller_origin"] = configured_origin
     source["sso_origin"] = sso_origin
     return context, state, source, tls, native, port
@@ -308,7 +316,7 @@ def status(manager):
             job = manager.job(state["last_job_id"])
         except KeyError:
             pass
-    return {"revision": state["revision"], "mode": source["mode"], "current_port": current, "desired_port": pending.get("port", port), "applied_port": port, "bind_address": source["bind_address"], "current_url": _url(context, source, tls, current), "new_url": _url(context, source, tls, pending.get("port", port)), "controller_origin": source["controller_origin"], "sso_origin": source["sso_origin"], "origin_mode": "preserve", "can_apply": not blockers, "blockers": blockers, "last_job": job, "allowed_range": {"min": 1, "max": 65535}, "dependencies": DEPENDENCIES, "readiness_scope": "Local bind/TLS/database readiness only; external routing and Microsoft sign-in are not verified"}
+    return {"revision": state["revision"], "mode": source["mode"], "current_port": current, "desired_port": pending.get("port", port), "applied_port": port, "bind_address": source["bind_address"], "current_url": _url(context, source, tls, current), "new_url": _url(context, source, tls, pending.get("port", port)), "controller_origin": source["controller_origin"], "sso_origin": source["sso_origin"], "origin_mode": "preserve", "can_apply": not blockers, "blockers": blockers, "last_job": job, "allowed_range": {"min": 1, "max": 65535}, "dependencies": DEPENDENCIES, "readiness_scope": "Local bind/TLS/database readiness only; external routing and SSO sign-in are not verified"}
 
 
 def _bind_check(host, port):

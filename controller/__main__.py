@@ -82,8 +82,10 @@ def main():
         if not entra.enabled:
             tokens = [os.environ.get(f"SEG_{role}_TOKEN", "") for role in ("SUPER_ADMIN", "ADMIN", "READ_ONLY")]
             present = [token for token in tokens if token]
-            if not present or not any(os.environ.get(f"SEG_{role}_TOKEN") for role in ("SUPER_ADMIN", "ADMIN")):
-                parser.error("Configure Microsoft Entra ID, or a local SEG_SUPER_ADMIN_TOKEN / SEG_ADMIN_TOKEN of at least 32 random characters")
+            # Fresh HTTPS installations use the change-only local bootstrap
+            # account. Legacy lab tokens remain optional, never required.
+            if present and not any(os.environ.get(f"SEG_{role}_TOKEN") for role in ("SUPER_ADMIN", "ADMIN")):
+                parser.error("A legacy token configuration needs an Admin or Super Admin token")
             if any(len(token) < 32 for token in present) or len(set(present)) != len(present):
                 parser.error("Configured role tokens must be distinct random secrets of at least 32 characters")
     if os.environ.get("PRTHAK_SUPERVISED_CHILD") != "1":

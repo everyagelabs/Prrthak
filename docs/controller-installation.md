@@ -1,8 +1,12 @@
 # Install the controller from a verified release
 
-**Preferred 0.14.0 pilot flow:** after prerequisites and verified extraction, run
+**Preferred 0.15.0 pilot flow:** after prerequisites and verified extraction, run
 `sudo ./scripts/install-controller.sh --gui-setup` once and complete configuration
-in **Settings → Setup**. No manually prepared `.env` is needed. See
+through the GUI. At the trusted HTTPS URL, a fresh empty account database uses
+local **admin** / **admin** as Super Admin and requires a password change before
+workspace access. Local users and optional SAML are managed in **Users & access**;
+verified Entra OIDC remains in **Settings → Setup**. No manually prepared `.env`
+or initial-token-file retrieval is needed. See
 [GUI pilot installation](pilot-gui-installation.md). The file-based procedure
 below remains an advanced compatibility path for existing installations.
 
@@ -24,17 +28,17 @@ RHEL 8's default Python3.6 is insufficient for this host manager. Prepare an app
 
 ## Obtain and verify a release
 
-The source archive is named `prthak-controller-0.14.0.tar.gz`. It contains public runtime Python modules, browser assets, Dockerfiles, fixed local manager/helpers, `.env.example`, installer/verifier and these guides. It excludes tests, populated environment files, keys, certificates, databases, private state and agent binaries.
+The source archive is named `prthak-controller-0.15.0.tar.gz`. It contains public runtime Python modules, browser assets, Dockerfiles, fixed local manager/helpers, `.env.example`, installer/verifier and these guides. It excludes tests, populated environment files, keys, certificates, databases, private state and agent binaries.
 
-Top-level public Markdown runbooks and `agent/README.md` are included to preserve installation and operational references. The current illustrated 0.14.0 HTML/PDF guide is included under docs/guide. Source-local evidence links can also refer to private assessment artifacts, generated capacity results, historical illustrated guides or development fixtures; those historical/private artifacts are not part of this runtime installation archive. Obtain the separately retained assessment/source evidence when reviewing those historical measurements. Agent installers and binaries are distributed in their separate verified endpoint packages.
+Top-level public Markdown runbooks and `agent/README.md` are included to preserve installation and operational references. The unchanged illustrated 0.14.0 HTML/PDF baseline is included under docs/guide; use [Local/SAML login](local-and-saml-login.md) for the new authentication screens. Source-local evidence links can also refer to private assessment artifacts, generated capacity results, historical illustrated guides or development fixtures; those historical/private artifacts are not part of this runtime installation archive. Obtain the separately retained assessment/source evidence when reviewing those historical measurements. Agent installers and binaries are distributed in their separate verified endpoint packages.
 
 Before extraction, use an independently approved copy of `verify-release.py`, a separately provisioned trusted public release pin, and the detached signature:
 
 ```sh
 python3 /approved/tools/verify-release.py \
   --public-trust-file /approved/trust/prthak-release-public-trust.json \
-  --signature prthak-controller-0.14.0.tar.gz.signature.json \
-  prthak-controller-0.14.0.tar.gz
+  --signature prthak-controller-0.15.0.tar.gz.signature.json \
+  prthak-controller-0.15.0.tar.gz
 ```
 
 Use an approved administration tool environment supporting Ed25519 verification. Python3.10+ with the compatible `cryptography` requirement is recommended; the running installed endpoint needs neither. A public key downloaded next to an untrusted archive does not establish authenticity. The included `deploy/release-public-trust.json` describes the current **local project** public authority; it is not independent organizational approval.
@@ -44,42 +48,72 @@ Place the verified archive and extracted release in protected root-owned locatio
 ```sh
 sudo install -d -o root -g root -m 0755 /opt/prthak/releases
 sudo tar --no-same-owner --no-same-permissions \
-  -xzf /protected/releases/prthak-controller-0.14.0.tar.gz \
+  -xzf /protected/releases/prthak-controller-0.15.0.tar.gz \
   -C /opt/prthak/releases
-cd /opt/prthak/releases/prthak-controller-0.14.0
-sudo install -o root -g root -m 0600 .env.example /root/prthak-node.env
-sudoedit /root/prthak-node.env
+cd /opt/prthak/releases/prthak-controller-0.15.0
+sudo ./scripts/install-controller.sh --gui-setup
 ```
 
 The alternative is an approved source checkout, pinned to a reviewed release commit. Prepare a protected release copy before running the same installer. No real repository URL is invented here; Git is a source-distribution choice, not a runtime prerequisite.
 
-## Configure and validate
+## Complete setup in the GUI
 
-The same `.env.example` and installer are used at Noida, Pune, cloud and other management sites. Give each node a unique `NODE_ID`, `SITE` and reachable `NODE_IP`. Set `DATA_ROOT`, a stable HTTPS `CONTROLLER_ORIGIN`, approved bind/port values and initial worker/database-pool settings appropriate to the VM plan. The default dashboard/API publication is 8787. The installed profile separates management HTTPS 8787, policy/control HTTPS 8788 and enrollment/discovery HTTPS 8789. The legacy combined profile is an explicit compatibility option.
+The installer prepares protected state/build contexts, builds or pulls images,
+initializes the local setup identity and starts the fixed manager/controller/router.
+Open the displayed HTTPS setup URL and verify its hostname/certificate through
+the approved private channel. No token-file or CLI password retrieval is needed
+for this normal new-installation flow. A legacy private setup token may still be
+prepared internally; it is not the local-user login procedure.
 
-Keep all enrollment, cluster, replication, signing and Entra secrets out of source control. Blank optional bootstrap secrets are generated privately by the installer. A cluster join still requires verified HTTPS trust; the cluster password alone does not establish node identity. Joining/HA setup and operational configuration are managed through the Platform GUI after authenticated setup.
+On a fresh empty account database, sign in as local **admin** with temporary
+password **admin** and complete the mandatory **12–256-character** password
+change. Until then the session cannot read inventory or perform workspace
+operations. Bootstrap is durable and never repeated on restart, SSO activation
+or later account changes. Existing estates retain their users; their enabled
+Super Admin creates any additional local accounts explicitly.
 
-Configure the complete Entra tenant/client/callback/first-Super-Admin identity and a protected client-secret file for organizational SSO. Setup-token access is distinct from a completed live Entra login. Maintain appropriate Super Admin continuity for operations. Normal Admin actions do not require a second person; destructive recovery requires two explicit confirmations by the same authorized Super Admin. The installer preserves existing credentials/auth and refuses silent secret rotation.
+Use **Settings** for node/site/IP, data root, stable HTTPS origin, approved
+certificates, management/control/discovery publication and worker/database pools.
+The default published ports are 8787/8788/8789 respectively. The fixed manager
+writes protected deployment files and supervises any required restart/readback.
+Users do not edit `.env` or secret files manually. Use **Users & access** for
+local accounts, all three roles, local password reset and optional SAML from
+public IdP metadata. **Settings → Setup** retains candidate-verified Microsoft
+Entra OIDC configuration. See [current authentication](local-and-saml-login.md).
 
-Run the non-mutating configuration validation first:
+Initial setup is separate from shared PostgreSQL HA activation. Management-only
+nodes are not DB voters; managed promotion requires three approved voters,
+verified native watchdog/fencing and the intended quorum/replication layout.
+A cluster password does not replace verified HTTPS identity. Use the GUI for
+supported joins, TLS, port, backup, storage and service operations. The real
+20-server pilot and native/DC/IdP acceptance remain deployment work.
+
+Reinstallation preserves installed identity and GUI-owned settings. Stop the
+fixed manager for the reviewed reinstall procedure; a changed DATA_ROOT needs
+the explicit GUI storage migration. Keep separately protected backups and the
+original trusted release for recovery, and do not replace source/images during
+an active recovery or firewall transaction.
+
+## Advanced compatibility: existing environment-based installations
+
+`--env-file`, `.env.example`, `--validate-only` and `--no-start` remain available
+for existing or explicitly reviewed compatibility workflows. They are not
+required for the GUI-first installation above. An existing private environment
+file must have protected ownership/mode and contain the correct node, site,
+origin, bind/port and storage values. Reinstallation preserves configured
+credentials and refuses silent provider/secret rotation. Use the supported GUI
+for later changes instead of editing live managed files.
+
+For an already prepared compatibility file, read-only validation is:
 
 ```sh
 sudo ./scripts/install-controller.sh --env-file /root/prthak-node.env --validate-only
 ```
 
-This parses the private environment file as data, never as shell. It excludes secret values from output. It does not test Docker availability, OS packages, external routing, live Entra, database quorum or native fencing.
-
-## Install and operate
-
-```sh
-sudo ./scripts/install-controller.sh --env-file /root/prthak-node.env
-```
-
-The installer creates protected state/build contexts, builds/pulls the images, initializes local setup identity and starts its fixed manager plus controller/router. The command prints the private initial-admin-token **file path**, never the token. Verify the configured controller's TLS trust before sign-in. `--no-start` stages the installation without starting services; it still requires real host prerequisites and performs image preparation.
-
-Initial setup is distinct from shared PostgreSQL HA activation. A management member does not automatically become a database voter. Three approved database/etcd voters, verified native watchdog/fencing and the intended quorum/replication layout are required before database promotion; a single `.env` cannot bypass those checks. Use the GUI for the supported cluster, TLS, port, backup, storage and service workflows. The real 20-server pilot and native/DC validation remain deployment work.
-
-Reinstall preserves existing private identity and GUI-owned settings. Stop the fixed manager for the reviewed reinstall procedure; a different `DATA_ROOT` requires the explicit GUI storage-migration workflow. Keep separately protected backups and the original trusted release for recovery. Do not replace source/images during an active recovery or firewall transaction.
+It parses the file as data and redacts secrets. It does not test Docker, native
+OS packages, routing, live SSO/MFA, DB quorum or fencing. `--no-start` stages the
+installation and still needs genuine host prerequisites/image preparation.
+Neither option bypasses current GUI authentication or HA safety checks.
 
 ## Release publisher commands
 

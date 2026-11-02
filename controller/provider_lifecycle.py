@@ -76,7 +76,8 @@ def _approved(store, db, proof, fingerprint):
     subject = proof.get("requester", {})
     user = store._get(db, "auth_users", subject.get("user_id", ""))
     return bool(user and user.get("enabled") is True and user.get("role") == "super_admin"
-                and subject.get("role") == "super_admin" and subject.get("auth_config") == fingerprint)
+                and subject.get("role") == "super_admin"
+                and (subject.get("auth_provider", "entra") != "entra" or subject.get("auth_config") == fingerprint))
 
 
 def members(manager):
@@ -286,7 +287,7 @@ def _grant(store, db, payload, record):
         store.audit("access.provider_migration_super_granted", record["created_by"], {"user_id": candidate, "review_id": record["review_id"]}, db)
     if previous_tenant != config.tenant_id:
         for user in store._all(db, "auth_users"):
-            if user.get("tenant_id") != config.tenant_id and user.get("enabled"):
+            if user.get("provider", "entra") == "entra" and user.get("tenant_id") != config.tenant_id and user.get("enabled"):
                 user.update(enabled=False, updated_at=stamp())
                 store._put(db, "auth_users", user)
                 store.audit("access.provider_authority_user_retired", record["created_by"], {"user_id": user["id"], "review_id": record["review_id"]}, db)

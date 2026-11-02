@@ -820,10 +820,15 @@ class Manager:
                 response=http.client.HTTPResponse(tls);response.begin();raw=response.read(65537)
                 if response.status!=200 or len(raw)>65536:raise Blocked('Controller authentication configuration read-back failed')
                 actual=json.loads(raw)
+        # The public auth status now includes local and SAML providers. This
+        # operation verifies only its reviewed Entra environment, independently
+        # of the availability of local password accounts.
+        actual=actual.get('entra',actual)
+        if not isinstance(actual,dict):raise Blocked('Controller returned an invalid Entra configuration status')
         environment=expected['environment']
         if previous and 'previous_effective_auth' not in record:record['previous_effective_auth']=actual
         if previous and record.get('previous_effective_auth') is not None:
-            prior=record['previous_effective_auth'];environment={key:prior.get(field) or '' for field,key in (('tenant_id','SEG_ENTRA_TENANT_ID'),('client_id','SEG_ENTRA_CLIENT_ID'),('redirect_uri','SEG_ENTRA_REDIRECT_URI'))}
+            prior=record['previous_effective_auth'];prior=prior.get('entra',prior);environment={key:prior.get(field) or '' for field,key in (('tenant_id','SEG_ENTRA_TENANT_ID'),('client_id','SEG_ENTRA_CLIENT_ID'),('redirect_uri','SEG_ENTRA_REDIRECT_URI'))}
         if bool(actual.get('configured'))!=bool(environment.get('SEG_ENTRA_TENANT_ID')) or any(actual.get(field)!=(environment.get(key) or None) for field,key in (('tenant_id','SEG_ENTRA_TENANT_ID'),('client_id','SEG_ENTRA_CLIENT_ID'),('redirect_uri','SEG_ENTRA_REDIRECT_URI'))):
             raise Blocked('The restarted controller did not load the reviewed authentication configuration')
         self._verify_channel_listeners(record,previous=previous)

@@ -54,14 +54,46 @@ def _guid(value):
         raise PermissionError("Administrative changes require a verified Microsoft Entra person") from None
 
 
-def _active_user(store, db, identifier):
+def _active_user(store, db, identifier, subject=None):
     value = store._get(db, "auth_users", identifier)
-    return bool(value and value.get("enabled") is True and value.get("role") in ROLES and
-                value.get("id") == identifier and identifier == value.get("tenant_id", "") + ":" + value.get("object_id", ""))
+    valid = bool(value and value.get("enabled") is True and value.get("role") in ROLES and
+                 value.get("id") == identifier and identifier == value.get("tenant_id", "") + ":" + value.get("object_id", ""))
+    if not valid:
+        return False
+    provider = value.get("provider", "entra")
+    if provider not in ("entra", "local", "saml") or value.get("password_change_required"):
+        return False
+    if subject is not None:
+        if (subject.get("auth_provider", "entra") != provider or subject.get("actor") != provider + ":" + identifier
+                or subject.get("tenant_id") != value.get("tenant_id") or subject.get("object_id") != value.get("object_id")):
+            return False
+        if provider != "entra":
+            from .authentication import provider_fingerprint
+            from .auth import AuthDenied
+            try:
+                fingerprint = provider_fingerprint(store, db, provider)
+            except (AuthDenied, ValueError, TypeError, AttributeError):
+                return False
+            if not fingerprint or subject.get("auth_config") != fingerprint:
+                return False
+            if provider == "local" and subject.get("credential_version") != value.get("credential_version"):
+                return False
+    return True
 
 
 def identity(store, db, actor, principal):
-    """Validate a current, individually attributed Entra admin session."""
+    """Validate a current, individually attributed administrator session."""
+    provider = principal.get("auth_provider", "entra") if isinstance(principal, dict) else ""
+    if provider in ("local", "saml"):
+        from .authentication import validate_current_principal
+        current = validate_current_principal(store, db, principal)
+        if current.get("role") not in ROLES or actor != principal.get("actor"):
+            raise PermissionError("An enabled Admin or Super Admin session is required")
+        session = store._get(db, "auth_sessions", principal["_session_id"])
+        return {"actor": actor, "user_id": current["id"], "tenant_id": current["tenant_id"],
+                "object_id": current["object_id"], "display_name": current.get("display_name", ""),
+                "role": current["role"], "auth_config": session["config"], "auth_provider": provider,
+                **({"credential_version": current["credential_version"]} if provider == "local" else {})}
     if not isinstance(principal, dict) or principal.get("auth_type") != "session":
         raise PermissionError("Live firewall changes require an authenticated Microsoft Entra Admin; shared role tokens cannot identify the current person")
     user = principal.get("user") or {}
@@ -82,11 +114,21 @@ def identity(store, db, actor, principal):
     if not session.get("config") or fingerprint and session.get("config") != fingerprint or expected_tenant and tenant != expected_tenant:
         raise PermissionError("The approval session belongs to a different Entra configuration")
     current = store._get(db, "auth_users", identifier)
+    if current.get("provider", "entra") != "entra" or session.get("provider", "entra") != "entra":
+        raise PermissionError("The authenticated account belongs to a different sign-in provider")
     return {"actor": actor, "user_id": identifier, "tenant_id": tenant, "object_id": person,
             "display_name": current.get("display_name", ""), "role": current["role"], "auth_config": session["config"]}
 
 
-def authority(store, db):
+def authority(store, db, subject=None):
+    if isinstance(subject, dict) and subject.get("auth_provider") in ("local", "saml"):
+        from .authentication import provider_fingerprint
+        from .auth import AuthDenied
+        try:
+            fingerprint = provider_fingerprint(store, db, subject["auth_provider"])
+        except (AuthDenied, ValueError, TypeError, AttributeError):
+            fingerprint = ""
+        return {"fingerprint": fingerprint or "", "epoch": ""}
     value = store._get(db, "maintenance_settings", "controller_provider_authority")
     return {"fingerprint": value["fingerprint"], "epoch": value.get("epoch", "")} if value else {
         "fingerprint": getattr(store, "approval_auth_fingerprint", "") or "", "epoch": os.environ.get("PRTHAK_PROVIDER_EPOCH", "")}
@@ -107,7 +149,7 @@ def request(store, db, plan, actor, principal=None, *, endpoint_ids=None, scope_
         else:scope.update(target_count=len(targets), target_digest=digest(targets))
     plan["approval"] = {"scheme": SCHEME, "mode": mode, "stage": "draft", "plan_id": plan["id"],
                         "plan_digest": plan["plan_digest"], "requester": requester, "requested_at": stamp(),
-                        "provider_authority": authority(store, db), "scope": scope}
+                        "provider_authority": authority(store, db, requester), "scope": scope}
     return plan["approval"]
 
 
@@ -119,7 +161,7 @@ def decide(store, db, plan, actor, principal=None):
     if value.get("mode") != "single_admin":
         raise PermissionError("This old pending review cannot be promoted; create a fresh direct action")
     subject = identity(store, db, actor, principal)
-    if subject["user_id"] != value["requester"].get("user_id") or value.get("provider_authority") != authority(store, db):
+    if subject["user_id"] != value["requester"].get("user_id") or value.get("provider_authority") != authority(store, db, subject):
         raise PermissionError("The action belongs to another or superseded administrative identity")
     value.update(stage="approved", submitted_by=subject, approved_by=subject, submitted_at=stamp(), approved_at=stamp())
     return proof(plan)
@@ -127,7 +169,7 @@ def decide(store, db, plan, actor, principal=None):
 
 def derived(store, db, plan, subject, scope, provider_authority):
     """Resolve previously saved intent; never fabricate a fresh human action."""
-    if not _active_user(store, db, subject.get("user_id", "")) or provider_authority != authority(store, db):
+    if not _active_user(store, db, subject.get("user_id", ""), subject) or provider_authority != authority(store, db, subject):
         raise PermissionError("The saved administrative intent was revoked or superseded")
     value = {"scheme": SCHEME, "mode": "single_admin", "stage": "approved", "plan_id": plan["id"],
              "plan_digest": plan["plan_digest"], "requester": copy.deepcopy(subject), "submitted_by": copy.deepcopy(subject),
@@ -155,7 +197,7 @@ def confirm(store, db, plan, actor, principal=None, *, final=False, pilot_nonce=
         subject = copy.deepcopy(value["requester"])
     elif value.get("mode") == "single_admin":
         subject = identity(store, db, actor, principal)
-        if subject["user_id"] != value["requester"].get("user_id") or subject["auth_config"] != value["requester"].get("auth_config") or value.get("provider_authority") != authority(store, db):
+        if subject["user_id"] != value["requester"].get("user_id") or subject["auth_config"] != value["requester"].get("auth_config") or value.get("provider_authority") != authority(store, db, subject):
             raise PermissionError("Use the same current Admin for both explicit confirmations")
     elif value.get("mode") in ("independent_entra", "single_admin_pilot"):
         raise PermissionError("This old pending approval is no longer applicable; create a fresh direct action")
@@ -202,7 +244,7 @@ def authorized(store, db, value, *, plan_id=None, plan_digest=None, server_id=No
         return _lab(store) and maker.get("actor") == checker.get("actor")
     if value.get("mode") == "single_admin":
         scope = value.get("scope", {})
-        current = authority(store, db)
+        current = authority(store, db, maker)
         # Recovery validates from retained current rows using an unconfigured
         # Store proxy; the live shared authority remains mandatory when present.
         expected = value.get("provider_authority")
@@ -212,10 +254,10 @@ def authorized(store, db, value, *, plan_id=None, plan_digest=None, server_id=No
                 and (server_id is None or "server_ids" not in scope or server_id in scope["server_ids"])
                 and maker == submitted == checker
                 and maker.get("user_id") == maker.get("tenant_id", "") + ":" + maker.get("object_id", "")
-                and maker.get("actor") == "entra:" + maker.get("user_id", "")
+                and maker.get("actor") == maker.get("auth_provider", "entra") + ":" + maker.get("user_id", "")
                 and maker.get("auth_config") == current["fingerprint"]
-                and (not getattr(store,"approval_tenant_id",None) or maker.get("tenant_id") == store.approval_tenant_id)
-                and _active_user(store, db, maker.get("user_id", "")))
+                and (maker.get("auth_provider", "entra") != "entra" or not getattr(store,"approval_tenant_id",None) or maker.get("tenant_id") == store.approval_tenant_id)
+                and _active_user(store, db, maker.get("user_id", ""), maker))
     if value.get("mode") == "single_admin_pilot":
         # Retain archived evidence, but never rearm a retired pilot grant.
         return False
@@ -241,7 +283,7 @@ def learning_requester(store, db, session, actor, principal=None):
         requester, mode = {"actor": actor}, "lab_only"
     else:
         raise PermissionError("Automatic learning requires an authenticated Entra Admin; shared-token production grants are disabled")
-    session.update(initial_approval_mode=mode, initial_approval_requester=requester, initial_provider_authority=authority(store, db),
+    session.update(initial_approval_mode=mode, initial_approval_requester=requester, initial_provider_authority=authority(store, db, requester),
                    initial_approval_state="lab_only" if mode == "lab_only" else "waiting_for_discovery")
 
 
@@ -320,7 +362,7 @@ def activate_learning(store, db, session):
     try:
         scope = _learning_scope(store, db, session)
         subject = session["initial_approval_requester"]
-        if session.get("initial_provider_authority") != authority(store, db):return False
+        if session.get("initial_provider_authority") != authority(store, db, subject):return False
         plan = {"id":str(uuid.uuid4()), "session_id":session["id"], "plan_digest":digest({"session_id":session["id"],"scope":scope}),
                 "scope":scope, "status":"approved", "confirmation_count":1, "confirmation_nonce":"", "created_by":session["created_by"],
                 "created_at":session["starts_at"], "expires_at":session["expires_at"]}

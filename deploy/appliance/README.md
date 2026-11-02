@@ -6,11 +6,12 @@ official etcd and HAProxy images, and installs a small root-owned service
 manager. The controller runs as UID 10001 and never receives the Docker socket.
 
 ```sh
-cp .env.example .env
-chmod 600 .env
-# Edit DATA_ROOT, NODE_ID, SITE and the reachable NODE_IP for this host.
-sudo scripts/install-controller.sh --env-file .env
+sudo scripts/install-controller.sh --gui-setup
 ```
+
+Configure site, storage, hostname/certificates, public ports and cluster joining
+through the GUI after this one installer command. No manual `.env` creation,
+editing or credential-file retrieval is required for the normal setup flow.
 
 Prerequisites are genuine Linux systemd, a root-owned Python 3.9+ interpreter,
 local Docker Engine, and Compose v2. Install the container runtime from the
@@ -18,33 +19,45 @@ official distribution/vendor instructions first. RHEL and Ubuntu hosts use the
 same container stack; this does not certify their SELinux or native fencing
 configuration. The installer never disables firewalld/UFW or opens host ports.
 
-The initial HTTPS origin defaults to `https://<NODE_IP>:8787`. The installer
-prints the private **file location** of the initial Super Admin token. The
-initial self-signed CA is at `DATA_ROOT/config/controller/pki/ca.pem`. Trust or
-review its fingerprint before login/join; a cluster password does not replace
-TLS identity verification. Configure a permanent DNS origin and certificate in
-Settings. Set unique node IDs/sites/IPs on the Noida, Pune and cloud hosts.
+The initial HTTPS origin defaults to `https://<NODE_IP>:8787`; the installer
+displays the setup URL. Trust its initial certificate through the approved
+private channel before login or joining. On a fresh empty account database,
+sign in as local **admin** with temporary password **admin**, then complete the
+mandatory **12–256-character password change**. The account receives Super Admin
+so it can configure the platform and users. Before the change it cannot read
+inventory or perform workspace operations.
 
-`--validate-only` parses the private `.env` without executing it and reports no
-secrets. It does not install packages, test Docker or start services.
-`--no-start` stages the installation. Reinstallation preserves existing private
-identity and requires stopping the local manager first. A changed DATA_ROOT
-must use the reviewed storage operation rather than silently pointing a live
-installation at another directory.
+A normal new installation does not require reading an initial-token file or
+using a CLI to obtain login credentials. The installer may retain a private
+legacy token internally; it is not the local-user login procedure. Bootstrap
+is recorded durably and never repeated on restart, SSO activation or later
+account changes. Existing Entra accounts remain in place and do not receive a
+default local login; their Super Admin can explicitly add local users.
 
-Optional initial Entra settings are listed in `.env.example`. Supply the tenant,
-client, exact HTTPS callback, first Super Admin object ID and a private client
-secret file together. The installer validates the complete shape with the real
-bundled `EntraConfig`; it does not claim a live Microsoft sign-in succeeded.
-The source file must be owned and mode 0600. Its contents are copied to
-`DATA_ROOT/config/controller/entra-client-secret` as UID 10001, mode 0600.
-Runtime settings contain only the mounted secret-file path, never the raw secret
-or original host path. A raw secret in the private `.env` is also accepted and
-imported into the same protected file. Reinstallation preserves the configured
-provider and refuses unreviewed secret/provider changes. Clear the initial
-secret input fields after import when reinstalling from the preserved settings.
-Configure a second independent Entra Super Admin in Users & Access before
-production enforcement.
+Use **Settings** to establish the permanent DNS origin/certificate and unique
+node/site/IP values for the Noida, Pune and cloud hosts. A cluster password does
+not replace TLS identity verification. Reinstallation preserves installed
+identity and GUI-owned settings. `--validate-only`, `--no-start` and
+`--env-file` remain staged/legacy compatibility options; `.env.example` is a
+reference, not a required manual setup step. Move an active DATA_ROOT only
+through the reviewed storage operation.
+
+**Users & access** manages local users, password resets, all three roles and
+optional SAML configuration from public IdP metadata. SAML needs the exact
+HTTPS ACS/Entity ID, signed response and assertion, persistent NameID and
+unsigned SP authentication requests. A valid assertion without an enabled
+provisioned user grants no role. Local credentials are salted scrypt hashes,
+and local/SAML state is stored in the shared metadata database rather than raw
+passwords in `.env`.
+
+The existing **Settings → Setup** flow optionally configures Microsoft Entra
+OIDC through verified candidate sign-in and supervised activation. Its fixed
+manager writes protected provider/secret files; GUI users do not edit those
+files. Local and SSO users receive the same Read Only, Admin or Super Admin
+roles. Only Super Admin creates accounts or changes roles. Ordinary enforcement
+uses one current authenticated Admin with the existing endpoint safeguards; it
+does not require a second Entra account. See [Local/SAML login](../../docs/local-and-saml-login.md)
+and [current pilot installation](../../docs/pilot-gui-installation.md).
 
 `SEG_HTTP_WORKERS` and `SEG_HTTP_THREADS` are optional initial overrides.
 Workers default to AUTO (1 with standalone SQLite, 2 after PostgreSQL HA

@@ -45,9 +45,19 @@ class App:
         self.controller_private_key = Path(controller_private_key) if controller_private_key else None
         self.dashboard = Path(dashboard or Path(__file__).resolve().parent.parent / "dashboard").resolve()
         self.tokens = tokens if tokens is not None else {role: os.environ.get(f"SEG_{role.upper()}_TOKEN", "") for role in ("super_admin", "admin", "read_only")}
-        self.auth = auth if auth is not None else EntraAuth(store)
-        self.store.approval_auth_fingerprint = self.auth.config.fingerprint if self.auth.enabled else None
-        self.store.approval_tenant_id = self.auth.config.tenant_id if self.auth.enabled else None
+        if auth is not None:
+            self.auth = auth
+        elif demo or tokens is not None:
+            # Explicit legacy lab/test tokens preserve their existing mode.
+            self.auth = EntraAuth(store)
+        else:
+            from .authentication import Authentication
+            entra = EntraAuth(store)
+            self.auth = Authentication(store, entra=entra,
+                                       bootstrap=not entra.enabled or not entra.config.bootstrap_oid)
+        directory_config = getattr(self.auth, "config", None)
+        self.store.approval_auth_fingerprint = directory_config.fingerprint if getattr(directory_config, "enabled", False) else None
+        self.store.approval_tenant_id = directory_config.tenant_id if getattr(directory_config, "enabled", False) else None
         self.stop = threading.Event()
         from .http_limits import RequestLimits
         self.limits = RequestLimits()
@@ -192,10 +202,29 @@ class App:
     def principal(self, headers):
         if self.demo:
             return {"role": "super_admin", "actor": "demo:super_admin", "auth_type": "demo", "user": {"id": "demo:super_admin", "display_name": "Demo Super Admin", "role": "super_admin"}}
+        from .auth_providers import refresh
+        refresh(self)
+        # Local credentials can still reach their own password and sign-in
+        # repair APIs while a node converges to an Entra authority epoch.
+        # Business APIs separately retain the node-wide admission barrier.
+        local = getattr(self.auth, "local", None)
+        if local is not None:
+            principal = local.authenticate(headers)
+            if principal:
+                return principal
         from .provider_lifecycle import assert_current
         assert_current(self)
         if self.auth.enabled:
-            return self.auth.authenticate(headers)
+            principal = self.auth.authenticate(headers)
+            if principal:
+                return principal
+            if local is not None and self.store.approval_production:
+                return None
+            # Explicit pre-existing lab/API role tokens retain their original
+            # compatibility only while directory sign-in is unconfigured.
+            # They never become an individually attributed firewall authority.
+            if self.auth.config.enabled or getattr(self, "_saml_requested_enabled", False) or getattr(getattr(self.auth, "saml", None), "enabled", False):
+                return None
         authorization = headers.get("Authorization", "")
         if not authorization.startswith("Bearer "):
             return None
@@ -285,6 +314,25 @@ def handler_for(app):
                 raise ValueError("JSON body must be an object")
             return result
 
+        def saml_body(self):
+            if self.headers.get("Transfer-Encoding"):
+                raise ValueError("Chunked SAML responses are not supported")
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                raise ValueError("Invalid Content-Length") from None
+            if not 0 < size <= 2 * 1024 * 1024:
+                raise ValueError("SAML response exceeds its request limit")
+            if self.headers.get("Content-Type", "").split(";", 1)[0].strip() != "application/x-www-form-urlencoded":
+                raise ValueError("SAML response must use form-urlencoded binding")
+            return parse_qs(self.rfile.read(size).decode("utf-8", errors="strict"),
+                            keep_blank_values=True, strict_parsing=True, max_num_fields=2)
+
+        @staticmethod
+        def auth_summary(principal):
+            return {key: principal.get(key) for key in ("role", "user", "auth_type", "auth_provider",
+                                                       "csrf_token", "password_change_required")}
+
         def serve_static(self, path):
             requested = "index.html" if path in ("/", "/index.html", "/overview", "/servers", "/policies", "/traffic", "/risk", "/alerts", "/activity", "/firewall", "/locations", "/access", "/services", "/settings") else unquote(path).lstrip("/")
             target = (app.dashboard / requested).resolve()
@@ -310,7 +358,8 @@ def handler_for(app):
             if not admitted(request_channel(app, self.connection), method, path):
                 self.response(404, {"error": "This operation is unavailable on this listener"})
                 return
-            if path in ("/api/v1/auth/login", "/api/v1/auth/callback", "/api/v1/platform/setup/verification"):
+            if path in ("/api/v1/auth/login", "/api/v1/auth/callback", "/api/v1/auth/local",
+                        "/api/v1/auth/saml/login", "/api/v1/auth/saml/callback", "/api/v1/platform/setup/verification"):
                 app.limits.check("login", self.client_address[0])
             elif path in ("/api/v1/agent/enroll", "/api/v1/agent/certificates/recover", "/api/v1/platform/cluster/enroll"):
                 app.limits.check("enrollment", self.client_address[0])
@@ -331,9 +380,46 @@ def handler_for(app):
                     self.response(405, {"error": "Method not allowed"})
                 return
             if path == "/api/v1/auth/config" and method == "GET":
+                from .auth_providers import refresh
+                refresh(app)
                 status = app.auth.status()
                 from .channels import public_status
-                self.response(200, {**status, "agent_channels": public_status(app), "mode": "demo" if app.demo else "entra" if app.auth.enabled or not any(app.tokens.values()) else "tokens", "roles": ["read_only", "admin", "super_admin"]})
+                mode = status["mode"] if getattr(app.auth, "local", None) else "entra" if app.auth.enabled or not any(app.tokens.values()) else "tokens"
+                self.response(200, {**status, "agent_channels": public_status(app), "mode": "demo" if app.demo else mode, "roles": ["read_only", "admin", "super_admin"]})
+                return
+            if path == "/api/v1/auth/local" and method == "POST":
+                if app.demo or not isinstance(self.connection, ssl.SSLSocket):
+                    raise PermissionError("Local password sign-in requires an installed HTTPS controller")
+                if not hasattr(app.auth, "local_login"):
+                    raise ValueError("Local accounts are not available in this legacy token-only workspace")
+                result = app.auth.local_login(self.body(), self.headers)
+                self.response(200, self.auth_summary(result["principal"]),
+                              [("Set-Cookie", cookie) for cookie in result.get("cookies", [])])
+                return
+            if path in ("/api/v1/auth/saml/login", "/api/v1/auth/saml/callback", "/api/v1/auth/saml/metadata"):
+                if app.demo or not isinstance(self.connection, ssl.SSLSocket):
+                    raise PermissionError("SAML sign-in requires an installed HTTPS controller")
+                from .auth_providers import saml
+                provider = saml(app)
+                if path.endswith("/metadata") and method == "GET":
+                    encoded = provider.metadata().encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/samlmetadata+xml; charset=utf-8")
+                    self.send_header("Content-Length", str(len(encoded)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.security_headers()
+                    self.end_headers()
+                    self.wfile.write(encoded)
+                elif path.endswith("/login") and method == "GET":
+                    result = provider.begin_login(self.headers)
+                    self.response(302, headers=[("Location", result["location"]),
+                                  *[("Set-Cookie", cookie) for cookie in result.get("cookies", [])]])
+                elif path.endswith("/callback") and method == "POST":
+                    result = provider.callback(self.saml_body(), self.headers)
+                    self.response(303, headers=[("Location", result["location"]),
+                                  *[("Set-Cookie", cookie) for cookie in result.get("cookies", [])]])
+                else:
+                    self.response(405, {"error": "Method not allowed"})
                 return
             if path == "/api/v1/auth/login" and method == "GET":
                 if app.demo:
@@ -453,10 +539,16 @@ def handler_for(app):
             app.limits.check("admin", principal["actor"])
             if principal.get("auth_type") == "session" and not isinstance(self.connection, ssl.SSLSocket):
                 raise PermissionError("HTTPS is required for authenticated user sessions")
+            if principal.get("password_change_required") and path not in ("/api/v1/auth", "/api/v1/auth/password", "/api/v1/auth/logout"):
+                self.response(403, {"error": "Change your temporary local password before using the workspace", "code": "password_change_required"})
+                return
+            if principal.get("auth_provider") == "local" and not (path == "/api/v1/auth" or path.startswith("/api/v1/auth/")):
+                from .provider_lifecycle import assert_current
+                assert_current(app)
             if method in ("POST", "PUT", "PATCH", "DELETE"):
                 if principal.get("auth_type") == "session":
                     app.auth.require_csrf(self.headers, principal)
-                if path not in ("/api/v1/auth/logout", "/api/v1/firewall/query", "/api/v1/policies/query", "/api/v1/learning-policies/query", "/api/v1/policy-rollouts/query", "/api/v1/host-default-deny/query", "/api/v1/alerts/query", "/api/v1/flows/query", "/api/v1/flows/export.csv", "/api/v1/audit/query", "/api/v1/audit/export.csv", "/api/v1/source-banks/query") and role not in ("admin", "super_admin"):
+                if path not in ("/api/v1/auth/logout", "/api/v1/auth/password", "/api/v1/firewall/query", "/api/v1/policies/query", "/api/v1/learning-policies/query", "/api/v1/policy-rollouts/query", "/api/v1/host-default-deny/query", "/api/v1/alerts/query", "/api/v1/flows/query", "/api/v1/flows/export.csv", "/api/v1/audit/query", "/api/v1/audit/export.csv", "/api/v1/source-banks/query") and role not in ("admin", "super_admin"):
                     raise PermissionError("Admin or Super Admin role required")
                 origin = self.headers.get("Origin")
                 scheme = "https" if isinstance(self.connection, ssl.SSLSocket) else "http"
@@ -467,7 +559,19 @@ def handler_for(app):
             tail = path[len(prefix):] if path.startswith(prefix) else ""
             parts = tail.split("/")
             if path == "/api/v1/auth" and method == "GET":
-                self.response(200, {"role": role, "demo": app.demo, "user": principal.get("user"), "auth_type": principal["auth_type"], "csrf_token": principal.get("csrf_token")})
+                self.response(200, {**self.auth_summary(principal), "demo": app.demo})
+            elif path == "/api/v1/auth/password" and method == "POST":
+                if not hasattr(app.auth, "change_password"):
+                    raise PermissionError("Directory passwords are managed by the identity provider")
+                result = app.auth.change_password(self.body(), principal, self.headers)
+                self.response(200, self.auth_summary(result["principal"]),
+                              [("Set-Cookie", cookie) for cookie in result.get("cookies", [])])
+            elif path == "/api/v1/auth/providers" and method == "GET":
+                from .auth_providers import status
+                self.response(200, status(app, principal))
+            elif path == "/api/v1/auth/providers/saml" and method == "PUT":
+                from .auth_providers import save_saml
+                self.response(200, save_saml(app, self.body(), principal))
             elif parts == ["auth", "logout"] and method == "POST":
                 self.body()
                 result = app.auth.logout(self.headers)
@@ -496,6 +600,10 @@ def handler_for(app):
                 elif len(parts) == 4 and parts[3] == "revoke-sessions" and method == "POST":
                     self.body()
                     self.response(200, app.auth.revoke_sessions(unquote(parts[2]), principal))
+                elif len(parts) == 4 and parts[3] == "reset-password" and method == "POST":
+                    if not hasattr(app.auth, "reset_password"):
+                        raise PermissionError("Directory passwords are managed by the identity provider")
+                    self.response(200, app.auth.reset_password(unquote(parts[2]), self.body(), principal))
                 else:
                     self.response(405, {"error": "Method not allowed"})
             elif path == "/api/v1/cluster" and method == "GET":

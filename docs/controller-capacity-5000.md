@@ -1,6 +1,21 @@
 # 5,000-server controller capacity
 
-## Current 0.14 retained-history acceptance - 2 November 2026
+## Current 0.15 Local / SAML acceptance - 2 November 2026
+
+Both new human account sources retain the 60-second ordinary policy-delivery target on the isolated profile below. Each uses 5,000 virtual mTLS endpoint identities and 100 expired full-fleet learning sessions: 19,533,300 canonical bytes / 500,000 indexed memberships seeded before timing.
+
+| Provider | Initial delivery | Policy edit + full 30 s polling window | Mixed discovery / observations |
+| --- | ---: | ---: | ---: |
+| Local | 22.535 s | **34.325 s** | 16.482 s |
+| SAML | 23.345 s | **35.345 s** | 17.525 s |
+
+Local publication took 4.312 s and SAML 5.310 s, included in their totals. All three phases verify every endpoint's exact current provider, actor, role, credential version or SAML epoch, changed source matrix/version/digest and passive observation lease. Both runs had zero final failures. Transient retries were Local 4 policy / 2 report and SAML 6 ingest / 6 report. Each retained 5,000 connection plus 5,000 denied-packet observations with no pending batch.
+
+Profile: 2 workers x 32 threads, 64 concurrent clients, metadata/traffic pools 8/2, 30-second control / 900-second full discovery, PostgreSQL 16.15 on the shared ARM64 development host. The private instance used max_connections 100, shared_buffers 128 MB and synchronous_commit on. All 488 frozen source files, signed runtime manifest and three compiled binaries were unchanged; four owned databases were removed and pre-existing databases/roles preserved. The final runtime manifest SHA-256 was `792d9309e02441d6abb790444cd2d93135e56ea9cefbc8395d93bf3b4844d2fb`.
+
+Public records: [Local](../output/capacity/controller-5000-0.15-local-result.json) and [SAML](../output/capacity/controller-5000-0.15-saml-result.json). Certificate/inventory/history and human credential/session preparation are outside phase timers. These persist canonical test identities without a real IdP/MFA exchange; the separate HTTPS tests exercise real password and locally signed SAML login. This is not 5,000 native agent processes, firewall application, WAN/HA, enrollment storms, largest source matrices or endurance acceptance. Reproduce with `--authorization-mode single-admin --authentication-provider local` or `saml`, `--verification-capable --retained-learning-sessions 100` and the isolated PostgreSQL/profile flags below.
+
+## Historical 0.14 retained-history acceptance - 2 November 2026
 
 The ten-finding remediation passed with 5,000 current virtual mTLS identities,
 including 100 expired full-fleet learning sessions retained before measurement:
