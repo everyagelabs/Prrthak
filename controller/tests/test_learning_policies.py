@@ -33,8 +33,8 @@ class LearningPolicyTests(unittest.TestCase):
         self.report("a", "10.1.0.1", learning_discovery_session_ids=[session["id"]])
         return session
 
-    def batch(self, session, rows, identifier="batch-1"):
-        events = [typed_event(source,port,identity=f"{session['id']}:{identifier}:{row_index}:{number}")
+    def batch(self, session, rows, identifier="batch-1", *, at=None):
+        events = [typed_event(source,port,identity=f"{session['id']}:{identifier}:{row_index}:{number}",at=at)
                   for row_index,(source,port,count) in enumerate(rows) for number in range(count)]
         self.store.enqueue_flows("a", {"batch_id": identifier, "session_id": session["id"], "events": events})
         self.store.process_flows()
@@ -82,17 +82,60 @@ class LearningPolicyTests(unittest.TestCase):
         self.assertEqual(self.assignment()["services"], [{"port": 80, "protocol": "tcp", "sources": ["10.20.0.2/32"]}])
 
     def test_stop_halts_new_auto_additions_without_removing_committed_policy(self):
-        session = self.session()
-        self.batch(session, [("10.20.0.1", 80, 1)])
-        before = self.assignment()
-        self.ack(before)
-        self.store.stop_session(session["id"], "admin")
-        self.batch(session, [("10.20.0.2", 80, 1)], "late-batch")
-        after = self.assignment()
-        self.assertEqual(after["services"], before["services"])
-        self.assertFalse(after["authorized"])
-        self.assertEqual(lp.recommendations(self.store, session["id"])["total_rows"], 2)
-        self.assertEqual(len(lp.listing(self.store)), 1)
+        started_at = now().replace(microsecond=0)
+        captured_at = started_at + timedelta(seconds=1)
+        stopped_at = started_at + timedelta(seconds=2)
+        received_at = stopped_at + timedelta(seconds=30)
+        with patch("controller.store.now", return_value=started_at) as clock, \
+                patch("controller.learning.now", side_effect=clock), \
+                patch("controller.learning_policies.now", side_effect=clock), \
+                patch("controller.learning_targets.now", side_effect=clock):
+            session = self.session()
+            self.batch(session, [("10.20.0.1", 80, 1)], at=started_at)
+            before = self.assignment()
+            self.ack(before)
+            # The endpoint observed this source before Stop; only its upload
+            # arrives later, inside the five-minute upload grace period.
+            clock.return_value = stopped_at
+            self.store.stop_session(session["id"], "admin")
+            clock.return_value = received_at
+            self.batch(session, [("10.20.0.2", 80, 1)], "late-batch", at=captured_at)
+            after = self.assignment()
+            self.assertEqual(after["services"], before["services"])
+            self.assertFalse(after["authorized"])
+            self.assertEqual(lp.recommendations(self.store, session["id"])["total_rows"], 2)
+            self.assertEqual(len(lp.listing(self.store)), 1)
+            with self.store.traffic() as db:
+                received = db.execute("SELECT received_at FROM batches WHERE batch_key=?", ("a:late-batch",)).fetchone()[0]
+            self.assertEqual(received, stamp(received_at))
+
+    def test_post_stop_capture_is_rejected_even_within_the_upload_grace_period(self):
+        started_at = now().replace(microsecond=0)
+        stopped_at = started_at + timedelta(seconds=2)
+        with patch("controller.store.now", return_value=started_at) as clock, \
+                patch("controller.learning.now", side_effect=clock), \
+                patch("controller.learning_policies.now", side_effect=clock), \
+                patch("controller.learning_targets.now", side_effect=clock):
+            session = self.session()
+            self.batch(session, [("10.20.0.1", 80, 1)], at=started_at)
+            before = self.assignment()
+            self.ack(before)
+            clock.return_value = stopped_at
+            self.store.stop_session(session["id"], "admin")
+            for index, offset in enumerate((timedelta(microseconds=1), timedelta(seconds=1), timedelta(minutes=2))):
+                with self.subTest(captured_after_stop=offset):
+                    captured_at = stopped_at + offset
+                    clock.return_value = captured_at + timedelta(seconds=1)
+                    self.assertLess(clock.return_value, stopped_at + timedelta(minutes=5))
+                    # Keep subsecond precision so even one microsecond after
+                    # the actual cutoff must fail, regardless of upload time.
+                    point = captured_at.isoformat(timespec="microseconds").replace("+00:00", "Z")
+                    with self.assertRaisesRegex(ValueError, "actual learning window"):
+                        self.batch(session, [("10.20.0.2", 80, 1)], "post-stop-"+str(index), at=point)
+            after = self.assignment()
+            self.assertEqual(after["services"], before["services"])
+            self.assertFalse(after["authorized"])
+            self.assertEqual(lp.recommendations(self.store, session["id"])["total_rows"], 1)
 
     def test_capacity_blocks_new_candidates_without_widening_or_erasing_existing(self):
         session = self.session()

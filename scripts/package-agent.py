@@ -123,7 +123,7 @@ The agent tests fresh mTLS on the candidate endpoints and commits the confirmed
 configuration or restores its previous configuration. Agent JSON editing is not
 part of this GUI workflow. Polling is managed separately under Agent polling.
 
-Initial installation remains monitor-only. An authorized Entra Admin's normal
+Initial installation remains monitor-only. An authorized Local or SSO Admin's normal
 Save/Apply directly publishes exact signed policy intent; configured endpoints
 pull and apply it after local enforce/firewall/learning opt-ins, restricted
 management_sources, actual SSH/controller health checks and rollback guards.
@@ -137,9 +137,10 @@ Large managed/learned source lists require reviewed empty source-bank preparatio
 and maintenance activation; policy application never reloads firewalld. Review
 docs/ipset-enforcement.md in the repository before enabling large source sets.
 Failed transactions restore exact owned changes and require review before retry.
-For a fresh pilot install the {version} controller and then the {version} agents. Upgrade any
-older endpoints before relying on current direct-Admin deliveries; unsupported
-authority/schema is refused safely. Signed assignments
+For a fresh pilot install the {version} controller and then the {version} agents.
+Existing 0.14 agents support the Local/SAML attributed-proof format; this human
+login feature alone does not require their reinstallation. Older unverified
+authority/schema combinations are refused safely. Signed assignments
 require enrolled identity binding and a durable monotonic assignment_generation.
 For this pilot, leave enforcement/automatic learning off controller, database
 and load-balancer infrastructure pending native ingress-protection acceptance.

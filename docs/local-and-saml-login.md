@@ -1,6 +1,6 @@
 # Local accounts and SAML SSO
 
-This is the operator guide for Local + SSO authentication in controller **0.15.0**, candidate **v0.15.0-pilot.1**. The current source supports **Local** accounts and **SSO** through either Microsoft Entra OIDC or SAML 2.0. Every account receives one of the same three application roles. The installer remains one command; all account, password and sign-in-provider configuration is done in the GUI.
+This is the operator guide for Local + SSO authentication in controller **0.15.0**, candidate **v0.15.0-pilot.2**. The current source supports **Local** accounts and **SSO** through either Microsoft Entra OIDC or SAML 2.0. Every account receives one of the same three application roles. The installer remains one command; all account, password and sign-in-provider configuration is done in the GUI.
 
 The [0.14 illustrated pilot guide](guide/prthak-pilot-0.14.0.html) remains an unchanged installation/operations baseline. Its older sign-in screens do not illustrate this addition. Current authentication steps are below and in [authentication](authentication.md). Native RHEL/Ubuntu, DC deployment and live organization IdP/MFA acceptance remain separate work.
 
