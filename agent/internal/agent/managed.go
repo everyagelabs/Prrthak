@@ -120,7 +120,7 @@ func (a *Agent) applyManaged(ctx context.Context, p *Policy, protection Protecti
 	}
 	lock, e := managedLock(a.Config.StateDir, true)
 	if e != nil {
-		a.managedStatus("error", p, "managed mutation lock busy")
+		a.managedStatus("error", p, "managed mutation authority unavailable: "+e.Error())
 		return e
 	}
 	defer unlockManaged(lock)
@@ -155,6 +155,10 @@ func (a *Agent) applyManaged(ctx context.Context, p *Policy, protection Protecti
 		committed := a.State.ManagedBundle
 		a.State.ManagedEnforcement = &ManagedEnforcement{Status: "enforced", Version: committed.Version, Digest: committed.Digest, ApprovalID: committed.ApprovalID, UpdatedAt: time.Now().UTC()}
 		return nil
+	}
+	if e = checkNewEnforcementJournalBudget(a.Config.StateDir, "managed"); e != nil {
+		a.managedStatus("error", p, e.Error())
+		return e
 	}
 	// A generic reconciliation/cleanup can neither add nor remove whole-host
 	// authority. A fresh explicit acknowledgement is needed for every new bundle.
@@ -195,6 +199,11 @@ func (a *Agent) applyManaged(ctx context.Context, p *Policy, protection Protecti
 		a.managedStatus("pending_approval", p, e.Error())
 		return e
 	}
+	if e = clearTrafficCaptureSidecars(ctx, a.Config.StateDir, a.Commands); e != nil {
+		a.managedStatus("error", p, e.Error())
+		return e
+	}
+	a.nextCaptureCheck = time.Time{}
 	if e = a.managedPreflight(ctx, protection, p.HostDefaultDeny || removal); e != nil {
 		a.managedStatus("error", p, e.Error())
 		if p.HostDefaultDeny || removal {

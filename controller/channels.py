@@ -37,9 +37,9 @@ def listeners(management, control=None, discovery=None):
         if address is None:
             continue
         try:
-            host, number = address.rsplit(":", 1)
-            port = int(number)
-            if not host or not 1 <= port <= 65535 or any(c.isspace() for c in host) or port in result:
+            from .listener_address import split_listener
+            host, port = split_listener(address)
+            if port in result:
                 raise ValueError()
         except (AttributeError, TypeError, ValueError):
             raise ValueError("Use distinct host:port listeners with ports from 1 to 65535") from None

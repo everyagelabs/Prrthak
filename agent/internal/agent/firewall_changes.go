@@ -510,6 +510,12 @@ func (a *Agent) recordFirewallResult(result FirewallChangeResult) error {
 	return a.save()
 }
 func (a *Agent) rollbackFirewallJournal(ctx context.Context, journal *firewallJournal) error {
+	if err := checkManagedCommandFence(ctx); err != nil {
+		return err
+	}
+	if err := clearTrafficCaptureSidecars(ctx, a.Config.StateDir, a.Commands); err != nil {
+		return err
+	}
 	failures := []string{}
 	uncertain := false
 	for i := len(journal.Mutations) - 1; i >= 0; i-- {
@@ -627,10 +633,17 @@ func (a *Agent) applyFirewallChange(ctx context.Context, change FirewallChange) 
 	}
 	lock, lockError := managedLock(a.Config.StateDir, true)
 	if lockError != nil {
-		return fail("another enforcement mutation or descendant still owns the mutation lease")
+		return fail("enforcement mutation authority unavailable: " + lockError.Error())
 	}
 	defer unlockManaged(lock)
 	ctx = withManagedLease(ctx, lock)
+	if err := checkNewEnforcementJournalBudget(a.Config.StateDir, "firewall-changes"); err != nil {
+		return fail(err.Error())
+	}
+	if err := clearTrafficCaptureSidecars(ctx, a.Config.StateDir, a.Commands); err != nil {
+		return fail(err.Error())
+	}
+	a.nextCaptureCheck = time.Time{}
 	if change.ConfirmationCount < 1 {
 		return fail("approved firewall change requires confirmation")
 	}
@@ -758,14 +771,24 @@ func (a *Agent) processApprovedChanges(ctx context.Context, changes []FirewallCh
 			continue
 		}
 		// A previously committed journal remains authoritative if a final report/state write was interrupted.
-		if data, e := os.ReadFile(a.firewallJournalPath(change.ID)); e == nil {
+		path := a.firewallJournalPath(change.ID)
+		if _, e := os.Lstat(path); e == nil {
+			data, e := readPrivateSetupBound(path, 2*1024*1024)
+			if e != nil {
+				return errors.New("approved-change history is not a bounded private owned journal")
+			}
 			var journal firewallJournal
-			if json.Unmarshal(data, &journal) == nil && journal.PlanDigest == change.PlanDigest && journal.Status == "applied" {
+			if json.Unmarshal(data, &journal) != nil || journal.ID != change.ID {
+				return errors.New("approved-change history identity is invalid")
+			}
+			if journal.PlanDigest == change.PlanDigest && journal.Status == "applied" {
 				if e = a.recordFirewallResult(FirewallChangeResult{ID: change.ID, PlanDigest: change.PlanDigest, Status: "applied", Message: "replayed committed approved-change outcome", CompletedAt: journal.UpdatedAt}); e != nil {
 					return e
 				}
 				continue
 			}
+		} else if !os.IsNotExist(e) {
+			return e
 		}
 		result := a.applyFirewallChange(ctx, change)
 		if result.Status != "applied" && a.Config.AllowFirewallChanges && !a.Simulate && a.inventory != nil {
@@ -791,7 +814,7 @@ func (a *Agent) recoverFirewallChanges(ctx context.Context) error {
 	}
 	lock, lockError := managedLock(a.Config.StateDir, true)
 	if lockError != nil {
-		return errors.New("an enforcement descendant is still active; imported recovery is paused")
+		return fmt.Errorf("imported recovery cannot acquire safe mutation authority: %w", lockError)
 	}
 	defer unlockManaged(lock)
 	ctx = withManagedLease(ctx, lock)
@@ -799,7 +822,7 @@ func (a *Agent) recoverFirewallChanges(ctx context.Context) error {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		data, e := os.ReadFile(filepath.Join(a.Config.StateDir, "firewall-changes", entry.Name()))
+		data, e := readPrivateSetupBound(filepath.Join(a.Config.StateDir, "firewall-changes", entry.Name()), 2*1024*1024)
 		if e != nil {
 			return e
 		}

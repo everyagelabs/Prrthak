@@ -118,7 +118,21 @@ func (m *HitMonitor) updateStatuses(now time.Time, failure error) {
 				}
 			}
 		}
-		if active && owned == len(live.Ports) && !m.simulate {
+		if active && live.ObservationKinds != nil && !m.simulate {
+			status.Status = "observing"
+			if m.coverage.Capture == nil {
+				status.Status = "error"
+				status.Error = "native traffic capture is awaiting verification"
+			} else {
+				status.TrafficCaptureCoverage = scopedCaptureCoverage(live.ObservationKinds, *m.coverage.Capture)
+				for _, backend := range status.Backends {
+					if backend.Status != "active" {
+						status.Status = "error"
+						status.Error = backend.Error
+					}
+				}
+			}
+		} else if active && owned == len(live.Ports) && !m.simulate {
 			status.Status = "observing"
 			status.CheckedAt = verified
 		} else if active && !m.simulate {

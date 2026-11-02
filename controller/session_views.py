@@ -8,7 +8,7 @@ from .store import stamp, validate_port
 MAX_IDS_BYTES = 3 * 1024 * 1024
 MAX_PORT_BYTES = 16384
 MAX_DETAIL_BYTES = 8 * 1024 * 1024
-FIELDS = ("name", "status", "starts_at", "expires_at", "ended_at", "selection_mode", "policy_action", "initial_approval_state", "created_by", "evidence_revision")
+FIELDS = ("name", "status", "starts_at", "expires_at", "ended_at", "selection_mode", "policy_action", "initial_approval_state", "created_by", "evidence_revision", "observation_kinds")
 
 
 def initialize(db):
@@ -62,6 +62,9 @@ def _summary(row):
         raise ValueError("Invalid public learning membership")
     result.update(summary_only=True, server_ids=ids, server_count=len(ids), ports=[validate_port(port) for port in _bounded_array(row[start + 1], MAX_PORT_BYTES, 100)], port_filter=[validate_port(port) for port in _bounded_array(row[start + 2], MAX_PORT_BYTES, 100)], discovery_pending_count=int(row[start + 3]), discovery_error_count=int(row[start + 4]), discovery_no_listeners_count=int(row[start + 5]))
     result["evidence_revision"] = int(result["evidence_revision"] or 0)
+    from .traffic_capture import observation_kinds
+    if result["observation_kinds"]:result["observation_kinds"] = observation_kinds(json.loads(result["observation_kinds"]))
+    else:result.pop('observation_kinds',None)
     for field, fallback in (("selection_mode", "manual"), ("policy_action", "observe")):
         result[field] = result[field] or fallback
     if row[start + 6]:

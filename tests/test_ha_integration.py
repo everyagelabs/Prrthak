@@ -18,6 +18,7 @@ import unittest
 
 from controller.app import App
 from controller.pki import Signer, init_ca
+from controller.tests.capture_fixture import typed_event
 from controller.postgres import PostgresStore
 from controller.store import now, stamp
 from test_integration import request, running
@@ -75,7 +76,7 @@ class HAIntegrationTests(unittest.TestCase):
         body = {'hostname': 'learn-443', 'ips': ['10.70.0.11'], 'firewalld_state': 'running',
                 'listeners': [{'port': port, 'protocol': 'tcp', 'address': '0.0.0.0', 'process': 'sshd' if port == 2022 else 'nginx'} for port in (2022, 80, 443)],
                 'discovery_performed': True, 'discovered_at': stamp(), 'agent_version': '0.4.0',
-                'capabilities': ['learning_discovery_v1', 'learning_auto_allow_v1'],
+                'capabilities': ['learning_discovery_v1', 'learning_auto_allow_v1','traffic_capture_v1'],
                 'protection': {**protected, 'digest': digest(protected), 'ready': True, 'blockers': []}}
         self.a.report('learn-443', body)
         session = self.b.create_session({'server_ids': ['learn-443'], 'selection_mode': 'discovered',
@@ -84,7 +85,7 @@ class HAIntegrationTests(unittest.TestCase):
         self.a.report('learn-443', {**body, 'discovered_at': stamp(), 'learning_discovery_session_ids': [session['id']]})
         at = stamp()
         batch = {'session_id': session['id'], 'batch_id': 'ha-learned-443', 'events': [
-            {'source_ip': '10.50.0.5', 'port': 443, 'protocol': 'tcp', 'count': 3, 'first_seen': at, 'last_seen': at}]}
+            typed_event('10.50.0.5',443,identity=session['id']+str(index),at=at) for index in range(3)]}
         self.b.enqueue_flows('learn-443', batch)
         self.a.process_flows()
         self.assertTrue(self.a.enqueue_flows('learn-443', batch)['duplicate'])
@@ -119,7 +120,7 @@ class HAIntegrationTests(unittest.TestCase):
             return store.report(identifier, {'hostname': identifier, 'ips': [address],
                 'listeners': [{'port': port, 'protocol': 'tcp', 'address': '0.0.0.0'}],
                 'discovered_at': stamp(), 'discovery_performed': True,
-                'capabilities': ['learning_discovery_v1'], 'agent_version': '0.3.0', **extra})
+                'capabilities': ['learning_discovery_v1','traffic_capture_v1'], 'agent_version': '0.9.0', **extra})
         report(self.a, 'learn-a', 2022, '10.70.0.11')
         report(self.b, 'learn-b', 5432, '10.70.0.12')
         source = self.a.save_group({'name': 'Approved clients', 'type': 'static', 'server_ids': ['learn-b']}, 'admin')
@@ -278,7 +279,7 @@ class HAIntegrationTests(unittest.TestCase):
 
     def report(self, store=None):
         (store or self.a).report('ha-endpoint', {'hostname': 'ha-endpoint', 'ips': ['10.1.2.3'],
-            'firewalld_state': 'running', 'listeners': [{'port': 2022, 'protocol': 'tcp',
+            'capabilities':['traffic_capture_v1'], 'firewalld_state': 'running', 'listeners': [{'port': 2022, 'protocol': 'tcp',
             'process': 'sshd', 'service': 'ssh', 'application': 'OpenSSH'}]})
 
     def test_managed_history_approval_restore_and_outcomes_survive_controller_changes(self):
@@ -401,9 +402,8 @@ class HAIntegrationTests(unittest.TestCase):
     def test_shared_traffic_queue_is_durable_and_idempotent_across_workers(self):
         self.report()
         session = self.a.create_session({'server_ids': ['ha-endpoint'], 'ports': [{'port': 2022, 'protocol': 'tcp'}], 'duration_seconds': 120}, 'admin')
-        batch = {'batch_id': 'shared-batch', 'session_id': session['id'], 'events': [{
-            'source_ip': '192.0.2.10', 'port': 2022, 'protocol': 'tcp', 'verdict': 'observed',
-            'count': 7, 'first_seen': session['starts_at'], 'last_seen': session['starts_at']}]}
+        batch = {'batch_id': 'shared-batch', 'session_id': session['id'], 'events': [
+            typed_event('192.0.2.10',2022,identity=session['id']+str(index),at=session['starts_at']) for index in range(7)]}
         with ThreadPoolExecutor(max_workers=2) as pool:
             list(pool.map(lambda store: store.enqueue_flows('ha-endpoint', batch), [self.a, self.b]))
         restarted = PostgresStore(METADATA, TRAFFIC, initialize=False)

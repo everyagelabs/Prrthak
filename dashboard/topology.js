@@ -85,11 +85,12 @@
       const source = start || {x:520, y:56, key:'external', ids:sourceId ? [sourceId] : []};
       if (!start) externalIPs.add(text(flow.source_ip));
       const key = `${source.key}\u0000${end.key}`;
-      if (!edgeMap.has(key)) edgeMap.set(key, {start:source, end, ids:new Set(), count:0, ports:new Set(), latest:null, active:false, verdicts:new Set()});
+      if (!edgeMap.has(key)) edgeMap.set(key, {start:source, end, ids:new Set(), counts:{connections:0,packets:0,log_records:0}, ports:new Set(), latest:null, active:false, verdicts:new Set()});
       const edge = edgeMap.get(key);
       if (sourceId) edge.ids.add(sourceId);
       edge.ids.add(target.id);
-      edge.count += count(flow.count);
+      const unit = flow.capture_kind === 'accepted_connection' ? 'connections' : flow.capture_kind === 'denied_packet' ? 'packets' : 'log_records';
+      edge.counts[unit] += count(flow.count);
       edge.ports.add(`${flow.port}/${text(flow.protocol) || 'tcp'}`);
       edge.verdicts.add(text(flow.verdict));
       if (stamp !== null) edge.latest = Math.max(edge.latest ?? 0, stamp);
@@ -104,7 +105,8 @@
       else if (Math.abs(start.y - end.y) < 22) d = `M${start.x},${start.y - 16} C${start.x},${start.y - 55} ${end.x},${end.y - 55} ${end.x},${end.y - 16}`;
       else { const direction = end.y > start.y ? 1 : -1, startY = start.y + (start.key === 'external' ? 0 : 17 * direction), endY = end.y - 17 * direction, middle = (startY + endY) / 2; d = `M${start.x},${startY} C${start.x},${middle} ${end.x},${middle} ${end.x},${endY}`; }
       const denied = edge.verdicts.size === 1 && edge.verdicts.has('denied');
-      const title = `${edge.start.key === 'external' ? 'External / other source' : serverById.get(edge.start.key)?.hostname || 'Grouped hosts'} → ${serverById.get(edge.end.key)?.hostname || 'Grouped hosts'} · ${[...edge.ports].join(', ')} · ${compact(edge.count)} observed events · last observed ${age(edge.latest, now)}`;
+      const counts = Object.entries(edge.counts).filter(([,value]) => value > 0).map(([unit,value]) => `${compact(value)} ${{connections:'transport connections',packets:'denied packets',log_records:'legacy log records'}[unit]}`).join(' / ');
+      const title = `${edge.start.key === 'external' ? 'External / other source' : serverById.get(edge.start.key)?.hostname || 'Grouped hosts'} → ${serverById.get(edge.end.key)?.hostname || 'Grouped hosts'} · ${[...edge.ports].join(', ')} · ${counts} · last observed ${age(edge.latest, now)}`;
       return `<g class="pseg-edge${edge.active ? ' is-current' : ' is-historical'}${denied ? ' is-denied' : ''}" data-server-ids="${escape(JSON.stringify([...edge.ids]))}" aria-label="${escape(title)}"><title>${escape(title)}</title><path class="pseg-edge-halo" d="${d}"/><path class="pseg-edge-line" d="${d}" marker-end="url(#${prefix}-arrow)"/>${edge.active ? `<path class="pseg-edge-pulse" style="animation-delay:-${index % 7 * .31}s" d="${d}"/>` : ''}</g>`;
     }).join('');
     const nodeHTML = nodes.map(({server, x, y}) => {

@@ -91,7 +91,7 @@ func (a *Agent) rememberLearningTransition(next *Policy, now time.Time) {
 			continue
 		}
 		// Only sessions with installed instrumentation need a final drain.
-		installed := false
+		installed := old.ObservationKinds != nil && a.trafficCapture != nil
 		for _, rule := range a.State.Rules {
 			if rule.SessionID == old.ID {
 				installed = true

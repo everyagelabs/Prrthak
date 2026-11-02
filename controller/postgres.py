@@ -338,6 +338,8 @@ class PostgresStore(Store):
             initialize_learning_traffic(db)
             from .hit_monitoring import initialize_traffic as initialize_hit_traffic
             initialize_hit_traffic(db)
+            from .traffic_capture import initialize as initialize_traffic_capture
+            initialize_traffic_capture(db)
 
     def readiness(self):
         checks = {}

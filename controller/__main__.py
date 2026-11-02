@@ -10,6 +10,7 @@ from .app import App, Server
 from .pki import Signer, init_ca
 from .seed import seed
 from .store import Store
+from .listener_address import split_listener, format_listener
 
 
 def main():
@@ -58,12 +59,9 @@ def main():
     except IntegrityError as error:
         parser.error(str(error))
     try:
-        host, port_text = args.listen.rsplit(":", 1)
-        port = int(port_text)
-        if not 1 <= port <= 65535:
-            raise ValueError()
+        host, port = split_listener(args.listen)
     except ValueError:
-        parser.error("--listen must be host:port")
+        parser.error("--listen must be host:port or [IPv6]:port")
     if not 1 <= args.retention_hours <= 8760:
         parser.error("Retention must be 1 to 8760 hours")
     if args.demo:
@@ -122,7 +120,7 @@ def main():
         record_observed(app.platform, args.listen)
     if not args.demo and args.http_backend == "gunicorn":
         from .production_http import serve
-        print(f"Prṛthak controller: https://{host}:{port} · Gunicorn · verified endpoint mTLS", flush=True)
+        print(f"Prṛthak controller: https://{format_listener(host, port)} · Gunicorn · verified endpoint mTLS", flush=True)
         serve(app, host, port, certificate=args.cert, private_key=args.key, ca=args.ca, workers=args.http_workers, threads=args.http_threads, extra_binds=[value for value in (args.control_listen, args.discovery_listen) if value])
         return
     if not args.demo and os.environ.get("PRTHAK_APPLIANCE") == "1":
@@ -138,7 +136,7 @@ def main():
         server.socket = context.wrap_socket(server.socket, server_side=True, do_handshake_on_connect=False)
     app.start_jobs()
     scheme = "http" if args.demo else "https"
-    print(f"Prṛthak · पृथक् controller: {scheme}://{host}:{port}", flush=True)
+    print(f"Prṛthak · पृथक् controller: {scheme}://{format_listener(host, port)}", flush=True)
     if args.ha:
         print(f"Shared PostgreSQL HA · node {app.controller_id} · site {app.site}", flush=True)
     print("SYNTHETIC DEMO · no real endpoints or firewall changes" if args.demo else "TLS enabled · endpoint APIs require enrolled client certificates", flush=True)

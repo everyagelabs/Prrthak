@@ -21,6 +21,7 @@ import unittest
 from controller.app import App, Server
 from controller.pki import Signer, init_ca
 from controller.store import Store, now, stamp
+from controller.tests.capture_fixture import typed_event
 
 
 def stored_entra_admin(app, origin):
@@ -166,7 +167,7 @@ class EndToEndTests(unittest.TestCase):
                 headers = {'X-Agent-ID': 'integration-endpoint'}
                 report = {'hostname': 'integration-rhel', 'ips': ['10.20.1.5'], 'os': 'rhel',
                           'firewalld_state': 'running', 'listeners': [{'port': 80, 'protocol': 'tcp'}],
-                          'applied_version': 0, 'apply_status': 'preview'}
+                          'applied_version': 0, 'apply_status': 'preview','capabilities':['traffic_capture_v1']}
                 self.assertEqual(request(port, 'POST', '/api/v1/agent/report', report, headers)[0], 200)
                 store.update_server('integration-endpoint', {'tags': {'application': 'test'}}, 'test')
                 status, policy, original_headers = request(port, 'GET', '/api/v1/agent/policy', headers=headers)
@@ -179,13 +180,15 @@ class EndToEndTests(unittest.TestCase):
                 _, learning_policy, learning_headers = request(port, 'GET', '/api/v1/agent/policy', headers=headers)
                 self.assertEqual(learning_policy['version'], version)
                 self.assertNotEqual(learning_headers['ETag'], original_headers['ETag'])
-                event = {'source_ip': '192.0.2.8', 'port': 80, 'protocol': 'tcp', 'verdict': 'observed',
-                         'count': 3, 'first_seen': session['starts_at'], 'last_seen': session['starts_at']}
-                batch = {'batch_id': 'acceptance-batch', 'session_id': session['id'], 'events': [event]}
+                events = [typed_event('192.0.2.8',80,identity=session['id']+str(index),at=session['starts_at']) for index in range(3)]
+                batch = {'batch_id': 'acceptance-batch', 'session_id': session['id'], 'events': events}
                 self.assertEqual(request(port, 'POST', '/api/v1/agent/flows', batch, headers)[0], 202)
                 self.assertEqual(request(port, 'POST', '/api/v1/agent/flows', batch, headers)[0], 202)
                 store.process_flows()
                 self.assertEqual(sum(row['count'] for row in store.flows()), 3)
+                # Use a known enrolled fixture identity so this asserts the
+                # session's endpoint boundary, independently of unknown-ID404.
+                self.assertEqual(request(port,'POST','/api/v1/agent/report',report,{'X-Agent-ID':'someone-else'})[0],200)
                 self.assertEqual(request(port, 'POST', '/api/v1/agent/flows', batch, {'X-Agent-ID': 'someone-else'})[0], 403)
                 self.assertEqual(request(port, 'POST', f"/api/v1/learning/{session['id']}/stop")[0], 200)
                 _, stopped, stopped_headers = request(port, 'GET', '/api/v1/agent/policy', headers=headers)

@@ -94,7 +94,8 @@ def validate_policy(value):
         try:
             if any(not isinstance(source, str) for source in sources):
                 raise ValueError("Sources must be IP or CIDR strings")
-            item["sources"] = sorted({str(ipaddress.ip_network(source, strict=False)) for source in sources})
+            from .network_addresses import network
+            item["sources"] = sorted({str(network(source)) for source in sources})
         except (ValueError, TypeError):
             raise ValueError("Every source must be an IP address or CIDR")
         item["source_selector"] = validate_tags(service.get("source_selector", {}))
@@ -188,6 +189,8 @@ class Store:
             initialize_learning_traffic(db)
             from .hit_monitoring import initialize_traffic as initialize_hit_traffic
             initialize_hit_traffic(db)
+            from .traffic_capture import initialize as initialize_traffic_capture
+            initialize_traffic_capture(db)
         self.meta_path.chmod(0o600)
         self.traffic_path.chmod(0o600)
 
@@ -662,7 +665,8 @@ class Store:
         try:
             if any(not isinstance(address, str) for address in ips):
                 raise ValueError("IP addresses must be strings")
-            ips = sorted({str(ipaddress.ip_address(address)) for address in ips})
+            from .network_addresses import address as native_address
+            ips = sorted({str(native_address(address)) for address in ips})
         except (ValueError, TypeError):
             raise ValueError("Invalid endpoint address")
         listeners = value.get("listeners", [])
@@ -770,6 +774,8 @@ class Store:
                     raise ValueError("Invalid learning coverage metadata")
                 normalized_coverage["rate_limited"] = rate_limited
                 normalized_coverage["error"] = error
+                from .traffic_capture import coverage as capture_coverage
+                normalized_coverage.update(capture_coverage(coverage))
                 server["learning_coverage"] = normalized_coverage
                 server["last_learning_at"] = normalized_coverage.get("ended_at", normalized_coverage.get("started_at"))
             from .managed import protection, report_outcome
@@ -920,6 +926,7 @@ class Store:
         if not isinstance(events, list) or not events or len(events) > 2000:
             raise ValueError("Provide 1 to 2000 flow events")
         session = self.get("sessions", session_id)
+        server = self.get("servers", identifier)
         if identifier not in session["server_ids"]:
             raise PermissionError("Session is not assigned to this endpoint")
         cutoff = min(parse_time(session["expires_at"]), parse_time(session.get("stopped_at", session["expires_at"])))
@@ -941,10 +948,17 @@ class Store:
             if first > last or first < parse_time(session["starts_at"]) or last > cutoff or last > now() + timedelta(seconds=30):
                 raise ValueError("Flow timestamps must be within actual learning window")
             item.update({"verdict": verdict, "count": count, "first_seen": stamp(first), "last_seen": stamp(last)})
+            from .traffic_capture import FIELDS as capture_fields, metadata as capture_metadata
+            capture = capture_metadata(event, item["source_ip"], capabilities=server.get("capabilities", []), kinds=session.get("observation_kinds"))
+            if any(field in event for field in capture_fields):
+                if first != last:
+                    raise ValueError("Typed capture records have one lifecycle/packet observation time")
+                item.update(capture, event_id=event["event_id"])
             normalized.append(item)
         key = f"{identifier}:{batch_id}"
         encoded = json.dumps(normalized, sort_keys=True)
         with self.flow_lock, self.traffic() as db:
+            if getattr(db, "dialect", "sqlite") == "sqlite":db.execute("BEGIN IMMEDIATE")
             existing = db.execute("SELECT data,session_id FROM batches WHERE batch_key=?", (key,)).fetchone()
             if existing:
                 if existing["data"] != encoded or existing["session_id"] != session_id:
@@ -955,15 +969,17 @@ class Store:
             pending = db.execute("SELECT COUNT(*) FROM batches WHERE processed=0").fetchone()[0]
             if pending > 10000:
                 raise RuntimeError("Traffic queue is full; retry later")
+            from .traffic_capture import reserve_flows
+            duplicates = reserve_flows(db,key,identifier,session_id,normalized,stamp(cutoff+timedelta(minutes=5)))
             db.execute("INSERT INTO batches(batch_key,server_id,session_id,data,received_at) VALUES(?,?,?,?,?)", (key, identifier, session_id, encoded, stamp()))
-        return {"accepted": len(normalized), "duplicate": False}
+        return {"accepted": len(normalized), "duplicate": False, **({"duplicate_events":duplicates} if duplicates else {})}
 
     def process_flows(self, limit=100):
         with self.flow_lock, self.traffic() as db:
             batches = db.execute("SELECT * FROM batches WHERE processed=0 ORDER BY received_at LIMIT ?", (limit,)).fetchall()
             for batch in batches:
-                for index, event in enumerate(json.loads(batch["data"])):
-                    db.execute("INSERT OR IGNORE INTO flows(batch_key,event_index,server_id,session_id,source_ip,port,protocol,verdict,count,first_seen,last_seen) VALUES(?,?,?,?,?,?,?,?,?,?,?)", (batch["batch_key"], index, batch["server_id"], batch["session_id"], event["source_ip"], event["port"], event["protocol"], event["verdict"], event["count"], event["first_seen"], event["last_seen"]))
+                from .traffic_capture import process_batch
+                process_batch(db,batch)
                 db.execute("UPDATE batches SET processed=1 WHERE batch_key=?", (batch["batch_key"],))
         from .learning_policies import reconcile as reconcile_learning_evidence
         reconcile_learning_evidence(self, limit)
@@ -973,13 +989,14 @@ class Store:
     def flows(self, window=3600, server_id=None):
         if not 60 <= window <= self.retention_hours * 3600:
             raise ValueError("Window is outside traffic retention")
-        clause, params = "last_seen >= ?", [stamp(now() - timedelta(seconds=window))]
+        clause, params = "last_seen >= ? AND capture_processed=1", [stamp(now() - timedelta(seconds=window))]
         if server_id:
             clause += " AND server_id = ?"
             params.append(server_id)
         with self.flow_lock, self.traffic() as db:
-            rows = db.execute(f"SELECT server_id,session_id,source_ip,port,protocol,verdict,SUM(count) AS count,MIN(first_seen) AS first_seen,MAX(last_seen) AS last_seen FROM flows WHERE {clause} GROUP BY server_id,session_id,source_ip,port,protocol,verdict ORDER BY last_seen DESC LIMIT 500", params).fetchall()
-            return [dict(row) for row in rows]
+            rows = db.execute(f"SELECT server_id,session_id,source_ip,port,protocol,verdict,capture_kind,capture_backend,count_unit,address_family,SUM(count) AS count,MIN(first_seen) AS first_seen,MAX(last_seen) AS last_seen FROM flows WHERE {clause} GROUP BY server_id,session_id,source_ip,port,protocol,verdict,capture_kind,capture_backend,count_unit,address_family ORDER BY last_seen DESC LIMIT 500", params).fetchall()
+            from .traffic_capture import public as capture_public
+            return [capture_public(dict(row)) for row in rows]
 
     def prune(self):
         from .hit_monitoring import prune as prune_hits
@@ -989,7 +1006,8 @@ class Store:
             prune(db)
         cutoff = stamp(now() - timedelta(hours=self.retention_hours))
         with self.flow_lock, self.traffic() as db:
-            db.execute("DELETE FROM flows WHERE last_seen < ?", (cutoff,))
+            from .traffic_capture import prune as prune_capture
+            prune_capture(db,cutoff,stamp())
             db.execute("DELETE FROM batches WHERE processed=1 AND evidence_processed=1 AND received_at < ?", (cutoff,))
 
     def _event(self, db, key, kind, severity, server_id, message, details=None):
@@ -1164,7 +1182,9 @@ class Store:
             location_counts[identifier]=location_counts.get(identifier,0)+1
         locations=sorted(({**location,"server_count":location_counts.get(location["id"],0)} for location in catalog),key=lambda item:item["name"].casefold())
         groups=sorted((self._public_group(group,servers,catalog) for group in self.all("groups")),key=lambda item:item["name"].casefold())
-        stats = {"total_servers": total, "healthy_servers": sum(server["status"] == "healthy" for server in servers), "offline_servers": sum(server["status"] == "offline" for server in servers), "warning_servers": sum(server["status"] == "warning" for server in servers), "active_learning": session_page["active_total"], "active_alerts": sum(alert["status"] == "open" for alert in alerts), "policy_count": policy_page["total"], "observed_events": sum(flow["count"] for flow in flows), "discovered_services": sum(len(server.get("listeners", [])) for server in servers), "synced_servers": sum(server.get("apply_status") == "synced" and server.get("applied_version") == server.get("desired_version") for server in servers)}
+        capture_counts={"connections":0,"packets":0,"log_records":0}
+        for flow in flows:capture_counts[flow["count_unit"]]+=flow["count"]
+        stats = {"total_servers": total, "healthy_servers": sum(server["status"] == "healthy" for server in servers), "offline_servers": sum(server["status"] == "offline" for server in servers), "warning_servers": sum(server["status"] == "warning" for server in servers), "active_learning": session_page["active_total"], "active_alerts": sum(alert["status"] == "open" for alert in alerts), "policy_count": policy_page["total"], "observed_events": capture_counts["log_records"], "observed_events_unit":"legacy_log_records", "capture_counts":capture_counts,"capture_counts_scope":"bounded_last_hour_relationships", "discovered_services": sum(len(server.get("listeners", [])) for server in servers), "synced_servers": sum(server.get("apply_status") == "synced" and server.get("applied_version") == server.get("desired_version") for server in servers)}
         learned_page=public_policies(self,"learned")
         learned_policies=learned_page.pop("items")
         from . import __version__

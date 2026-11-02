@@ -111,7 +111,8 @@ def protection(value):
     normalized_sources = []
     unsafe_sources = False
     for source in sources:
-        network = ipaddress.ip_network(source, strict=False)
+        from .network_addresses import network as source_network
+        network = source_network(source)
         if network.prefixlen == 0:
             unsafe_sources = True
         normalized_sources.append(str(network))

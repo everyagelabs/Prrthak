@@ -21,18 +21,39 @@ func managedJournalPath(stateDir, nonce string) string {
 }
 func saveManagedJournal(path string, journal *managedJournal) error { return atomicJSON(path, journal) }
 func managedLock(stateDir string, nonblocking bool) (*os.File, error) {
+	if _, e := setupPath(stateDir, true); e != nil {
+		return nil, errors.New("managed state directory must be a safe owned directory without symlink ancestors")
+	}
 	if e := os.MkdirAll(managedDirectory(stateDir), 0700); e != nil {
 		return nil, e
 	}
-	f, e := os.OpenFile(filepath.Join(managedDirectory(stateDir), "lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if _, e := setupPath(managedDirectory(stateDir), true); e != nil {
+		return nil, errors.New("managed lease directory must be safe and have no symlink ancestors")
+	}
+	path := filepath.Join(managedDirectory(stateDir), "lock")
+	descriptor, e := syscall.Open(path, syscall.O_CREAT|syscall.O_RDWR|syscall.O_NOFOLLOW|syscall.O_CLOEXEC|syscall.O_NONBLOCK, 0600)
 	if e != nil {
 		return nil, e
+	}
+	f := os.NewFile(uintptr(descriptor), path)
+	info, e := f.Stat()
+	if e != nil || validatePrivateFileInfo("managed mutation lease", info, os.Geteuid()) != nil || info.Mode().Perm() != 0600 {
+		f.Close()
+		return nil, errors.New("managed mutation lease must be an owned private regular file")
+	}
+	if status, ok := info.Sys().(*syscall.Stat_t); !ok || status.Nlink != 1 {
+		f.Close()
+		return nil, errors.New("managed mutation lease cannot have hard-link aliases")
 	}
 	mode := syscall.LOCK_EX
 	if nonblocking {
 		mode |= syscall.LOCK_NB
 	}
 	if e = syscall.Flock(int(f.Fd()), mode); e != nil {
+		f.Close()
+		return nil, e
+	}
+	if e = checkCommandFence(f.Name(), true); e != nil {
 		f.Close()
 		return nil, e
 	}
@@ -80,19 +101,9 @@ func readManagedJournal(path, nonce string) (*managedJournal, error) {
 	if !validManagedNonce(nonce) || !filepath.IsAbs(path) || filepath.Base(path) != nonce+".json" || filepath.Base(filepath.Dir(path)) != "transactions" || (filepath.Base(filepath.Dir(filepath.Dir(path))) != "managed" && filepath.Base(filepath.Dir(filepath.Dir(path))) != "learning-allow") {
 		return nil, errors.New("invalid managed watchdog journal path/nonce")
 	}
-	info, e := os.Lstat(path)
+	raw, e := readPrivateSetupBound(path, 16*1024*1024)
 	if e != nil {
 		return nil, e
-	}
-	if !info.Mode().IsRegular() || info.Mode().Perm() != 0600 {
-		return nil, errors.New("managed journal must be a regular mode0600 file")
-	}
-	raw, e := os.ReadFile(path)
-	if e != nil {
-		return nil, e
-	}
-	if len(raw) > 16*1024*1024 {
-		return nil, errors.New("managed journal exceeds safety limit")
 	}
 	var journal managedJournal
 	if e = json.Unmarshal(raw, &journal); e != nil {
@@ -123,9 +134,15 @@ func managedOwned(rule string) bool {
 	if info.Port == "" {
 		return hostDefaultDenyOwnedControl(info)
 	}
-	return (info.Priority == managedCanonicalAllow || info.Priority == managedCanonicalReject || info.Priority == managedStageAllow || info.Priority == managedStageReject) && strings.HasPrefix(info.LogPrefix, "PRTM") && len(info.LogPrefix) == 17 && strings.HasSuffix(info.LogPrefix, ":") && info.LogLevel == "debug" && info.LogLimit == "1/m" && (info.Action == "accept" || info.Action == "reject")
+	return managedOwnershipPriority(info.Priority) && strings.HasPrefix(info.LogPrefix, "PRTM") && len(info.LogPrefix) == 17 && strings.HasSuffix(info.LogPrefix, ":") && info.LogLevel == "debug" && info.LogLimit == "1/m" && (info.Action == "accept" || info.Action == "reject")
 }
 func rollbackManaged(ctx context.Context, runner CommandRunner, path string, journal *managedJournal) error {
+	if err := checkManagedCommandFence(ctx); err != nil {
+		return err
+	}
+	if err := clearTrafficCaptureSidecars(ctx, filepath.Dir(filepath.Dir(filepath.Dir(path))), runner); err != nil {
+		return err
+	}
 	failures := []string{}
 	for i := len(journal.Mutations) - 1; i >= 0; i-- {
 		mutation := journal.Mutations[i]
@@ -209,6 +226,9 @@ func RunManagedWatchdog(ctx context.Context, path, nonce string, runner CommandR
 	stateDir := filepath.Dir(filepath.Dir(filepath.Dir(path)))
 	lock, e := managedLock(stateDir, true)
 	if e != nil {
+		if errors.Is(e, errUncertainCommand) {
+			return e
+		}
 		// Re-read immediately before fencing: an old generation must never kill a
 		// process which has committed that generation and started a newer one.
 		journal, e = readManagedJournal(path, nonce)
@@ -231,6 +251,9 @@ func RunManagedWatchdog(ctx context.Context, path, nonce string, runner CommandR
 			lock, e = managedLock(stateDir, true)
 			if e == nil {
 				break
+			}
+			if errors.Is(e, errUncertainCommand) {
+				return e
 			}
 			select {
 			case <-ctx.Done():
@@ -298,7 +321,7 @@ func (a *Agent) recoverManaged(ctx context.Context) error {
 	}
 	lock, e := managedLock(a.Config.StateDir, true)
 	if e != nil {
-		return errors.New("another managed apply/watchdog owns the mutation lock")
+		return fmt.Errorf("managed recovery cannot acquire safe mutation authority: %w", e)
 	}
 	defer unlockManaged(lock)
 	ctx = withManagedLease(ctx, lock)
@@ -442,6 +465,9 @@ func managedCommittedSuccessor(path string, journal *managedJournal) bool {
 }
 
 func (a *Agent) recoverAllEnforcementLocked(ctx context.Context) error {
+	if err := checkManagedCommandFence(ctx); err != nil {
+		return err
+	}
 	if e := a.recoverManagedLocked(ctx); e != nil {
 		return e
 	}

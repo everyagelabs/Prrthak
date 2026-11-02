@@ -4,11 +4,11 @@
 
 Prṛthak discovers servers and their real listening services, shows permitted source-to-service access, learns observed source/port relationships, and lets administrators review and apply firewalld changes centrally. The selected server is the destination: an access policy specifies **service/port + allowed sources**, without a separate destination field.
 
-**Pilot candidate: [v0.8.0-pilot.1](https://github.com/everyagelabs/Prrthak/tree/v0.8.0-pilot.1).** Whole-server default deny is an explicit GUI workflow with a fresh manual downtime acknowledgement per push; ordinary per-port policy saves keep their direct Admin flow. See [the feature workflow](docs/whole-server-default-deny.md). Capacity and exact test scope are recorded in the [release evidence](docs/controller-capacity-5000.md). Native RHEL/Ubuntu, live Entra, DC/WAN and hardware-fencing acceptance remain deployment gates; this is a pilot candidate.
+**Pilot candidate: [v0.9.0-pilot.1](https://github.com/everyagelabs/Prrthak/tree/v0.9.0-pilot.1).** New learning/monitor scopes use typed conntrack and verified NFLOG evidence, with separate counts and visible coverage gaps. Strict certificate preflight, durable helper fencing and native IPv6 validation are included. Whole-server deny remains disabled by default and requires a fresh manual downtime acknowledgement for each push. See [release behavior and validation](docs/release-0.9.0-pilot.1.md). Native RHEL/Ubuntu, live Entra and DC/WAN acceptance remain deployment gates.
 
 Private repository: [everyagelabs/Prrthak](https://github.com/everyagelabs/Prrthak). Product owner: **EveryAge Labs Private Limited**.
 
-[0.8 release behavior and validation](docs/release-0.8.0-pilot.1.md) · [Whole-server default-deny workflow](docs/whole-server-default-deny.md).
+[0.9 release behavior and validation](docs/release-0.9.0-pilot.1.md) · [Whole-server default-deny workflow](docs/whole-server-default-deny.md).
 
 ## What was requested, and how it works
 
@@ -22,7 +22,7 @@ The numbered register retains the original requirements and later explicit reque
 | R02 | Automatic enrollment and central inventory | A private GUI-generated setup file supplies a one-use enrollment token and public trust material. The agent creates its key locally, enrolls and reports inventory. |
 | R03 | Discover actual services/ports and later changes | Socket, process and systemd discovery identifies services such as SSH on **2022**, rather than assuming port 22. New/changed listeners generate alerts. Fleet discovery defaults to **900 seconds**; an explicit 1–20-server pilot preset uses **60 seconds**. |
 | R04 | Allowed sources per service; destination implicit | Each target receives an effective inbound TCP/UDP source/port policy. Optional whole-server default deny adds an explicitly acknowledged host-ingress fallback; outbound and forwarded/container segmentation remain outside this adapter. |
-| R05 | One policy for a group or matching tags | Static groups, dynamic groups and tag selectors resolve the target endpoints. Membership changes produce new desired policy versions and preserve the review boundary. |
+| R05 | One policy for a group or matching tags | Static groups, dynamic groups and tag selectors resolve the target endpoints. Membership changes produce new desired policy versions. Ordinary per-port hosts publish directly; existing whole-server default-deny hosts require a fresh review of a changed bundle. Future group members are not automatically enabled for whole-server default deny. |
 | R06 | Reusable service groups and aligned source sets | A row can reference several saved ports and its own source CIDRs, source tags and source groups. Separate rows keep different source/port relationships separate. |
 | R07 | Existing/common firewalld rules, broad openings, modify/remove/deny review | Runtime/permanent inventory and exact bulk previews support services, ports, validated rich rules, bounded INPUT direct rules and local port redirects. Permanent zone-target replacement is staged explicitly; it does **not** change the runtime target or reload firewalld. Unsupported routing/NAT, bindings and ambiguous contexts remain read-only. |
 | R08 | Temporary learning and a last-hour source/port view | Bounded learning sessions stop capture on expiry. Separately, optional per-port hit monitoring can run until stopped and retain **1–24 hours**, with the last hour selected by default. Monitoring is disabled by default, reports coverage gaps and creates no access policy. |
@@ -36,7 +36,7 @@ The numbered register retains the original requirements and later explicit reque
 | R16 | Advanced DC/cloud graphics, status pulses and communication lines | A bounded topology shows DC containers, current endpoint health, observed links and recent events. Historical links stay labelled; motion can be paused and respects reduced-motion preferences. |
 | R17 | Alert when a previously-up or policy-allowed service is down | Prior listener disappearance, explicit expectations and ports permitted by effective ordinary/learned policy intent are checked. A changed policy expectation requires a successful **post-change fresh scan**. Stale/offline/failed discovery means unknown; withdrawing an expectation is not labelled service recovery. |
 | R18 | Unexpected/closed-port and possible lateral-movement alerts | Opt-in closed-port observations feed single-host probing and bounded **same-source, same-port/protocol, multi-host** correlation. Alerts identify possible activity, destinations and coverage limits; they do not prove compromise or automatically block sources. |
-| R19 | Managed enforcement, lockout protection, rollback and history | An authorized Entra Admin's Save/Apply directly publishes exact signed intent. Endpoint opt-ins, current authority, SSH/controller health checks, mutation journals and rollback still guard live changes. Desired, applied and uncertain outcomes remain distinct. |
+| R19 | Managed enforcement, lockout protection, rollback and history | An authorized Entra Admin's Save/Apply directly publishes ordinary per-port intent. Changed whole-server default-deny bundles require their dedicated acknowledgement. Endpoint opt-ins, current authority, SSH/controller health checks, mutation journals and rollback still guard live changes. Desired, applied and uncertain outcomes remain distinct. |
 
 ### Installation, platform operations and rollout
 
@@ -54,16 +54,16 @@ The numbered register retains the original requirements and later explicit reque
 | R29 | GUI public application-port changes | Exact typed reviews change the local public listener, retain binding scope and verify TLS/DB readiness. Failed transitions compensate; external LB, DNS, agent URLs and Entra registrations are separate dependencies. |
 | R30 | Backups, schedules and recovery controls | Private verified database archives, durable daily/weekly/interval scheduling, owned scheduled retention, inspection and guarded recovery workflows are supplied. Destructive recovery retains explicit confirmations by the same authorized actor. SQLite and PostgreSQL have separate recovery paths. |
 | R31 | A button to safely remove default/demo data | Preview counts and fingerprint bind a typed confirmation. A verified backup precedes removal of known synthetic fixtures; real data and edited/shared dependencies are protected or block cleanup. |
-| R32 | 5,000 servers with policy delivery inside 60 seconds | The controller has bounded public projections, incremental reports and post-fork PostgreSQL pools. Capacity evidence states the exact local fixture/profile. Fresh 0.7 validation and real endpoint/DC acceptance are separate; this is not a fleet-wide enforcement guarantee. |
+| R32 | 5,000 servers with policy delivery inside 60 seconds | The controller has bounded public projections, incremental reports and post-fork PostgreSQL pools. The [current capacity record](docs/controller-capacity-5000.md) states the exact local fixture/profile and observed result. Real endpoint/DC acceptance is separate; this is not a fleet-wide enforcement guarantee. |
 | R33 | Agent/controller CPU, RAM, packages, VM and Git details | The sizing section below distinguishes historical measurements from planning allocations. Source, installer and package workflows are in this private repository. |
 | R34 | Application-security review, vulnerability assessment and code fixes | Scoped source review, adversarial regressions, static/dependency checks and remediation reports are maintained. Tool warnings are triaged; passing tests or scans do not establish that no vulnerabilities remain. |
 | R35 | Prepare a 20-server pilot, with native/DC tests later | Start with one controller and monitoring, enroll a small mixed fleet, review inventory/evidence and exercise approved changes gradually. The actual pilot and deferred infrastructure tests are not claimed as completed. |
-| R36 | One illustrated explanation of prerequisites, roles, ports and flows | The linked requirements map, architecture handbook and onboarding guide cover the workflows and their acceptance boundaries. |
+| R36 | One illustrated explanation of prerequisites, roles, ports and flows | The linked illustrated documents retain their historical snapshot labels. Current workflows, including whole-server deny and 0.9 capture, are described in the Markdown requirements map, architecture, API and pilot guide. |
 | R37 | Separate management, control and discovery communication ports | Installed listener roles separate browser/admin traffic (**8787**), agent policy/authorization (**8788**) and agent enrollment/report/flow uploads (**8789**). The API admits routes according to the actual listener, not a caller-supplied header. |
 | R38 | Application groups such as Platform, Billing and Payments | Saved static/dynamic application groups support inventory browsing, target/source selection, policies and scoped operations. Future matching enrolled servers can join dynamic groups. |
 | R39 | Protect installed code and trace releases to Git | Compiled agents, restricted read-only containers, pinned image identities, detached Ed25519 signatures and startup integrity checks reject changed release bytes. Root/Git owners retain authority; this is not complete source encryption. See [release integrity](docs/release-integrity.md). |
 | R40 | Risk & compliance findings with reasons and recommendations | A customizable catalogue starts with **29 source-backed risky-port rules**. Passive evaluation uses the latest agent-reported listeners and shows reasons/recommendations. CERT-In/RBI mappings identify operational evidence gaps; findings do not automatically block traffic or certify compliance. |
-| R41 | Whole-server default deny for selected servers/groups with manual downtime acknowledgement | A dedicated GUI review freezes exact endpoints and enforce-only grants, preserves protected management/control paths, and requires a fresh unchecked downtime checkbox before each push. Endpoint capability and separate local opt-in are mandatory; staged rules, read-back and independent rollback guard application. [Workflow](docs/whole-server-default-deny.md). |
+| R41 | Whole-server default deny for selected servers/groups with manual downtime acknowledgement | A dedicated GUI review freezes exact endpoints and enforce-only grants. An Admin must manually tick the initially unchecked downtime acknowledgement before each push; no second person is required. Capability and local opt-in are mandatory. Disable removes the owned global fallback while retaining the last applied grant matrix. [Workflow](docs/whole-server-default-deny.md). |
 
 ## Architecture and communication
 
@@ -113,7 +113,7 @@ flowchart TD
     Apply -->|"failure or uncertainty"| Rollback["Rollback or durable blocked recovery state"]
 ```
 
-**Monitor is the installation default.** An authorized Admin's Save/Apply publishes the desired change directly; opted-in endpoints pull and apply it automatically through the checks above. Applied receipts show the actual outcome. Security opt-ins remain explicit local configuration, supplied through a GUI-generated signed kit; saving an ordinary policy does not silently enable them. Explicit imported deny/restrictive changes and destructive recovery retain extra same-actor confirmations.
+**Monitor is the installation default.** On ordinary per-port hosts, an authorized Admin's Save/Apply publishes the desired change directly; opted-in endpoints pull and apply it through the checks above. Whole-server default-deny hosts require a fresh dedicated review and manually ticked downtime acknowledgement for each changed deny-bearing bundle. Applied receipts show the actual outcome. Security opt-ins remain explicit local configuration, supplied through a GUI-generated signed kit; saving an ordinary policy does not silently enable them. Explicit imported deny/restrictive changes, restrictive learned edits/removal and destructive recovery retain extra same-actor confirmations.
 
 ### How learning becomes a policy
 
@@ -121,14 +121,14 @@ flowchart TD
 2. Request fresh per-host discovery and freeze only eligible selected ports.
 3. Capture temporarily; show exact observed source, destination host, port, protocol, counts, times and coverage.
 4. Review recommendations for selected targets, or enable the exact initial auto-allow scope and expiry as an authorized Admin.
-5. Auto mode adds eligible observed `/32` or `/128` sources only to the exact port/protocol hit. Individual hits do not need another human approval.
+5. Auto mode adds eligible observed `/32` or `/128` sources only to the exact port/protocol hit, including denied first-hits when denied-packet capture is selected. Individual hits do not need another human approval.
 6. Stop/expiry removes owned capture rules and ends new automation. Committed learned grants remain until reviewed edit/removal.
 
-An additive learned allow does **not** restrict other sources while a broad existing firewall opening remains. Observed clients are not automatically trustworthy, and rate-limited logs are not a complete connection ledger.
+An additive learned allow does **not** restrict other sources while a broad existing firewall opening remains. Observed clients are not automatically trustworthy. New scopes separate conntrack connections from verified NFLOG denied packets, with explicit coverage gaps; historical journal records keep their legacy label. See [traffic capture](docs/traffic-capture.md).
 
 ### Optional ongoing port hit monitoring
 
-In **Traffic**, an administrator can review a frozen endpoint/port scope, enable monitoring and inspect source IPs, ports, counts, timestamps and CSV exports for the last hour or another retained window up to 24 hours. Monitoring is disabled by default and separate from temporary learning: it generates no suggestions or access grants. Short signed capture leases, bounded logging and explicit capture/cleanup receipts expose interrupted or incomplete coverage. Stopping the monitor ends new capture; retained observations age out under the selected retention.
+In **Traffic**, an administrator can review a frozen endpoint/port scope, enable monitoring and inspect source IPs, ports, counts, timestamps and CSV exports for the last hour or another retained window up to 24 hours. Monitoring is disabled by default and separate from temporary learning: it generates no suggestions or access grants. Short signed capture leases, bounded native collectors and explicit backend/family/cleanup receipts expose interrupted or incomplete coverage. Stopping the monitor ends new capture; retained observations age out under the selected retention.
 
 ## Install and configure through the GUI
 
@@ -172,7 +172,7 @@ See [GUI pilot installation](docs/pilot-gui-installation.md), [Linux agent insta
 | Admin | Add, edit and delete servers/tags/groups/policies; save and apply supported firewall and learning actions directly |
 | Super Admin | Admin capabilities plus application users/roles and privileged platform/security operations |
 
-An authorized Admin saves/applies normal server, tag and policy changes directly, with no checker or selectable approval mode. Signed exact scope/digests, live role/provider authority, local enforcement opt-ins and rollback remain mandatory. Explicit imported deny/restrictive changes, restrictive learned edits/removal and destructive recovery retain separate confirmations by that same actor. Super Admin handles application users and privileged platform operations. Initial and changed Entra configuration still require verified candidate sign-in and supervised readiness. Shared tokens remain restricted lab mechanisms.
+An authorized Admin saves/applies normal server, tag and policy changes directly, with no checker or selectable approval mode. On whole-server default-deny hosts, a changed effective bundle waits for a fresh dedicated review and manual downtime acknowledgement. Signed exact scope/digests, live role/provider authority, local enforcement opt-ins and rollback remain mandatory. Explicit imported deny/restrictive changes, restrictive learned edits/removal and destructive recovery retain separate confirmations by that same actor. Super Admin handles application users and privileged platform operations. Initial and changed Entra configuration still require verified candidate sign-in and supervised readiness. Shared tokens remain restricted lab mechanisms.
 
 A server has one saved DC/cloud location and multiple tags, for example `application=Billing`, `network_zone=Production` and `criticality=High`. Manual values remain pinned until returned to automatic. CSV/subnet conflicts are shown, and renaming a location preserves its immutable ID and targeting. Reported IPs are authenticated claims, not cryptographic proof of network ownership.
 
@@ -227,7 +227,7 @@ These choices support the requirements above. They are not substitutes for the r
 
 ## Documentation, evidence and development
 
-The illustrated PDFs describe earlier snapshots and remain historical guides. Current 0.7 behavior and acceptance limits are recorded in these Markdown documents and the final release evidence.
+The illustrated PDFs describe earlier snapshots and remain historical guides. Current 0.9 behavior and acceptance limits are recorded in the [Markdown requirements map](docs/requirements-delivery-map.md), current operational documents and [0.9 release evidence](docs/release-0.9.0-pilot.1.md).
 
 - [User requirements and delivery map](output/pdf/prthak-user-requirements-and-delivery-map.pdf)
 - [Architecture and operations handbook](output/pdf/prthak-architecture-operations-guide.pdf)
@@ -241,7 +241,7 @@ The illustrated PDFs describe earlier snapshots and remain historical guides. Cu
 
 The repository contains `controller/`, `agent/`, `dashboard/`, `deploy/appliance/`, installers/package scripts under `scripts/`, and controller/dashboard/integration tests. Contributors can run `make test`, `make check` and the isolated opt-in integration suites with the documented dependencies. PostgreSQL acceptance requires dedicated test databases; a demo/test UI is not evidence that a real fleet was modified.
 
-Keep runtime databases, `.local/`, private setup files, secrets, keys, certificates, backup archives and environment files out of Git. Review packaged artifacts and release trust separately from source commits. Final release evidence must state its source revision, configuration, test scope and any skips; fresh 0.7 aggregate results are recorded after the release checks finish.
+Keep runtime databases, `.local/`, private setup files, secrets, keys, certificates, backup archives and environment files out of Git. Review packaged artifacts and release trust separately from source commits. Release evidence must identify its exact source revision, configuration, test scope and skips; a previous release's aggregate does not validate later changes.
 
 **Acceptance still pending:** the real 20-server pilot; native RHEL/Ubuntu deployment matrix; live Entra tenant; actual DC/WAN partitions and watchdog fencing; real 5,000-endpoint lifecycle/enforcement workload; and independent deployment-specific security assessment. Isolated tests and local capacity fixtures do not close those gates.
 

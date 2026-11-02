@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from controller import hit_monitoring as hm
 from controller.store import now, stamp
+from controller.tests.capture_fixture import typed_event
 
 
 @unittest.skipUnless(os.environ.get('PRTHAK_HIT_MONITOR_PG_ACCEPTANCE') == '1', 'Actual private PostgreSQL opt-in required')
@@ -41,7 +42,7 @@ class HitMonitorPostgres(unittest.TestCase):
                 connection.execute(cls.sql.SQL('DROP DATABASE {} WITH (FORCE)').format(cls.sql.Identifier(name)))
 
     def make(self, identifier):
-        self.store.report(identifier, {'hostname': identifier, 'ips': ['192.0.2.9'], 'listeners': [{'port':443,'protocol':'tcp','service':'HTTPS'}], 'capabilities':['signed_assignments_v1',hm.CAPABILITY], 'agent_version':'0.7.0','firewalld_state':'running'})
+        self.store.report(identifier, {'hostname': identifier, 'ips': ['192.0.2.9'], 'listeners': [{'port':443,'protocol':'tcp','service':'HTTPS'}], 'capabilities':['signed_assignments_v1',hm.CAPABILITY,'traffic_capture_v1'], 'agent_version':'0.9.0','firewalld_state':'running'})
         plan = hm.preview(self.store, {'name':'Actual PG logs', 'selection':{'server_ids':[identifier]}, 'ports':[{'port':443,'protocol':'tcp'}], 'retention_hours':1}, 'fixture')
         monitor = hm.apply(self.store, {'preview_id':plan['id'],**{key:plan[key] for key in ('digest','confirmation_nonce','confirmation_phrase')}}, 'fixture')
         with self.store.read_meta() as db:
@@ -59,7 +60,7 @@ class HitMonitorPostgres(unittest.TestCase):
     def test_actual_ipv6_queue_dedup_csv_and_retention_accounting(self):
         monitor, lease = self.make('pg-hit-data')
         point=stamp(now())
-        body={'batch_id':'pg-log','monitor_id':monitor['id'],'lease_starts_at':lease['starts_at'],'lease_expires_at':lease['expires_at'],'events':[{'event_id':hashlib.sha256(b'pg-cursor').hexdigest(),'source_ip':'2001:db8::44','port':443,'protocol':'tcp','count':1,'verdict':'observed','first_seen':point,'last_seen':point}]}
+        body={'batch_id':'pg-log','monitor_id':monitor['id'],'lease_starts_at':lease['starts_at'],'lease_expires_at':lease['expires_at'],'events':[typed_event('2001:db8::44',443,identity='pg-cursor',at=point)]}
         self.assertEqual(hm.enqueue(self.store,'pg-hit-data',body)['accepted'],1)
         self.assertTrue(hm.enqueue(self.store,'pg-hit-data',body)['duplicate'])
         hm.process(self.store)
@@ -90,7 +91,7 @@ class HitMonitorPostgres(unittest.TestCase):
         for identifier in ('pg-first-one', 'pg-first-two'):
             monitor, lease = self.make(identifier)
             point = stamp(now())
-            fixtures.append((identifier, {'batch_id':identifier, 'monitor_id':monitor['id'], 'lease_starts_at':lease['starts_at'], 'lease_expires_at':lease['expires_at'], 'events':[{'event_id':hashlib.sha256(identifier.encode()).hexdigest(),'source_ip':'192.0.2.70','port':443,'protocol':'tcp','verdict':'observed','count':1,'first_seen':point,'last_seen':point}]}))
+            fixtures.append((identifier, {'batch_id':identifier, 'monitor_id':monitor['id'], 'lease_starts_at':lease['starts_at'], 'lease_expires_at':lease['expires_at'], 'events':[typed_event('192.0.2.70',443,identity=identifier,at=point)]}))
         with self.store.traffic() as db:
             db.execute('DELETE FROM hit_events'); db.execute('DELETE FROM hit_batches'); db.execute('DELETE FROM hit_limits')
         gate = threading.Barrier(2)

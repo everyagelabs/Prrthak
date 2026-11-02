@@ -9,6 +9,7 @@ from pathlib import Path
 
 from controller.app import App, handler_for
 from controller.store import LearningExpired, Store, now, parse_time, stamp
+from controller.tests.capture_fixture import typed_event
 
 
 class StoreTests(unittest.TestCase):
@@ -20,7 +21,7 @@ class StoreTests(unittest.TestCase):
         self.report("source", "10.2.1.1")
 
     def report(self, identifier, ip, listeners=None, **extra):
-        return self.store.report(identifier, {"hostname": identifier, "ips": [ip], "listeners": listeners if listeners is not None else [{"port": 80, "protocol": "tcp", "address": "0.0.0.0", "process": "nginx"}], "firewalld_state": "running", "applied_version": 0, **extra})
+        return self.store.report(identifier, {"hostname": identifier, "ips": [ip], "capabilities":["traffic_capture_v1"], "listeners": listeners if listeners is not None else [{"port": 80, "protocol": "tcp", "address": "0.0.0.0", "process": "nginx"}], "firewalld_state": "running", "applied_version": 0, **extra})
 
     def policy(self, **extra):
         return self.store.save_policy({"name": "web", "selector": {"role": "web"}, "mode": "enforce", "services": [{"port": 80, "protocol": "tcp", "sources": ["10.10.0.1"], "source_selector": {"role": "lb"}}], **extra}, "admin")
@@ -33,7 +34,7 @@ class StoreTests(unittest.TestCase):
 
     def batch(self, session):
         event_time = stamp()
-        return {"batch_id": "first", "session_id": session["id"], "events": [{"source_ip": "10.2.1.1", "port": 80, "protocol": "tcp", "verdict": "observed", "count": 3, "first_seen": event_time, "last_seen": event_time}]}
+        return {"batch_id": "first", "session_id": session["id"], "events": [typed_event("10.2.1.1",80,identity=session['id']+str(index),at=event_time) for index in range(3)]}
 
     def test_compiler_tracks_membership_only_when_effective_rules_change(self):
         self.set_tags("target", {"role": "web"})

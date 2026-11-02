@@ -107,6 +107,9 @@ func checkEnforcementUpgradeSafety(c Config, ownsConfigurationLock bool, ownRevi
 	} else if !os.IsNotExist(e) {
 		return e
 	}
+	if err := checkCommandFence(lockPath, false); err != nil {
+		return err
+	}
 	for _, directory := range []string{managedDirectory(c.StateDir), learningAllowDirectory(c.StateDir)} {
 		paths, e := filepath.Glob(filepath.Join(directory, "transactions", "*.json"))
 		if e != nil {
@@ -132,7 +135,7 @@ func checkEnforcementUpgradeSafety(c Config, ownsConfigurationLock bool, ownRevi
 		if e != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || info.Size() > 2*1024*1024 {
 			return errors.New("imported firewall journal cannot be verified; replacement refused")
 		}
-		raw, e := os.ReadFile(path)
+		raw, e := readPrivateSetupBound(path, 2*1024*1024)
 		if e != nil {
 			return e
 		}

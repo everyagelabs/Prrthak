@@ -5,6 +5,7 @@ import unittest
 
 from controller.app import App
 from controller.store import Store, now, stamp
+from controller.tests.capture_fixture import typed_event
 from test_integration import request, running
 
 
@@ -26,7 +27,7 @@ class ServiceLearningAcceptanceTests(unittest.TestCase):
         report = {'hostname': identifier, 'ips': [ip or '10.70.0.11'],
                   'listeners': [{'port': port, 'protocol': 'tcp', 'address': '0.0.0.0'} for port in ports],
                   'discovery_performed': True, 'discovered_at': stamp(), 'firewalld_state': 'running',
-                  'agent_version': '0.3.0', 'capabilities': ['learning_discovery_v1'], **extra}
+                  'agent_version': '0.9.0', 'capabilities': ['learning_discovery_v1','traffic_capture_v1'], **extra}
         self.api('POST', 'agent/report', report, headers={'X-Agent-ID': identifier})
         return report
 
@@ -78,7 +79,7 @@ class ServiceLearningAcceptanceTests(unittest.TestCase):
         self.assertTrue(pending['discovery_pending'])
         self.assertEqual(pending['ports'], [])
         stale = {'hostname': 'host-a', 'ips': ['10.70.0.11'], 'listeners': [], 'discovery_performed': True,
-                 'discovered_at': stamp(now() - timedelta(minutes=1)), 'capabilities': ['learning_discovery_v1'],
+                 'discovered_at': stamp(now() - timedelta(minutes=1)), 'capabilities': ['learning_discovery_v1','traffic_capture_v1'],
                  'learning_discovery_session_ids': [session['id']]}
         self.api('POST', 'agent/report', stale, 400, {'X-Agent-ID': 'host-a'})
         self.report('host-a', [2022, 9090], learning_discovery_session_ids=[session['id']])
@@ -94,7 +95,7 @@ class ServiceLearningAcceptanceTests(unittest.TestCase):
         self.assertFalse(a['discovery_pending'])
         self.assertEqual(self.assignment('host-a')['version'], version)
         def upload(host, port, status):
-            event = {'port': port, 'protocol': 'tcp', 'source_ip': '10.50.0.1', 'count': 1, 'first_seen': stamp(), 'last_seen': stamp()}
+            event = typed_event('10.50.0.1',port,identity=session['id']+host+str(port))
             self.api('POST', 'agent/flows', {'batch_id': host + '-' + str(port), 'session_id': session['id'], 'events': [event]}, status, {'X-Agent-ID': host})
         upload('host-a', 9090, 202)
         upload('host-a', 5432, 400)
@@ -111,7 +112,12 @@ class ServiceLearningAcceptanceTests(unittest.TestCase):
     def test_unsupported_agents_no_listeners_and_role_guards_do_not_start_collection(self):
         self.report('legacy', [22], agent_version='0.2.0', capabilities=[])
         self.api('POST', 'learning', {'server_ids': ['legacy'], 'selection_mode': 'discovered'}, 400)
-        manual = self.api('POST', 'learning', {'server_ids': ['legacy'], 'ports': [{'port': 22, 'protocol': 'tcp'}]}, 201)
+        self.api('POST', 'learning', {'server_ids': ['legacy'], 'ports': [{'port': 22, 'protocol': 'tcp'}]}, 400)
+        # Stored pre-feature manual scope stays readable; current API cannot
+        # create a journal-only downgrade for this old endpoint.
+        manual={'id':'legacy-manual','server_ids':['legacy'],'selection_mode':'manual','ports':[{'port':22,'protocol':'tcp'}],
+                'starts_at':stamp(),'expires_at':stamp(now()+timedelta(hours=1)),'status':'active','policy_action':'observe'}
+        with self.store.meta() as db:self.store._put(db,'sessions',manual)
         self.assertEqual(self.assignment('legacy')['learning_sessions'][0]['ports'], manual['ports'])
         self.report('empty', [], '10.70.0.12')
         auto = self.api('POST', 'learning', {'server_ids': ['empty'], 'selection_mode': 'discovered'}, 201)

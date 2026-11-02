@@ -450,9 +450,12 @@ func retainFirewallSnapshot(previous, next *FirewallSnapshot) *FirewallSnapshot 
 	return next
 }
 func (a *Agent) ownedFirewallObservationRules() []OwnedRule {
+	// Read the private exact ledger so independent rollback/startup observes the
+	// same ownership as the running collector, including pending native cleanup.
+	captureOwned := a.captureObservationRules()
 	owned := append([]OwnedRule{}, a.State.Rules...)
 	if a.AdditionalObservationRules != nil {
 		owned = append(owned, a.AdditionalObservationRules()...)
 	}
-	return owned
+	return append(owned, captureOwned...)
 }

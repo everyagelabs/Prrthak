@@ -48,7 +48,7 @@ class HitMonitorHTTPS(unittest.TestCase):
                 cert.write_text(enrolled['certificate']); cert.chmod(0o600)
                 private.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())); private.chmod(0o600)
                 endpoint = ssl.create_default_context(cafile=str(pki/'ca.pem')); endpoint.load_cert_chain(cert, private)
-                code, _ = request('POST', 'agent/report', {'hostname': 'hit-https', 'ips': ['192.0.2.9'], 'listeners': [{'port': 22, 'protocol': 'tcp', 'service': 'SSH'}], 'firewalld_state': 'running', 'agent_version': '0.7.0', 'capabilities': ['signed_assignments_v1','port_hit_monitor_v1']}, context=endpoint)
+                code, _ = request('POST', 'agent/report', {'hostname': 'hit-https', 'ips': ['192.0.2.9'], 'listeners': [{'port': 22, 'protocol': 'tcp', 'service': 'SSH'}], 'firewalld_state': 'running', 'agent_version': '0.9.0', 'capabilities': ['signed_assignments_v1','port_hit_monitor_v1','traffic_capture_v1']}, context=endpoint)
                 self.assertEqual(code, 200)
                 body = {'name': 'SSH observations only', 'selection': {'server_ids': [enrolled['server_id']]}, 'ports': [{'port': 22, 'protocol': 'tcp'}], 'retention_hours': 1}
                 self.assertEqual(request('POST','hit-monitors/preview',body,token='private-reader')[0],403)
@@ -58,7 +58,7 @@ class HitMonitorHTTPS(unittest.TestCase):
                 code, policy = request('GET','agent/policy',context=endpoint); self.assertEqual(code,200,policy)
                 lease = policy['hit_monitors'][0]; self.assertIn('signature',policy)
                 point = stamp(now())
-                body = {'batch_id':'https-one','monitor_id':monitor['id'],'lease_starts_at':lease['starts_at'],'lease_expires_at':lease['expires_at'],'events':[{'event_id':hashlib.sha256(b'private-kernel-cursor').hexdigest(),'source_ip':'2001:db8::9','port':22,'protocol':'tcp','verdict':'observed','count':1,'first_seen':point,'last_seen':point}]}
+                body = {'batch_id':'https-one','monitor_id':monitor['id'],'lease_starts_at':lease['starts_at'],'lease_expires_at':lease['expires_at'],'events':[{'event_id':hashlib.sha256(b'private-conntrack-id').hexdigest(),'source_ip':'2001:db8::9','port':22,'protocol':'tcp','verdict':'allowed','count':1,'first_seen':point,'last_seen':point,'capture_kind':'accepted_connection','capture_backend':'conntrack','count_unit':'connections','address_family':'ipv6'}]}
                 self.assertEqual(request('POST','agent/hits',body)[0],403)
                 code,result=request('POST','agent/hits',body,context=endpoint); self.assertEqual(code,202,result)
                 store.process_flows()

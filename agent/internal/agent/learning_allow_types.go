@@ -12,13 +12,14 @@ const learningAllowCanonicalPriority = -31003
 const learningAllowStagePriority = -31004
 
 type LearningAuthority struct {
-	ApprovalProof json.RawMessage `json:"approval_proof,omitempty"`
-	PolicyID      string          `json:"policy_id"`
-	SessionID     string          `json:"session_id,omitempty"`
-	Kind          string          `json:"kind"`
-	ExpiresAt     time.Time       `json:"expires_at"`
-	Ports         []Port          `json:"ports"`
-	Services      []Service       `json:"services"`
+	ObservationKinds []string        `json:"observation_kinds,omitempty"`
+	ApprovalProof    json.RawMessage `json:"approval_proof,omitempty"`
+	PolicyID         string          `json:"policy_id"`
+	SessionID        string          `json:"session_id,omitempty"`
+	Kind             string          `json:"kind"`
+	ExpiresAt        time.Time       `json:"expires_at"`
+	Ports            []Port          `json:"ports"`
+	Services         []Service       `json:"services"`
 }
 type LearningAllow struct {
 	ServerID         string              `json:"server_id"`

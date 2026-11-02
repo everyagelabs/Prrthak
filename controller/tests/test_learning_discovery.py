@@ -6,6 +6,7 @@ from unittest.mock import patch
 from controller.learning import preview
 from controller.seed import mark_synthetic_hosts, tick_synthetic_hosts
 from controller.store import Store, now, parse_time, stamp
+from controller.tests.capture_fixture import typed_event
 
 
 class LearningDiscoveryTests(unittest.TestCase):
@@ -24,7 +25,7 @@ class LearningDiscoveryTests(unittest.TestCase):
 
     def report(self, identifier, listeners, offset=1, **extra):
         at = self.base + timedelta(seconds=offset)
-        value = {"hostname": identifier, "ips": ["10.1.1.1" if identifier == "a" else "10.1.1.2"], "listeners": listeners, "discovery_performed": True, "discovered_at": stamp(at), "firewalld_state": "running", "agent_version": "0.3.0", "capabilities": ["learning_discovery_v1"], **extra}
+        value = {"hostname": identifier, "ips": ["10.1.1.1" if identifier == "a" else "10.1.1.2"], "listeners": listeners, "discovery_performed": True, "discovered_at": stamp(at), "firewalld_state": "running", "agent_version": "0.9.0", "capabilities": ["learning_discovery_v1","traffic_capture_v1"], **extra}
         with patch("controller.store.now", return_value=at):
             return self.store.report(identifier, value)
 
@@ -36,14 +37,14 @@ class LearningDiscoveryTests(unittest.TestCase):
         return self.report(identifier, listeners, learning_discovery_session_ids=[session["id"]], **extra)
 
     def batch(self, session, port, identifier="batch-1"):
-        return {"batch_id": identifier, "session_id": session["id"], "events": [{"source_ip": "10.5.5.5", "port": port, "protocol": "tcp", "first_seen": stamp(self.base + timedelta(seconds=1)), "last_seen": stamp(self.base + timedelta(seconds=1))}]}
+        return {"batch_id": identifier, "session_id": session["id"], "events": [typed_event("10.5.5.5",port,identity=session['id']+identifier,at=self.base+timedelta(seconds=1))]}
 
     def test_auto_allow_requires_explicit_consent_fresh_mode_and_upgraded_agents(self):
         with self.assertRaisesRegex(ValueError, "explicit"):
             self.start(["a"], policy_action="auto_allow")
         with self.assertRaisesRegex(ValueError, "0.4.0"):
             self.start(["a"], policy_action="auto_allow", auto_allow_confirmed=True)
-        self.report("a", [self.listener(8443)], capabilities=["learning_discovery_v1", "learning_auto_allow_v1"], agent_version="0.4.0")
+        self.report("a", [self.listener(8443)], capabilities=["learning_discovery_v1", "learning_auto_allow_v1","traffic_capture_v1"], agent_version="0.9.0")
         with self.assertRaisesRegex(ValueError, "fresh"):
             self.start(["a"], selection_mode="manual", ports=[{"port": 8443, "protocol": "tcp"}], policy_action="auto_allow", auto_allow_confirmed=True)
         with self.assertRaisesRegex(ValueError, "explicit"):
@@ -55,7 +56,7 @@ class LearningDiscoveryTests(unittest.TestCase):
 
     def test_filtered_discovery_learns_only_443_while_inventory_keeps_22_and_80(self):
         listeners = [self.listener(port) for port in (22, 80, 443)]
-        caps = ["learning_discovery_v1", "learning_auto_allow_v1"]
+        caps = ["learning_discovery_v1", "learning_auto_allow_v1","traffic_capture_v1"]
         self.report("a", listeners, capabilities=caps, agent_version="0.4.0")
         chosen = [{"port": 443, "protocol": "tcp"}]
         cached = preview(self.store, {"server_ids": ["a"], "port_filter": chosen})
@@ -185,16 +186,21 @@ class LearningDiscoveryTests(unittest.TestCase):
 
     def test_unsupported_agents_fail_explicitly_and_manual_legacy_is_unchanged(self):
         self.report("b", [], capabilities=[], agent_version="0.2.0")
-        with self.assertRaisesRegex(ValueError, "Upgrade these agents or use manual ports"):
+        with self.assertRaises(ValueError):
             self.start()
-        manual = self.store.create_session({"server_ids": ["b"], "ports": [{"port": 80, "protocol": "tcp"}]}, "admin")
-        self.assertEqual(manual["selection_mode"], "manual")
-        self.assertEqual(self.store.assignment("b")[0]["learning_sessions"][0]["ports"], [{"protocol": "tcp", "port": 80}])
-        legacy = {**manual, "id": "old-manual"}
-        legacy.pop("selection_mode")
+        with self.assertRaisesRegex(ValueError,"traffic_capture_v1"):
+            self.store.create_session({"server_ids": ["b"], "ports": [{"port": 80, "protocol": "tcp"}]}, "admin")
+        # Existing pre-feature session, explicitly missing both modern scope
+        # fields. Current APIs must never create this compatibility contract.
+        legacy = {"id":"old-manual", "server_ids":["b"],"ports":[{"port":80,"protocol":"tcp"}],
+                  "status":"active","starts_at":stamp(self.base),"expires_at":stamp(self.base+timedelta(hours=1))}
         with self.store.meta() as db:
             self.store._put(db, "sessions", legacy)
-        self.assertEqual(self.store.enqueue_flows("b", self.batch(legacy, 80))["accepted"], 1)
+        old=self.batch(legacy,80)
+        for field in ("event_id","capture_kind","capture_backend","count_unit","address_family"):
+            old['events'][0].pop(field)
+        old['events'][0]['verdict']='observed'
+        self.assertEqual(self.store.enqueue_flows("b", old)["accepted"], 1)
         auto = self.start(["a"])
         self.report("a", [], capabilities=[], agent_version="0.2.0")
         self.assertEqual(self.store.assignment("a")[0]["learning_sessions"], [])
@@ -220,6 +226,10 @@ class LearningDiscoveryTests(unittest.TestCase):
         self.assertEqual(self.store.get("sessions", session["id"])["server_ports"]["a"], [])
         self.store.report("srv-cloud-01", {"hostname": "fixture", "ips": ["10.3.3.3"], "listeners": [self.listener(2022), self.listener(8080)], "firewalld_state": "running"})
         mark_synthetic_hosts(self.store)
+        with self.store.meta() as db:
+            host=self.store._get(db,"servers","srv-cloud-01")
+            host['capabilities'].append('traffic_capture_v1')
+            self.store._put(db,"servers",host)
         demo = self.start(["srv-cloud-01"])
         tick_synthetic_hosts(self.store, self.base + timedelta(seconds=1))
         result = self.store.get("sessions", demo["id"])

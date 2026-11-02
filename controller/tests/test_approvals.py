@@ -10,6 +10,7 @@ from controller import approvals, firewall, managed
 from controller.auth import EntraAuth, EntraConfig, SESSION_COOKIE
 from controller.firewall import WorkflowConflict
 from controller.store import Store, digest, now, stamp
+from controller.tests.capture_fixture import typed_event
 
 
 class IndependentApprovalTests(unittest.TestCase):
@@ -175,14 +176,14 @@ class IndependentApprovalTests(unittest.TestCase):
 
     def learned_session(self, auto=False):
         from controller import learning
-        self.learning_body = {"hostname": "target", "ips": ["10.70.0.1"], "listeners": [{"port": port, "protocol": "tcp", "address": "0.0.0.0", "process": "nginx"} for port in (80, 443)], "firewalld_state": "running", "capabilities": ["signed_assignments_v1", "learning_discovery_v1", "learning_auto_allow_v1"], "discovery_performed": True, "discovered_at": stamp()}
+        self.learning_body = {"hostname": "target", "ips": ["10.70.0.1"], "listeners": [{"port": port, "protocol": "tcp", "address": "0.0.0.0", "process": "nginx"} for port in (80, 443)], "firewalld_state": "running", "capabilities": ["signed_assignments_v1", "learning_discovery_v1", "learning_auto_allow_v1", "traffic_capture_v1"], "discovery_performed": True, "discovered_at": stamp()}
         self.store.report("target", self.learning_body)
         session = learning.create_session(self.store, {"server_ids": ["target"], "selection_mode": "discovered", "port_filter": [{"port": 443, "protocol": "tcp"}], "policy_action": "auto_allow" if auto else "observe", "auto_allow_confirmed": auto}, self.maker["actor"], principal=self.maker)
         return session
 
     def discover_and_hit(self, session, batch="hit-1", source="10.50.0.1"):
         self.store.report("target", {**self.learning_body, "discovered_at": stamp(), "learning_discovery_session_ids": [session["id"]]})
-        self.store.enqueue_flows("target", {"session_id": session["id"], "batch_id": batch, "events": [{"source_ip": source, "port": 443, "protocol": "tcp", "first_seen": stamp(), "last_seen": stamp()}]})
+        self.store.enqueue_flows("target", {"session_id": session["id"], "batch_id": batch, "events": [typed_event(source,443,identity=session['id']+':'+batch)]})
         self.store.process_flows()
 
     def test_start_learning_enables_frozen_port_auto_allow_without_more_approval(self):

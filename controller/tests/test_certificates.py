@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from controller import certificates
 from controller.firewall import WorkflowConflict
@@ -30,7 +30,14 @@ class CertificateTests(unittest.TestCase):
         self.store = Store(self.directory / "db")
         self.ca_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Certificate test issuer")])
-        self.ca = x509.CertificateBuilder().subject_name(subject).issuer_name(subject).public_key(self.ca_key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now() - timedelta(days=1)).not_valid_after(now() + timedelta(days=365)).add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True).sign(self.ca_key, hashes.SHA256())
+        self.ca = (x509.CertificateBuilder().subject_name(subject).issuer_name(subject)
+            .public_key(self.ca_key.public_key()).serial_number(x509.random_serial_number())
+            .not_valid_before(now() - timedelta(days=1)).not_valid_after(now() + timedelta(days=365))
+            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+            .add_extension(self.ca_usage(), critical=True)
+            .add_extension(x509.SubjectKeyIdentifier.from_public_key(self.ca_key.public_key()), False)
+            .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(self.ca_key.public_key()), False)
+            .sign(self.ca_key, hashes.SHA256()))
         self.key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         self.current = self.leaf(self.key)
         self.ca_path = self.write("ca.pem", self.pem(self.ca))
@@ -54,11 +61,29 @@ class CertificateTests(unittest.TestCase):
         encryption = self.serialization.BestAvailableEncryption(password) if password else self.serialization.NoEncryption()
         return key.private_bytes(self.serialization.Encoding.PEM, self.serialization.PrivateFormat.PKCS8, encryption).decode()
 
+    def ca_usage(self):
+        return self.x509.KeyUsage(digital_signature=False, content_commitment=False,
+            key_encipherment=False, data_encipherment=False, key_agreement=False,
+            key_cert_sign=True, crl_sign=True, encipher_only=None, decipher_only=None)
+
     def leaf(self, key, hostname="controller.example", ca=False, client_only=False, expired=False, future=False):
         import ipaddress
         from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
         at = now()
-        return self.x509.CertificateBuilder().subject_name(self.x509.Name([self.x509.NameAttribute(NameOID.COMMON_NAME, hostname)])).issuer_name(self.ca.subject).public_key(key.public_key()).serial_number(self.x509.random_serial_number()).not_valid_before(at + timedelta(days=1) if future else at - timedelta(days=2)).not_valid_after(at - timedelta(days=1) if expired else at + timedelta(days=30)).add_extension(self.x509.BasicConstraints(ca=ca, path_length=None), critical=True).add_extension(self.x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH if client_only else ExtendedKeyUsageOID.SERVER_AUTH]), critical=False).add_extension(self.x509.SubjectAlternativeName([self.x509.DNSName(hostname), self.x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]), critical=False).sign(self.ca_key, self.hashes.SHA256())
+        return (self.x509.CertificateBuilder()
+            .subject_name(self.x509.Name([self.x509.NameAttribute(NameOID.COMMON_NAME, hostname)]))
+            .issuer_name(self.ca.subject).public_key(key.public_key()).serial_number(self.x509.random_serial_number())
+            .not_valid_before(at + timedelta(days=1) if future else at - timedelta(days=2))
+            .not_valid_after(at - timedelta(days=1) if expired else at + timedelta(days=30))
+            .add_extension(self.x509.BasicConstraints(ca=ca, path_length=None), critical=True)
+            .add_extension(self.x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH if client_only else ExtendedKeyUsageOID.SERVER_AUTH]), False)
+            .add_extension(self.x509.SubjectAlternativeName([self.x509.DNSName(hostname), self.x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]), False)
+            .add_extension(self.x509.KeyUsage(digital_signature=True, content_commitment=False,
+                key_encipherment=True, data_encipherment=False, key_agreement=False,
+                key_cert_sign=False, crl_sign=False, encipher_only=None, decipher_only=None), True)
+            .add_extension(self.x509.SubjectKeyIdentifier.from_public_key(key.public_key()), False)
+            .add_extension(self.x509.AuthorityKeyIdentifier.from_issuer_public_key(self.ca_key.public_key()), False)
+            .sign(self.ca_key, self.hashes.SHA256()))
 
     def body(self, certificate=None, key=None, **extra):
         return {"mode": "pem", "certificate_pem": self.pem(certificate or self.current) + self.pem(self.ca), "private_key_pem": self.key_pem(key or self.key), **extra}
@@ -77,12 +102,16 @@ class CertificateTests(unittest.TestCase):
                 .public_key(key.public_key()).serial_number(self.x509.random_serial_number())
                 .not_valid_before(now() - timedelta(days=1)).not_valid_after(now() + timedelta(days=90))
                 .add_extension(self.x509.BasicConstraints(ca=is_ca, path_length=path_length if is_ca else None), True)
+                .add_extension(self.ca_usage(), True)
+                .add_extension(self.x509.SubjectKeyIdentifier.from_public_key(key.public_key()), False)
+                .add_extension(self.x509.AuthorityKeyIdentifier.from_issuer_public_key(signing_key.public_key()), False)
                 .sign(signing_key, self.hashes.SHA256()))
 
         root = ca(root_name, root_key, root_name, root_key, True, root_path_length)
         issuer = ca(issuer_name, issuer_key, root_name, root_key, intermediate_ca, 0)
         with patch.object(self, "ca", issuer), patch.object(self, "ca_key", issuer_key):
             leaf = self.leaf(leaf_key)
+        self.corporate_keys = (leaf_key, issuer_key, root_key)
         return leaf, issuer, root, leaf_key
 
     def imported_bundle(self, mode, chain, key):
@@ -96,6 +125,214 @@ class CertificateTests(unittest.TestCase):
         record = json.loads((self.manager.root / "certificate-plans" / (plan["id"] + ".json")).read_text())
         material = json.loads(self.manager.vault.get(record["material_ref"]))
         return certificates._certificates(material["certificate_pem"].encode())
+
+    def reissue(self, certificate, signing_key, *, omit=(), replace=(), extra=()):
+        builder = (self.x509.CertificateBuilder().subject_name(certificate.subject)
+            .issuer_name(certificate.issuer).public_key(certificate.public_key())
+            .serial_number(certificate.serial_number).not_valid_before(certificate.not_valid_before_utc)
+            .not_valid_after(certificate.not_valid_after_utc))
+        replacements = {value.oid: (value, critical) for value, critical in replace}
+        for extension in certificate.extensions:
+            if extension.oid not in omit and extension.oid not in replacements:
+                builder = builder.add_extension(extension.value, extension.critical)
+        for value, critical in list(replacements.values()) + list(extra):
+            builder = builder.add_extension(value, critical)
+        return builder.sign(signing_key, self.hashes.SHA256())
+
+    def assert_invalid_before_persistence(self, body, reason=None):
+        with patch("controller.platform.Vault.put") as vault, \
+                patch("controller.certificates.atomic_private_json") as write, \
+                patch.object(self.manager, "_queue") as queue, \
+                patch.object(self.manager, "_audit") as audit:
+            with self.assertRaises(ValueError) as failure:
+                certificates.preview(self.manager, body, "super_admin")
+            if reason:
+                self.assertIn(reason, str(failure.exception))
+            self.assertNotIn("PRIVATE KEY", str(failure.exception))
+            for callback in (vault, write, queue, audit):
+                callback.assert_not_called()
+
+    def test_missing_leaf_authority_identifier_is_rejected_for_pem_and_pkcs12_before_persistence(self):
+        leaf = self.reissue(self.current, self.ca_key, omit=(self.x509.ExtensionOID.AUTHORITY_KEY_IDENTIFIER,))
+        for mode in ("pem", "pkcs12"):
+            with self.subTest(mode=mode):
+                self.assert_invalid_before_persistence(self.imported_bundle(mode, [leaf, self.ca], self.key), "Missing Authority Key Identifier")
+
+    def test_ca_strict_usage_identifiers_and_critical_constraints_are_required(self):
+        leaf, issuer, root, key = self.corporate_chain()
+        _, issuer_key, root_key = self.corporate_keys
+        oid = self.x509.ExtensionOID
+        invalid = [
+            ("root missing usage", [leaf, issuer, self.reissue(root, root_key, omit=(oid.KEY_USAGE,))]),
+            ("intermediate missing usage", [leaf, self.reissue(issuer, root_key, omit=(oid.KEY_USAGE,)), root]),
+            ("root missing SKI", [leaf, issuer, self.reissue(root, root_key, omit=(oid.SUBJECT_KEY_IDENTIFIER,))]),
+            ("intermediate missing SKI", [leaf, self.reissue(issuer, root_key, omit=(oid.SUBJECT_KEY_IDENTIFIER,)), root]),
+            ("intermediate missing AKI", [leaf, self.reissue(issuer, root_key, omit=(oid.AUTHORITY_KEY_IDENTIFIER,)), root]),
+            ("noncritical CA constraints", [leaf, self.reissue(issuer, root_key,
+                replace=((self.x509.BasicConstraints(ca=True, path_length=0), False),)), root]),
+        ]
+        for label, chain in invalid:
+            for mode in ("pem", "pkcs12"):
+                with self.subTest(case=label, mode=mode):
+                    self.assert_invalid_before_persistence(self.imported_bundle(mode, chain, key), "Strict TLS")
+
+    def test_unknown_critical_extensions_cannot_be_hidden_by_candidate_leaf_trust(self):
+        leaf, issuer, root, key = self.corporate_chain()
+        _, issuer_key, root_key = self.corporate_keys
+        extension = self.x509.UnrecognizedExtension(self.x509.ObjectIdentifier("1.3.6.1.4.1.55555.9"), b"\x05\x00")
+        for label, chain in (
+                ("leaf", [self.reissue(leaf, issuer_key, extra=((extension, True),)), issuer, root]),
+                ("intermediate", [leaf, self.reissue(issuer, root_key, extra=((extension, True),)), root]),
+                ("root", [leaf, issuer, self.reissue(root, root_key, extra=((extension, True),))])):
+            with self.subTest(certificate=label):
+                self.assert_invalid_before_persistence(self.imported_bundle("pem", chain, key), "unhandled critical extension")
+
+    def test_name_constraints_and_ca_server_purpose_are_verified_without_network(self):
+        from cryptography.x509.oid import ExtendedKeyUsageOID
+        leaf, issuer, root, key = self.corporate_chain()
+        _, _, root_key = self.corporate_keys
+        for label, restriction in (
+                ("name constraints", self.x509.NameConstraints(permitted_subtrees=[self.x509.DNSName("only.example.org")], excluded_subtrees=None)),
+                ("issuer purpose", self.x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]))):
+            restricted = self.reissue(issuer, root_key, extra=((restriction, True),))
+            with self.subTest(case=label):
+                self.assert_invalid_before_persistence(self.imported_bundle("pem", [leaf, restricted, root], key), "Strict TLS")
+
+    def test_authority_identifier_mismatch_cannot_pass_on_signature_alone(self):
+        leaf = self.reissue(self.current, self.ca_key, replace=((
+            self.x509.AuthorityKeyIdentifier(key_identifier=b"\x00" * 20,
+                authority_cert_issuer=None, authority_cert_serial_number=None), False),))
+        self.assertTrue(certificates._signed_by(leaf, self.ca))
+        self.assert_invalid_before_persistence(self.body(leaf), "Strict TLS")
+
+    def test_legitimate_constrained_intermediate_and_noncritical_extension_are_allowed(self):
+        leaf, issuer, root, key = self.corporate_chain()
+        _, issuer_key, root_key = self.corporate_keys
+        constraints = self.x509.NameConstraints(permitted_subtrees=[self.x509.DNSName(".example")], excluded_subtrees=None)
+        issuer = self.reissue(issuer, root_key, extra=((constraints, True),))
+        extension = self.x509.UnrecognizedExtension(self.x509.ObjectIdentifier("1.3.6.1.4.1.55555.9"), b"\x05\x00")
+        leaf = self.reissue(leaf, issuer_key, extra=((extension, False),))
+        for mode in ("pem", "pkcs12"):
+            with self.subTest(mode=mode):
+                plan = certificates.preview(self.manager, self.imported_bundle(mode, [leaf, issuer, root], key), "super_admin")
+                self.assertEqual(plan["summary"]["certificate"]["fingerprint_sha256"], certificates._fp(leaf))
+
+    def test_path_length_rejected_for_standalone_and_managed_imports(self):
+        leaf, issuer, root, key = self.corporate_chain(root_path_length=0)
+        for managed in (False, True):
+            self.context["managed_appliance"] = managed
+            for mode in ("pem", "pkcs12"):
+                with self.subTest(managed=managed, mode=mode):
+                    self.assert_invalid_before_persistence(self.imported_bundle(mode, [leaf, issuer, root], key))
+
+    def test_hostname_check_uses_san_for_dns_and_ip_and_rejects_cn_fallback(self):
+        for hostname in ("controller.example", "127.0.0.1"):
+            with self.subTest(hostname=hostname):
+                plan = certificates.preview(self.manager, self.body(hostname=hostname), "super_admin")
+                self.assertEqual(plan["summary"]["hostname"], hostname)
+        leaf = self.reissue(self.current, self.ca_key, omit=(self.x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME,))
+        self.assert_invalid_before_persistence(self.body(leaf))
+
+    def test_standalone_partial_issuer_import_retains_explicit_trust_warning(self):
+        leaf, issuer, _, key = self.corporate_chain()
+        for mode in ("pem", "pkcs12"):
+            with self.subTest(mode=mode):
+                plan = certificates.preview(self.manager, self.imported_bundle(mode, [leaf, issuer], key), "super_admin")
+                self.assertTrue(plan["summary"]["trust_change"])
+                self.assertEqual(len(self.reviewed_chain(plan)), 2)
+
+    def test_apply_revalidates_material_without_queueing_invalid_chain(self):
+        plan = certificates.preview(self.manager, self.body(), "super_admin")
+        path = self.manager.root / "certificate-plans" / (plan["id"] + ".json")
+        stored = json.loads(path.read_text())
+        material = json.loads(self.manager.vault.get(stored["material_ref"]))
+        leaf = self.reissue(self.current, self.ca_key, omit=(self.x509.ExtensionOID.AUTHORITY_KEY_IDENTIFIER,))
+        material["certificate_pem"] = self.pem(leaf) + self.pem(self.ca)
+        stored["material_ref"] = self.manager.vault.put(json.dumps(material))
+        path.write_text(json.dumps(stored))
+        with patch.object(self.manager, "_queue") as queue:
+            with self.assertRaisesRegex(ValueError, "no longer valid"):
+                certificates.apply(self.manager, self.confirm(plan), "super_admin")
+            queue.assert_not_called()
+
+    def test_preupgrade_queued_invalid_certificate_is_rechecked_before_runtime_mutation(self):
+        from controller.platform_runtime import RuntimeSupervisor
+        leaf = self.reissue(self.current, self.ca_key, omit=(self.x509.ExtensionOID.AUTHORITY_KEY_IDENTIFIER,))
+        # This job models material accepted before strict preflight existed.
+        material = {"hostname": "controller.example", "certificate_pem": self.pem(leaf) + self.pem(self.ca), "private_key_pem": self.key_pem(self.key)}
+        manager = types.SimpleNamespace(active_profile=lambda: None,
+            certificate_context=lambda: dict(self.context), launch_tls=Mock(),
+            _private_text=Mock(), runtime_job_update=Mock())
+        stop = Mock()
+        supervisor = RuntimeSupervisor(self.directory, manager, [], stop=stop)
+        child = object()
+        supervisor.child = child
+        with self.assertRaisesRegex(ValueError, "Missing Authority Key Identifier"):
+            supervisor.rotate_certificate({"id": "old-queued-job", "private": {"expected_fingerprint": certificates._fp(leaf)}, "material": material})
+        self.assertIs(supervisor.child, child)
+        for callback in (manager.launch_tls, manager._private_text, manager.runtime_job_update, stop):
+            callback.assert_not_called()
+        self.assertFalse((self.manager.root / "tls-revisions").exists())
+
+    def test_queued_revalidation_checks_exact_reviewed_leaf(self):
+        material, _ = certificates._material(self.body(), self.context)
+        with self.assertRaisesRegex(ValueError, "reviewed HTTPS identity"):
+            certificates.revalidate_activation(material, "0" * 64, self.context)
+
+    def test_temporary_identity_is_private_and_deleted_before_handshake_on_success_and_failure(self):
+        from controller import certificate_validation
+        original = certificate_validation.ssl.SSLContext.load_cert_chain
+        checked = []
+
+        def load(context, path):
+            path = Path(path)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(path.parent.stat().st_mode & 0o777, 0o700)
+            checked.append(path)
+            return original(context, path)
+
+        handshake = certificate_validation._handshake
+
+        def verify(*arguments):
+            self.assertTrue(checked)
+            self.assertFalse(checked[-1].exists())
+            self.assertFalse(checked[-1].parent.exists())
+            return handshake(*arguments)
+
+        with patch.object(certificate_validation.ssl.SSLContext, "load_cert_chain", load), \
+                patch.object(certificate_validation, "_handshake", verify), \
+                patch("socket.socket", side_effect=AssertionError("Offline validation opened a socket")), \
+                patch("subprocess.Popen", side_effect=AssertionError("Offline validation spawned a process")):
+            certificates.preview(self.manager, self.body(), "super_admin")
+            leaf = self.reissue(self.current, self.ca_key, omit=(self.x509.ExtensionOID.AUTHORITY_KEY_IDENTIFIER,))
+            self.assert_invalid_before_persistence(self.body(leaf), "Strict TLS")
+        self.assertEqual(len(checked), 2)
+        self.assertTrue(all(not path.exists() and not path.parent.exists() for path in checked))
+
+    def test_temporary_identity_is_removed_when_openssl_rejects_loading_it(self):
+        import ssl
+        from controller import certificate_validation
+        paths = []
+
+        def reject(context, path):
+            paths.append(Path(path))
+            raise ssl.SSLError("private fixture diagnostic must not escape")
+
+        with patch.object(certificate_validation.ssl.SSLContext, "load_cert_chain", reject):
+            self.assert_invalid_before_persistence(self.body(), "Strict TLS")
+        self.assertTrue(paths)
+        self.assertTrue(all(not path.exists() and not path.parent.exists() for path in paths))
+
+    def test_in_memory_handshake_has_a_fixed_iteration_bound(self):
+        import ssl
+        from controller import certificate_validation
+        stalled = Mock()
+        stalled.do_handshake.side_effect = ssl.SSLWantReadError()
+        context = Mock()
+        context.wrap_bio.return_value = stalled
+        with self.assertRaisesRegex(ValueError, "did not complete"):
+            certificate_validation._handshake(context, context, "controller.example")
+        self.assertEqual(stalled.do_handshake.call_count, 64)
 
     def test_managed_unknown_corporate_leaf_or_partial_chain_requires_complete_issuer_bundle(self):
         self.context["managed_appliance"] = True
@@ -238,7 +475,12 @@ class CertificateTests(unittest.TestCase):
         from cryptography.x509.oid import NameOID
         key = self.rsa.generate_private_key(public_exponent=65537, key_size=2048)
         name = self.x509.Name([self.x509.NameAttribute(NameOID.COMMON_NAME, "Different endpoint issuer")])
-        ca = self.x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key()).serial_number(self.x509.random_serial_number()).not_valid_before(now() - timedelta(days=1)).not_valid_after(now() + timedelta(days=90)).add_extension(self.x509.BasicConstraints(ca=True, path_length=None), critical=True).sign(key, self.hashes.SHA256())
+        ca = (self.x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+            .serial_number(self.x509.random_serial_number()).not_valid_before(now() - timedelta(days=1))
+            .not_valid_after(now() + timedelta(days=90)).add_extension(self.x509.BasicConstraints(ca=True, path_length=None), True)
+            .add_extension(self.ca_usage(), True).add_extension(self.x509.SubjectKeyIdentifier.from_public_key(key.public_key()), False)
+            .add_extension(self.x509.AuthorityKeyIdentifier.from_issuer_public_key(key.public_key()), False)
+            .sign(key, self.hashes.SHA256()))
         self.manager.app.signer = types.SimpleNamespace(ca=self.write("other-ca.pem", self.pem(ca)), ca_key=self.write("other-ca-key.pem", self.key_pem(key)))
         plan = certificates.preview(self.manager, {"mode": "self_signed", "hostname": "controller.example"}, "super_admin")
         self.assertEqual(plan["summary"]["source"], "existing_local_issuer")

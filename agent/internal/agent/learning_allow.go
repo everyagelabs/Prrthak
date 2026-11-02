@@ -152,6 +152,10 @@ func (a *Agent) processLearningAllow(ctx context.Context, p *LearningAllow) erro
 		a.learningOutcome(p, status, "learning auto-allow requires enforce=true and learning_auto_allow=true on this endpoint; existing accepts remain")
 		return a.save()
 	}
+	if err := checkNewEnforcementJournalBudget(a.Config.StateDir, "learning-allow"); err != nil {
+		a.learningOutcome(p, "blocked", err.Error())
+		return a.save()
+	}
 	protection := Protection{}
 	if a.protection != nil {
 		protection = *a.protection
@@ -169,12 +173,15 @@ func (a *Agent) processLearningAllow(ctx context.Context, p *LearningAllow) erro
 	}
 	lock, e := managedLock(a.Config.StateDir, true)
 	if e != nil {
-		return blocked("enforcement mutation lock busy")
+		return blocked("enforcement mutation authority unavailable: " + e.Error())
 	}
 	defer unlockManaged(lock)
 	ctx = withManagedLease(ctx, lock)
 	if e = a.recoverAllEnforcementLocked(ctx); e != nil {
 		return blocked("pending enforcement rollback must complete: " + e.Error())
+	}
+	if err := checkNewEnforcementJournalBudget(a.Config.StateDir, "learning-allow"); err != nil {
+		return blocked(err.Error())
 	}
 	if e = a.validateLearningAssignment(p, protection); e != nil {
 		return blocked(e.Error())
@@ -188,6 +195,10 @@ func (a *Agent) processLearningAllow(ctx context.Context, p *LearningAllow) erro
 		a.learningOutcome(p, "applied", "")
 		return a.save()
 	}
+	if e = clearTrafficCaptureSidecars(ctx, a.Config.StateDir, a.Commands); e != nil {
+		return blocked(e.Error())
+	}
+	a.nextCaptureCheck = time.Time{}
 	if !noChange {
 		if !p.Authorized || !time.Now().Before(p.ExpiresAt) {
 			return blocked("learning authority is inactive or expired; committed accepts are retained")

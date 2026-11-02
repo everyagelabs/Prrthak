@@ -13,6 +13,7 @@ from http import HTTPStatus
 from urllib.parse import urlsplit
 
 from .app import handler_for
+from .listener_address import format_listener
 
 LOG = logging.getLogger("Prṛthak.controller")
 
@@ -129,7 +130,7 @@ def serve(app, host, port, *, certificate, private_key, ca, workers=1, threads=3
 
     class Production(BaseApplication):
         def load_config(self):
-            address = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
+            address = format_listener(host, port)
             options = {"bind": [address, *extra_binds], "workers": workers, "threads": threads, "worker_class": "controller.gunicorn_worker.BoundedThreadWorker",
                        "worker_connections": 2048, "backlog": 512, "timeout": 90, "graceful_timeout": 30, "keepalive": 5,
                        "certfile": str(certificate), "keyfile": str(private_key), "ca_certs": str(ca), "cert_reqs": ssl.CERT_OPTIONAL,

@@ -61,10 +61,9 @@ def _listen(value):
     if not isinstance(value, str):
         raise PortError("The current supervised listener is unavailable")
     try:
-        host, number = value.rsplit(":", 1)
-        if not host or any(character.isspace() for character in host):
-            raise ValueError()
-        return host, _port(int(number))
+        from .listener_address import split_listener
+        host, port = split_listener(value)
+        return ('[' + host + ']' if ':' in host else host), port
     except (ValueError, TypeError):
         raise PortError("The supervised listener address is invalid") from None
 

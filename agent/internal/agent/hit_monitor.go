@@ -228,7 +228,7 @@ func (m *HitMonitor) SetAssignments(server string, assignments []HitMonitorAssig
 	for index := range m.state.Grants {
 		grant := &m.state.Grants[index]
 		current, present := next[grant.Assignment.ID]
-		if (!present || hitPortsKey(current.Ports) != hitPortsKey(grant.Assignment.Ports)) && now.Before(grant.CaptureUntil) {
+		if (!present || hitPortsKey(current.Ports) != hitPortsKey(grant.Assignment.Ports) || captureKindsKey(current.ObservationKinds) != captureKindsKey(grant.Assignment.ObservationKinds)) && now.Before(grant.CaptureUntil) {
 			grant.CaptureUntil = now
 		}
 	}
@@ -237,7 +237,7 @@ func (m *HitMonitor) SetAssignments(server string, assignments []HitMonitorAssig
 		seen := false
 		for _, grant := range m.state.Grants {
 			if grant.Assignment.ID == assignment.ID && grant.Assignment.StartsAt.Equal(assignment.StartsAt) && grant.Assignment.ExpiresAt.Equal(assignment.ExpiresAt) {
-				if hitPortsKey(grant.Assignment.Ports) != hitPortsKey(assignment.Ports) {
+				if hitPortsKey(grant.Assignment.Ports) != hitPortsKey(assignment.Ports) || captureKindsKey(grant.Assignment.ObservationKinds) != captureKindsKey(assignment.ObservationKinds) {
 					m.state = previous
 					return errors.New("a hit lease cannot change its exact ports")
 				}
@@ -339,6 +339,9 @@ func (m *HitMonitor) Tick(ctx context.Context, now time.Time) error {
 		if !now.Before(assignment.StartsAt) && m.remaining(assignment, now) > 0 {
 			m.coverage.ActiveMonitors++
 			for _, port := range assignment.Ports {
+				if len(assignment.ObservationKinds) > 0 {
+					continue
+				}
 				rule := hitOwnedRule{MonitorID: id, Port: port, Rule: HitObservationRule(id, port), ExpiresAt: assignment.ExpiresAt}
 				desired[id+"\x00"+rule.Rule] = rule
 			}
@@ -534,6 +537,15 @@ func (m *HitMonitor) Close(ctx context.Context) error {
 }
 func (m *HitMonitor) collect(ctx context.Context, now time.Time) error {
 	if m.simulate || len(m.state.Grants) == 0 {
+		return nil
+	}
+	legacy := false
+	for _, grant := range m.state.Grants {
+		if grant.Assignment.ObservationKinds == nil {
+			legacy = true
+		}
+	}
+	if !legacy {
 		return nil
 	}
 	args := []string{"-k", "-o", "json", "--no-pager", "-n", "5000"}

@@ -11,7 +11,7 @@ from .inventory_views import rows
 
 MAX_EXPORT_BYTES=64*1024*1024
 EXPORT_SLOTS=threading.BoundedSemaphore(2)
-FIELDS=('session_id','server_id','hostname','source_ip','source_cidr','port','protocol','service','process','count','verdicts','first_seen','last_seen','eligible_for_auto','excluded_reason')
+FIELDS=('session_id','server_id','hostname','source_ip','source_cidr','port','protocol','service','process','count','verdicts','first_seen','last_seen','eligible_for_auto','excluded_reason','count_unit','capture_kind','capture_backend','address_family')
 
 class ExportBusy(RuntimeError):
     pass

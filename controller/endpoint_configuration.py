@@ -70,7 +70,8 @@ def normalize(value, *, protect=True):
     if not isinstance(sources, list) or len(sources) > 128 or any(not isinstance(item, str) for item in sources):
         raise ValueError("Choose at most 128 exact management source networks")
     try:
-        networks = [ipaddress.ip_network(item, strict=False) if "/" in item else ipaddress.ip_network(item + ("/128" if ":" in item else "/32")) for item in sources]
+        from .network_addresses import network
+        networks = [network(item) for item in sources]
     except ValueError:
         raise ValueError("Management sources must be valid IP addresses or networks") from None
     if protect and any(network.prefixlen == 0 for network in networks):

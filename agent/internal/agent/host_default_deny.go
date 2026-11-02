@@ -93,9 +93,9 @@ func hostDefaultDenyOwnedControl(info richInfo) bool {
 		return false
 	}
 	if info.Action == "reject" && info.Protocol == "" {
-		return info.Priority == managedCanonicalReject || info.Priority == managedStageReject
+		return info.Priority == managedCanonicalReject || info.Priority == managedStageReject || info.Priority == -30999 || info.Priority == -31001
 	}
-	return info.Action == "accept" && (info.Priority == managedCanonicalAllow || info.Priority == managedStageAllow) && (info.Family == "ipv4" && info.Protocol == "icmp" || info.Family == "ipv6" && info.Protocol == "ipv6-icmp")
+	return info.Action == "accept" && (info.Priority == managedCanonicalAllow || info.Priority == managedStageAllow || info.Priority == -31002) && (info.Family == "ipv4" && info.Protocol == "icmp" || info.Family == "ipv6" && info.Protocol == "ipv6-icmp")
 }
 
 func hostDefaultDenyFallback(rule ManagedRule) bool {

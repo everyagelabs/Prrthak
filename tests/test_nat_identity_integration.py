@@ -17,6 +17,7 @@ from controller.app import App
 from controller.auth import EntraAuth, EntraConfig
 from controller.pki import Signer, init_ca
 from controller.store import Store
+from controller.tests.capture_fixture import typed_event
 from test_integration import request, running
 
 
@@ -80,7 +81,7 @@ class NATIdentityTLSIntegrationTests(unittest.TestCase):
         status, result, _ = request(self.port, "POST", "/api/v1/agent/report",
             {"hostname": hostname, "ips": ips, "firewalld_state": "running", "agent_version": "0.5.0",
              "listeners": [{"port": 443, "protocol": "tcp", "address": "0.0.0.0", "service": "https"}],
-             "capabilities": ["learning_discovery_v1", "agent_polling_config_v1"]},
+             "capabilities": ["learning_discovery_v1", "agent_polling_config_v1","traffic_capture_v1"]},
             self.spoofed_headers(spoof_identity), context)
         self.assertEqual(status, 200, result)
         self.assertEqual(result["server_id"], identifier)
@@ -128,9 +129,8 @@ class NATIdentityTLSIntegrationTests(unittest.TestCase):
             "selection_mode": "manual", "policy_action": "observe", "ports": [{"port": 443, "protocol": "tcp"}],
             "duration_seconds": 120})
         self.assertEqual(status, 201)
-        batch = {"batch_id": "nat-source-proof", "session_id": session["id"], "events": [{"source_ip": "10.80.20.44",
-            "port": 443, "protocol": "tcp", "verdict": "observed", "count": 7,
-            "first_seen": session["starts_at"], "last_seen": session["starts_at"]}]}
+        batch = {"batch_id": "nat-source-proof", "session_id": session["id"], "events": [
+            typed_event('10.80.20.44',443,identity=session['id']+str(index),at=session['starts_at']) for index in range(7)]}
         # A certificate from another host cannot upload by spoofing this host's
         # header, while the assigned certificate works with the opposite header.
         self.assertEqual(request(self.port, "POST", "/api/v1/agent/flows", batch,

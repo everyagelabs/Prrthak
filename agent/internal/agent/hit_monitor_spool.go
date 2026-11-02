@@ -22,7 +22,8 @@ func validateHitBatch(batch HitBatch) error {
 	seen := map[string]bool{}
 	for _, event := range batch.Events {
 		address, err := netip.ParseAddr(event.SourceIP)
-		if err != nil || address.Zone() != "" || !validDigest(event.EventID) || seen[event.EventID] || event.Port < 1 || event.Port > 65535 || (event.Protocol != "tcp" && event.Protocol != "udp") || event.Verdict != "observed" || event.Count != 1 || !event.FirstSeen.Equal(event.LastSeen) || event.FirstSeen.Before(batch.LeaseStartsAt) || !event.LastSeen.Before(batch.LeaseExpiresAt) {
+		legacy := event.CaptureKind == "" && event.CaptureBackend == "" && event.CountUnit == "" && event.AddressFamily == "" && event.Verdict == "observed"
+		if err != nil || address.Zone() != "" || !validDigest(event.EventID) || seen[event.EventID] || event.Port < 1 || event.Port > 65535 || (event.Protocol != "tcp" && event.Protocol != "udp") || (!legacy && !validTypedCapture(event.Flow, event.EventID)) || event.Count != 1 || !event.FirstSeen.Equal(event.LastSeen) || event.FirstSeen.Before(batch.LeaseStartsAt) || !event.LastSeen.Before(batch.LeaseExpiresAt) {
 			return errors.New("invalid private hit event")
 		}
 		seen[event.EventID] = true

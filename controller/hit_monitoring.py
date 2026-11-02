@@ -165,9 +165,11 @@ def _binding(server):
     return digest({key: server.get(key) for key in ("id", "hostname", "ips", "tags", "location_id", "capabilities", "configuration_state", "firewalld_state", "ufw_active")})
 
 
-def _compatible(server, at):
+def _compatible(server, at, *, typed=False):
     if not {CAPABILITY, "signed_assignments_v1"} <= set(server.get("capabilities", [])):
         raise ValueError("Upgrade selected endpoints to signed port_hit_monitor_v1")
+    if typed and 'traffic_capture_v1' not in server.get('capabilities',[]):
+        raise ValueError('New monitored capture scopes require traffic_capture_v1; upgrade selected endpoints')
     if server.get("firewalld_state") != "running" or server.get("ufw_active"):
         raise ValueError("Selected endpoints need running firewalld without active UFW coexistence")
     if not server.get("last_seen") or parse_time(server["last_seen"]) < at - timedelta(seconds=max(180, 3 * server.get("control_interval_seconds", 30))):
@@ -183,8 +185,10 @@ def _capacity(store, db, identifier, ports):
 
 
 def preview(store, value, actor):
-    if not isinstance(value, dict) or set(value) != {"name", "selection", "ports", "retention_hours"}:
+    if not isinstance(value, dict) or set(value)-{"name", "selection", "ports", "retention_hours", "observation_kinds"} or not {"name", "selection", "ports", "retention_hours"}<=set(value):
         raise ValueError("Provide name, selection, exact ports and 1..24 hour retention")
+    from .traffic_capture import observation_kinds
+    kinds=observation_kinds(value.get("observation_kinds"))
     name, retention, ports = value["name"], value["retention_hours"], _ports(value["ports"])
     if not isinstance(name, str) or not name.strip() or len(name) > 120 or isinstance(retention, bool) or not isinstance(retention, int) or not 1 <= retention <= 24:
         raise ValueError("Name is required and retention must be 1..24 hours")
@@ -193,11 +197,11 @@ def preview(store, value, actor):
         servers = _servers(db)
         ids, groups, summary = _select(store, db, value["selection"], servers)
         for identifier in ids:
-            _compatible(servers[identifier], now())
+            _compatible(servers[identifier], now(),typed=True)
             _capacity(store, db, identifier, ports)
         plan = {"id": uuid.uuid4().hex, "operation": "enable", "name": name.strip(), "selection": value["selection"], "selection_summary": summary,
                 "server_ids": ids, "target_bindings": {identifier: _binding(servers[identifier]) for identifier in ids}, "group_bindings": groups,
-                "ports": ports, "retention_hours": retention, "created_by": actor, "created_at": stamp(), "expires_at": stamp(now() + timedelta(minutes=10)),
+                "ports": ports, "observation_kinds":kinds, "legacy_capture_target_count":sum('traffic_capture_v1' not in servers[identifier].get('capabilities',[]) for identifier in ids), "retention_hours": retention, "created_by": actor, "created_at": stamp(), "expires_at": stamp(now() + timedelta(minutes=10)),
                 "authority": _authority(store, db), "status": "draft", "confirmation_nonce": secrets.token_urlsafe(24)}
         plan["digest"] = digest(plan)
         plan["confirmation_phrase"] = "START HIT MONITOR " + plan["id"][:8].upper()
@@ -205,7 +209,7 @@ def preview(store, value, actor):
         encoded_size(plan)
         store._put(db, "hit_monitor_reviews", plan)
         return {**plan, "target_count": len(ids), "duration": "until_stopped", "capture_lease_seconds": LEASE_SECONDS, "automatic_policy": False,
-                "coverage": "Rate-limited logged packets; incomplete capture is possible"}
+                "coverage": "Accepted transport connections and denied packets have separate counts; loss and unsupported backends can leave gaps. Legacy journal records remain labelled."}
 
 
 def stop_preview(store, identifier, value, actor):
@@ -222,7 +226,7 @@ def stop_preview(store, identifier, value, actor):
         plan["digest"] = digest(plan)
         plan["confirmation_phrase"] = "STOP HIT MONITOR " + plan["id"][:8].upper()
         store._put(db, "hit_monitor_reviews", plan)
-        return {**plan, "target_count": monitor["target_count"], "name": monitor["name"], "ports": monitor["ports"], "capture_lease_seconds": LEASE_SECONDS}
+        return {**plan, "target_count": monitor["target_count"], "name": monitor["name"], "ports": monitor["ports"], **({"observation_kinds":monitor["observation_kinds"]} if "observation_kinds" in monitor else {}), "capture_lease_seconds": LEASE_SECONDS}
 
 
 def apply(store, value, actor):
@@ -249,11 +253,11 @@ def apply(store, value, actor):
             if ids != plan["server_ids"] or groups != plan["group_bindings"] or any(_binding(servers[identifier]) != plan["target_bindings"][identifier] for identifier in ids):
                 raise WorkflowConflict("Endpoint, group or tag membership changed; preview again", {})
             for identifier in ids:
-                _compatible(servers[identifier], now())
+                _compatible(servers[identifier], now(),typed='observation_kinds' in plan)
                 _capacity(store, db, identifier, plan["ports"])
             summary = {key: item for key, item in plan["selection_summary"].items() if key != "group_ids"}
             summary["group_count"] = len(plan["selection_summary"].get("group_ids", []))
-            monitor = {"id": str(uuid.uuid4()), "name": plan["name"], "ports": plan["ports"], "retention_hours": plan["retention_hours"], "enabled": True,
+            monitor = {"id": str(uuid.uuid4()), "name": plan["name"], "ports": plan["ports"], **({"observation_kinds":plan["observation_kinds"]} if 'observation_kinds' in plan else {}), "legacy_capture_target_count":plan.get("legacy_capture_target_count",0), "retention_hours": plan["retention_hours"], "enabled": True,
                        "revision": 1, "review_id": plan["id"], "review_digest": plan["digest"], "target_count": len(ids), "selection_summary": summary, "created_by": actor, "created_at": stamp(), "started_at": stamp(), "updated_at": stamp()}
             for identifier in ids:
                 server = servers[identifier]
@@ -298,7 +302,7 @@ def assignments(store, db, server, at=None):
     active = [value for value in values if value["enabled"]]
     if len(active) > MAX_PER_HOST:
         raise ValueError("Endpoint monitor capacity exceeded")
-    return [{"id": value["id"], "server_id": server["id"], "starts_at": stamp(issued), "expires_at": stamp(issued + timedelta(seconds=LEASE_SECONDS)), "ports": value["ports"]} for value in active]
+    return [{"id": value["id"], "server_id": server["id"], "starts_at": stamp(issued), "expires_at": stamp(issued + timedelta(seconds=LEASE_SECONDS)), "ports": value["ports"], **({"observation_kinds":value["observation_kinds"]} if "observation_kinds" in value else {})} for value in active]
 
 
 def enqueue(store, identifier, value):
@@ -318,6 +322,9 @@ def enqueue(store, identifier, value):
         if not monitor or row is None:
             raise PermissionError("Monitor is not assigned to this enrolled endpoint")
         target = json.loads(row[0])
+        from .approval_views import _expression
+        capabilities_row=db.execute('SELECT '+_expression(db,('capabilities',))+' FROM servers WHERE id=?',(identifier,)).fetchone()
+        capabilities=json.loads(capabilities_row[0]) if capabilities_row and capabilities_row[0] else []
     started = parse_time(monitor["started_at"])
     if expiry <= started or monitor.get("stopped_at") and issued > parse_time(monitor["stopped_at"]):
         raise MonitoringExpired("No monitor lease was permitted in this window")
@@ -329,18 +336,22 @@ def enqueue(store, identifier, value):
         raise ValueError("Provide 1..2000 logged packet observations")
     normalized = []
     for event in events:
-        if not isinstance(event, dict) or set(event) - {"event_id", "source_ip", "port", "protocol", "verdict", "count", "first_seen", "last_seen"} or not isinstance(event.get("event_id"), str) or not re.fullmatch(r"[a-f0-9]{64}", event["event_id"]):
+        from .traffic_capture import FIELDS as capture_fields, metadata as capture_metadata
+        if not isinstance(event, dict) or set(event) - {"event_id", "source_ip", "port", "protocol", "verdict", "count", "first_seen", "last_seen", *capture_fields} or not isinstance(event.get("event_id"), str) or not re.fullmatch(r"[a-f0-9]{64}", event["event_id"]):
             raise ValueError("A stable kernel-cursor event identity is required")
         port = validate_port(event)
         if (port["protocol"], port["port"]) not in ports:
             raise PermissionError("The observed port was not approved for this monitor")
-        if event.get("verdict") != "observed" or type(event.get("count")) is not int or event["count"] != 1:
-            raise ValueError("Hit monitoring accepts individual observed log records, not inferred verdicts or aggregate counts")
+        typed=any(field in event for field in capture_fields)
+        if (not typed and event.get("verdict")!="observed") or type(event.get("count")) is not int or event["count"] != 1:
+            raise ValueError("Hit monitoring accepts individual typed capture events or legacy observed logs")
         first, last = parse_time(event.get("first_seen")), parse_time(event.get("last_seen"))
         if first != last or first < max(issued, started) or last >= expiry or last > now() + timedelta(seconds=30):
             raise ValueError("Observation is outside its actual approved lease window")
         source = str(ipaddress.ip_address(event.get("source_ip", "")))
-        item = {**port, "event_id": event["event_id"], "source_ip": source, "verdict": "observed", "count": 1, "first_seen": stamp(first), "last_seen": stamp(last)}
+        capture=capture_metadata(event,source,capabilities=capabilities,kinds=monitor.get("observation_kinds"))
+        item = {**port, "event_id": event["event_id"], "source_ip": source, "verdict": event["verdict"], "count": 1, "first_seen": stamp(first), "last_seen": stamp(last)}
+        if typed:item.update(capture)
         normalized.append(item)
     encoded = json.dumps({"monitor_id": monitor_id, "lease_starts_at": stamp(issued), "lease_expires_at": stamp(expiry), "events": normalized}, sort_keys=True, separators=(",", ":"))
     key = identifier + ":" + batch_id
@@ -370,8 +381,9 @@ def enqueue(store, identifier, value):
             metadata = target.get("service_snapshot", {}).get(f"{event['protocol']}:{event['port']}", {})
             record = {**event, "hostname": target["hostname"], **metadata, "service_basis": target.get("service_basis", "inventory_at_monitor_enable"), "inventory_at": target.get("inventory_at")}
             expires = stamp(parse_time(event["last_seen"]) + timedelta(hours=monitor["retention_hours"]))
-            db.execute("INSERT INTO hit_events(id,server_id,monitor_id,batch_key,event_digest,source_ip,port,protocol,event_time,expires_at,data,processed) VALUES(?,?,?,?,?,?,?,?,?,?,?,0)",
-                (event_key, identifier, monitor_id, key, fingerprint, event["source_ip"], event["port"], event["protocol"], event["last_seen"], expires, json.dumps(record, separators=(",", ":"))))
+            capture=capture_metadata(event,event["source_ip"])
+            db.execute("INSERT INTO hit_events(id,server_id,monitor_id,batch_key,event_digest,source_ip,port,protocol,event_time,expires_at,data,processed,capture_kind,capture_backend,count_unit,address_family,verdict) VALUES(?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?)",
+                (event_key, identifier, monitor_id, key, fingerprint, event["source_ip"], event["port"], event["protocol"], event["last_seen"], expires, json.dumps(record, separators=(",", ":")), *(capture[field] for field in capture_fields),event["verdict"]))
             inserted += 1
         if usage["events"] + inserted > MAX_STORED_EVENTS:
             raise RuntimeError("Hit observation storage budget is full; retry after retention cleanup")
@@ -431,7 +443,7 @@ def hits(store, identifier, window_hours=1, limit=100, offset=0, server_id=None)
             raise ValueError("Invalid endpoint filter")
         clause += " AND server_id=?"
         params.append(server_id)
-    grouped = "SELECT server_id,source_ip,port,protocol,COUNT(*) AS count,MIN(event_time) AS first_seen,MAX(event_time) AS last_seen FROM hit_events WHERE " + clause + " GROUP BY server_id,source_ip,port,protocol"
+    grouped = "SELECT server_id,source_ip,port,protocol,verdict,capture_kind,capture_backend,count_unit,address_family,COUNT(*) AS count,MIN(event_time) AS first_seen,MAX(event_time) AS last_seen FROM hit_events WHERE " + clause + " GROUP BY server_id,source_ip,port,protocol,verdict,capture_kind,capture_backend,count_unit,address_family"
     with store.read_traffic() as db:
         total = db.execute("SELECT COUNT(*) FROM (" + grouped + ") hit_groups", params).fetchone()[0]
         rows = db.execute(grouped + " ORDER BY last_seen DESC,server_id,source_ip,port,protocol LIMIT ? OFFSET ?", (*params, limit, offset)).fetchall()
@@ -442,11 +454,12 @@ def hits(store, identifier, window_hours=1, limit=100, offset=0, server_id=None)
             target = db.execute("SELECT data FROM hit_monitor_targets WHERE monitor_id=? AND server_id=?", (identifier, item["server_id"])).fetchone()
             context = json.loads(target[0]) if target else {}
             item.update(hostname=context.get("hostname", item["server_id"]), **context.get("service_snapshot", {}).get(f"{item['protocol']}:{item['port']}", {}))
-            item.update(monitor_id=identifier, verdict="observed", service_basis="inventory_at_monitor_enable")
+            item.update(monitor_id=identifier, service_basis="inventory_at_monitor_enable")
             item["count"] = int(item["count"])
-            result.append(item)
+            from .traffic_capture import public as capture_public
+            result.append(capture_public(item))
     return {"items": result, "total": total, "limit": limit, "offset": offset, "has_more": offset + len(result) < total, "window_hours": window_hours,
-            "monitor": monitor, "coverage": "Rate-limited logged packet observations, not complete flows or successful connections", "automatic_policy": False}
+            "monitor": monitor, "coverage": "Transport connections, denied packets and legacy logs use distinct units. Loss, backend support and limited windows prevent a complete ledger or application-success claim.", "automatic_policy": False}
 
 
 def _cell(value):
@@ -476,7 +489,7 @@ def csv_spool(store, identifier, window_hours=1, server_id=None):
     source = tempfile.TemporaryFile(mode="w+b")
     try:
         source.write(b"\xef\xbb\xbf")
-        fields = ("monitor_id", "server_id", "hostname", "source_ip", "port", "protocol", "service", "process", "count", "first_seen", "last_seen", "verdict", "service_basis")
+        fields = ("monitor_id", "server_id", "hostname", "source_ip", "port", "protocol", "service", "process", "count", "first_seen", "last_seen", "verdict", "service_basis", "count_unit", "capture_kind", "capture_backend", "address_family")
         def write(row):
             buffer = io.StringIO()
             csv.writer(buffer).writerow([_cell(value) for value in row])
@@ -487,7 +500,8 @@ def csv_spool(store, identifier, window_hours=1, server_id=None):
         from .inventory_views import rows
         with store.read_traffic() as db:
             for row in rows(db, "SELECT server_id,data FROM hit_events WHERE " + clause + " ORDER BY event_time,id", params, batch_size=64):
-                record = {**json.loads(row[1]), "server_id": row[0], "monitor_id": identifier}
+                from .traffic_capture import public as capture_public
+                record = capture_public({**json.loads(row[1]), "server_id": row[0], "monitor_id": identifier})
                 write(record.get(field) for field in fields)
         size = source.tell()
         source.seek(0)
@@ -517,6 +531,8 @@ def report_status(store, db, server, value):
         if not isinstance(error, str) or len(error) > 4096:
             raise ValueError('Invalid hit monitoring error')
         item = {'id': entry['id'], 'status': entry['status'], 'checked_at': stamp(checked), 'received_at': stamp(), 'error': error}
+        from .traffic_capture import coverage as capture_coverage
+        item.update(capture_coverage(entry))
         if entry.get('lease_expires_at'):
             item['lease_expires_at'] = stamp(parse_time(entry['lease_expires_at']))
         key = entry['id'] + ':' + server['id']

@@ -1123,5 +1123,8 @@ class Server(ThreadingHTTPServer):
     request_queue_size = 128
 
     def __init__(self, address, app):
+        from .listener_address import bind_host
+        host = bind_host(address[0])
+        self.address_family = socket.AF_INET6 if ':' in host else socket.AF_INET
         self.app = app
-        super().__init__(address, handler_for(app))
+        super().__init__((host, *address[1:]), handler_for(app))

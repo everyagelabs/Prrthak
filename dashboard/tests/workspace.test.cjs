@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
 const location={id:'loc-1',key:'location:loc-1',name:'Mumbai primary',location:'Mumbai facility A',type:'datacenter',aliases:['Mumbai']};
-const host={id:'host-1',hostname:'lab-api',ips:['10.1.0.2'],os:'rhel',os_version:'9',status:'healthy',tags:{application:'billing',owner:'finance',dc:'Legacy only'},location_id:location.id,location,listeners:[{port:2022,protocol:'tcp',process:'sshd'},{port:8443,protocol:'tcp',process:'billing-api'}],desired_version:2,applied_version:0,apply_status:'preview',last_seen:new Date().toISOString(),collector_status:'off',capabilities:['learning_discovery_v1']};
+const host={id:'host-1',hostname:'lab-api',ips:['10.1.0.2'],os:'rhel',os_version:'9',status:'healthy',tags:{application:'billing',owner:'finance',dc:'Legacy only'},location_id:location.id,location,listeners:[{port:2022,protocol:'tcp',process:'sshd'},{port:8443,protocol:'tcp',process:'billing-api'}],desired_version:2,applied_version:0,apply_status:'preview',last_seen:new Date().toISOString(),collector_status:'off',capabilities:['learning_discovery_v1','traffic_capture_v1']};
 const policy={id:'policy-1',revision:1,name:'Billing policy',mode:'enforce',selector:{application:'billing',location_id:location.id},group_ids:[],services:[{port:8443,protocol:'tcp',sources:['10.1.0.1/32'],source_selector:{}}]};
 const serviceGroup={id:'web-ports',name:'Web application',description:'Reusable application ports',revision:2,ports:[{port:443,protocol:'tcp'},{port:8443,protocol:'tcp'}],policy_ids:['policy-1'],policy_count:1};
 const fixture={learning_policies:[],service_groups:[serviceGroup],servers:[host],locations:[location],policies:[policy],groups:[],flows:[],alerts:[],learning_sessions:[],meta:{demo:true,version:'0.1.0',traffic_retention_hours:24}};
@@ -436,10 +436,12 @@ test('manual learning is an explicit opt in and a service group copies exact por
  const form=renderedForm(env,'learning-form',{server_ids:['host-1'],selection_mode:'manual',ports:env.element('#learning-ports').value,duration:'1',unit:'3600'});
  await submitRendered(env,form);const request=mutations(env).find(item=>item.url==='/api/v1/learning');assert.deepEqual(JSON.parse(request.options.body),{server_ids:['host-1'],selection_mode:'manual',duration_seconds:3600,policy_action:'observe',ports:[{port:443,protocol:'tcp'},{port:8443,protocol:'tcp'}]});assertCookieMutation(request);
 });
-test('learning validates explicit hosts, duration and ports while old agents can use manual mode',async()=>{
+test('learning validates explicit hosts, duration and ports and new scopes require typed capture agents',async()=>{
  const env=await workspace('traffic',{mode:'entra',role:'admin'});env.run('state.data.servers[0].capabilities=[]');await env.click('learn');assert.match(env.element('#modal-content').innerHTML,/Agent upgrade required/);
  const form=renderedForm(env,'learning-form',{server_ids:[],selection_mode:'discovered',duration:'1',unit:'3600'});await submitRendered(env,form);assert.equal(mutations(env).length,0);assert.match(env.element('#form-error').textContent,/Select at least one/);
- form.values.server_ids=['host-1'];await submitRendered(env,form);assert.equal(mutations(env).length,0);assert.match(env.element('#form-error').textContent,/Upgrade agents.*lab-api/);
+ form.values.server_ids=['host-1'];await submitRendered(env,form);assert.equal(mutations(env).length,0);assert.match(env.element('#form-error').textContent,/upgrade to traffic_capture_v1.*lab-api/);
+ form.values.selection_mode='manual';form.values.ports='2022/tcp';await submitRendered(env,form);assert.equal(mutations(env).length,0);assert.match(env.element('#form-error').textContent,/traffic_capture_v1/);
+ env.run('state.data.servers[0].capabilities.push("traffic_capture_v1")');
  form.values.selection_mode='manual';form.values.ports='';await submitRendered(env,form);assert.equal(mutations(env).length,0);assert.match(env.element('#form-error').textContent,/exact ports/);
  form.values.ports='2022/tcp';form.values.duration='0';await submitRendered(env,form);assert.equal(mutations(env).length,0);assert.match(env.element('#form-error').textContent,/1 minute and 7 days/);
  form.values.duration='1';await submitRendered(env,form);const request=mutations(env).find(item=>item.url==='/api/v1/learning');assert.equal(JSON.parse(request.options.body).selection_mode,'manual');

@@ -25,6 +25,11 @@ test('recent supplied observed flows connect managed source to target', () => {
   assert.match(html, /pseg-edge-pulse/);
   assert.doesNotMatch(html, /External \/ other sources<\/text>/);
 });
+test('one observed link retains separate connection, packet and historical log units', () => {
+  const html=render({flows:[{...flow,capture_kind:'accepted_connection',verdict:'allowed',count:2},{...flow,capture_kind:'denied_packet',verdict:'denied',count:500},{...flow,count:7}]});
+  assert.match(html,/2 transport connections \/ 500 denied packets \/ 7 legacy log records/);
+  assert.doesNotMatch(html,/509 observed events|509 transport connections/);
+});
 test('historical flows are static and labeled last observed', () => {
   const html = render({flows:[{...flow,last_seen:stamp(600)}]});
   assert.match(html, /pseg-edge is-historical/);

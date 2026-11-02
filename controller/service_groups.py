@@ -207,7 +207,8 @@ def effective_bundles(store, db, *, servers=None, policies=None, service_group_o
         sources = set()
         for identifier in identifiers:
             if identifier not in address_cache:
-                address_cache[identifier] = {str(ipaddress.ip_network(address, strict=False)) for address in by_id[identifier].get("ips", [])}
+                from .network_addresses import network
+                address_cache[identifier] = {str(network(address)) for address in by_id[identifier].get("ips", [])}
             sources.update(address_cache[identifier])
         return sources
 

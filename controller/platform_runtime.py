@@ -48,7 +48,7 @@ TRAFFIC_TABLES = ("batches", "flows", "hit_batches", "hit_events", "hit_limits")
 SPECIAL_COLUMNS = {
     "hit_monitor_targets": ("id", "monitor_id", "server_id", "enabled", "data"),
     "hit_batches": ("batch_key", "server_id", "monitor_id", "data", "received_at", "processed"),
-    "hit_events": ("id", "server_id", "monitor_id", "batch_key", "event_digest", "source_ip", "port", "protocol", "event_time", "expires_at", "data", "processed"),
+    "hit_events": ("id", "server_id", "monitor_id", "batch_key", "event_digest", "source_ip", "port", "protocol", "event_time", "expires_at", "data", "processed", "capture_kind", "capture_backend", "count_unit", "address_family", "verdict"),
     "notification_deliveries": ("id", "event_id", "channel_id", "status", "next_attempt_at", "lease_until", "created_at", "data"),
     "bundle_history": ("id", "server_id", "version", "digest", "created_at", "data"),
     "learning_allow_policies": ("id", "data", "server_id", "session_id"),
@@ -60,7 +60,7 @@ SPECIAL_COLUMNS = {
     "security_event_receipts": ("id", "server_id", "source_ip", "event_time", "received_at", "data"),
     "service_group_revisions": ("id", "service_group_id", "revision", "created_at", "data"),
     "batches": ("batch_key", "server_id", "session_id", "data", "received_at", "processed", "evidence_processed"),
-    "flows": ("id", "batch_key", "event_index", "server_id", "session_id", "source_ip", "port", "protocol", "verdict", "count", "first_seen", "last_seen"),
+    "flows": ("id", "batch_key", "event_index", "server_id", "session_id", "source_ip", "port", "protocol", "verdict", "count", "first_seen", "last_seen", "capture_kind", "capture_backend", "count_unit", "address_family", "event_id", "event_digest", "capture_processed", "capture_expires_at"),
 }
 
 
@@ -606,12 +606,13 @@ class RuntimeSupervisor:
         return self._verify_active_child(job, profile, arguments, result)
 
     def rotate_certificate(self, job):
-        from .certificates import _binding
+        from .certificates import _binding, revalidate_activation
         from cryptography import x509
         from cryptography.hazmat.primitives import hashes
         private, material = job["private"], job["material"]
         old_profile = self.manager.active_profile() or self.current_profile
         context = self.manager.certificate_context()
+        revalidate_activation(material, private["expected_fingerprint"], context)
         committed = self.manager.launch_tls()
         if committed.get("fingerprint_sha256") == private["expected_fingerprint"]:
             arguments = self.start_child(old_profile) if self.child is None else child_launch(_set_argument(_set_argument(self.arguments, "--cert", committed["cert"]), "--key", committed["key"]), self.current_profile)[0][3:]

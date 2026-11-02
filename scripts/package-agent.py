@@ -24,6 +24,7 @@ for arch in ('amd64', 'arm64'):
              (root / 'agent' / 'README.md', 'agent/README.md'),
              (root / 'docs' / 'managed-enforcement.md', 'docs/managed-enforcement.md'),
              (root / 'docs' / 'whole-server-default-deny.md', 'docs/whole-server-default-deny.md'),
+             (root / 'docs' / 'traffic-capture.md', 'docs/traffic-capture.md'),
              (root / 'docs' / 'linux-validation.md', 'docs/linux-validation.md'),
              (root / 'docs' / 'scale-validation.md', 'docs/scale-validation.md'),
              (root / 'docs' / 'ipset-enforcement.md', 'docs/ipset-enforcement.md'),
@@ -114,13 +115,13 @@ No second person, selectable approval mode or expiring pilot consent is needed.
 Explicit imported deny/restrictive actions, restrictive learned edits/removal
 and destructive recovery retain extra confirmations by the same actor. Super
 Admin manages application users and privileged platform settings.
-Agent0.7 verifies independently pinned Ed25519 assignment signatures. Enrollment
+Agent {version} verifies independently pinned Ed25519 assignment signatures. Enrollment
 may pin the initial public manifest; it never silently rotates existing trust.
 Large managed/learned source lists require reviewed empty source-bank preparation
 and maintenance activation; policy application never reloads firewalld. Review
 docs/ipset-enforcement.md in the repository before enabling large source sets.
 Failed transactions restore exact owned changes and require review before retry.
-For a fresh pilot install the 0.7 controller and then the 0.7 agents. Upgrade any
+For a fresh pilot install the {version} controller and then the {version} agents. Upgrade any
 older endpoints before relying on current direct-Admin deliveries; unsupported
 authority/schema is refused safely. Signed assignments
 require enrolled identity binding and a durable monotonic assignment_generation.
@@ -128,8 +129,11 @@ For this pilot, leave enforcement/automatic learning off controller, database
 and load-balancer infrastructure pending native ingress-protection acceptance.
 Supported imported-rule changes independently require allow_firewall_changes=true
 plus the authorized Admin action and any explicit restrictive confirmation. The 20-server pilot has not started.
-Temporary learning and optional unexpected-port monitoring use bounded log-only
-instrumentation. Review agent/README.md before enabling either opt-in feature.
+New learning and continuous port-hit monitoring use native conntrack accepted
+transport evidence and verified terminal NFLOG denied-packet evidence. They
+report unsupported paths, gaps and losses and do not silently use journal logs.
+Separate unexpected-port monitoring retains bounded log-only instrumentation.
+See docs/traffic-capture.md and agent/README.md before enabling capture.
 See agent/README.md for capabilities, credential handling and limitations.
 ''', encoding='utf-8')
     files.append((guide, 'INSTALL.txt'))

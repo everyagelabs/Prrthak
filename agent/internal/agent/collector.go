@@ -88,6 +88,9 @@ func quarantineBatch(path string) error {
 	return os.Rename(path, filepath.Join(dir, filepath.Base(path)+".rejected"))
 }
 func ParseKernelLog(message string, when time.Time, s Session) (Flow, bool) {
+	if s.ObservationKinds != nil {
+		return Flow{}, false
+	}
 	prefixPosition := strings.Index(message, RulePrefix(s.ID))
 	if prefixPosition < 0 {
 		return Flow{}, false
@@ -120,7 +123,7 @@ func ParseKernelLog(message string, when time.Time, s Session) (Flow, bool) {
 	proto := strings.ToLower(fields["PROTO"])
 	for _, p := range s.Ports {
 		if p.Port == port && p.Protocol == proto {
-			return Flow{src.String(), port, proto, "observed", 1, when, when}, true
+			return Flow{SourceIP: src.String(), Port: port, Protocol: proto, Verdict: "observed", Count: 1, FirstSeen: when, LastSeen: when}, true
 		}
 	}
 	return Flow{}, false

@@ -268,6 +268,9 @@ func richEditable(info richInfo) bool {
 	return info.Priority == 0 && !info.HasLog && info.Protocol == "" && info.Action != "" && (info.Source != "" || info.Port != "" || info.Service != "")
 }
 func ownedObservation(value string, owned []OwnedRule) bool {
+	if ownedCaptureObservation(value, owned) {
+		return true
+	}
 	candidate, e := parseRich(value)
 	if e != nil || !candidate.HasLog || candidate.Action != "" {
 		return false

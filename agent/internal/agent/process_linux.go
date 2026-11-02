@@ -20,6 +20,8 @@ import (
 const commandSupervisorArgument = "--microseg-private-command-supervisor"
 const commandSupervisorParent = "MICROSEG_PRIVATE_COMMAND_PARENT"
 const commandSupervisorLease = "MICROSEG_PRIVATE_COMMAND_LEASE"
+const commandSupervisorFence = "MICROSEG_PRIVATE_COMMAND_FENCE"
+const commandSupervisorFenceNonce = "MICROSEG_PRIVATE_COMMAND_FENCE_NONCE"
 
 // The supervisor runs from this same executable, including in tests. Its only
 // entry point is this private argv/environment pair; no agent startup, recovery
@@ -91,7 +93,7 @@ func duplicateCommandLease(lease *os.File) (*os.File, error) {
 		}
 		return nil, duplicateErr
 	}
-	return os.NewFile(uintptr(descriptor), "command-enforcement-lease"), nil
+	return os.NewFile(uintptr(descriptor), lease.Name()), nil
 }
 
 func runFencedCommand(cmd *exec.Cmd) error {
@@ -107,15 +109,58 @@ func runFencedCommand(cmd *exec.Cmd) error {
 			_ = owned.Close()
 		}
 	}()
-	return cmd.Run()
+	var fence *commandFence
+	var path string
+	if len(cmd.ExtraFiles) > 0 {
+		var err error
+		fence, path, err = createCommandFence(cmd.ExtraFiles[0].Name())
+		if err != nil {
+			return err
+		}
+		cmd.Env = append(cmd.Env, commandSupervisorFence+"="+path, commandSupervisorFenceNonce+"="+fence.Nonce)
+	}
+	err := cmd.Run()
+	if fence != nil {
+		if cmd.Process == nil {
+			// StartProcess did not execute a supervisor, so no descendant could
+			// have run. An executed supervisor's status is never sufficient.
+			if clearErr := clearCommandFence(path, fence.Nonce); clearErr != nil {
+				return clearErr
+			}
+		} else if fenceErr := checkCommandFence(cmd.ExtraFiles[0].Name(), false); fenceErr != nil {
+			return fenceErr
+		}
+	}
+	return err
 }
 
-func superviseCommand(name string, args []string) (int, error) {
+func superviseCommand(name string, args []string) (code int, result error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	parent, err := strconv.Atoi(os.Getenv(commandSupervisorParent))
 	if err != nil || parent < 1 {
 		return 125, errors.New("invalid command owner")
+	}
+	if os.Getenv(commandSupervisorLease) == "1" {
+		path, nonce := os.Getenv(commandSupervisorFence), os.Getenv(commandSupervisorFenceNonce)
+		record, err := readCommandFence(path)
+		if err != nil || record.Nonce != nonce || record.OwnerPID != parent {
+			return 125, errUncertainCommand
+		}
+		defer func() {
+			// SIGKILL cannot run this defer: its durable record survives even
+			// if every descendant closes all inherited lease descriptors.
+			if !commandTreeProvenDrained() {
+				code, result = 125, errUncertainCommand
+			} else if err := clearCommandFence(path, nonce); err != nil {
+				code, result = 125, err
+			}
+		}()
+		if record.OwnerIdentity != processIdentity(parent) {
+			// No command was started; the defer still requires kernel ECHILD
+			// before retiring this exact never-executed startup reservation.
+			return 125, errors.New("command owner exited before startup")
+		}
 	}
 	terms := make(chan os.Signal, 1)
 	signal.Notify(terms, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
@@ -160,7 +205,7 @@ func superviseCommand(name string, args []string) (int, error) {
 func cleanSupervisorEnvironment() []string {
 	var env []string
 	for _, value := range os.Environ() {
-		if !strings.HasPrefix(value, commandSupervisorParent+"=") && !strings.HasPrefix(value, commandSupervisorLease+"=") {
+		if !strings.HasPrefix(value, commandSupervisorParent+"=") && !strings.HasPrefix(value, commandSupervisorLease+"=") && !strings.HasPrefix(value, commandSupervisorFence+"=") && !strings.HasPrefix(value, commandSupervisorFenceNonce+"=") {
 			env = append(env, value)
 		}
 	}

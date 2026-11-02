@@ -22,11 +22,12 @@ const maxHitBatchBytes = 512 * 1024
 const maxHitEvents = 1000
 
 type HitMonitorAssignment struct {
-	ID        string    `json:"id"`
-	ServerID  string    `json:"server_id"`
-	StartsAt  time.Time `json:"starts_at"`
-	ExpiresAt time.Time `json:"expires_at"`
-	Ports     []Port    `json:"ports"`
+	ObservationKinds []string  `json:"observation_kinds,omitempty"`
+	ID               string    `json:"id"`
+	ServerID         string    `json:"server_id"`
+	StartsAt         time.Time `json:"starts_at"`
+	ExpiresAt        time.Time `json:"expires_at"`
+	Ports            []Port    `json:"ports"`
 }
 type HitEvent struct {
 	EventID string `json:"event_id"`
@@ -40,16 +41,18 @@ type HitBatch struct {
 	Events         []HitEvent `json:"events"`
 }
 type HitMonitorCoverage struct {
-	Enabled         bool   `json:"enabled"`
-	Status          string `json:"status"`
-	Error           string `json:"error"`
-	ActiveMonitors  int    `json:"active_monitors"`
-	RateLimited     bool   `json:"rate_limited"`
-	DroppedEvents   int    `json:"dropped_events"`
-	PendingBatches  int    `json:"pending_batches"`
-	CoverageLimited bool   `json:"coverage_limited"`
+	Capture         *TrafficCaptureCoverage `json:"traffic_capture,omitempty"`
+	Enabled         bool                    `json:"enabled"`
+	Status          string                  `json:"status"`
+	Error           string                  `json:"error"`
+	ActiveMonitors  int                     `json:"active_monitors"`
+	RateLimited     bool                    `json:"rate_limited"`
+	DroppedEvents   int                     `json:"dropped_events"`
+	PendingBatches  int                     `json:"pending_batches"`
+	CoverageLimited bool                    `json:"coverage_limited"`
 }
 type HitMonitorStatus struct {
+	TrafficCaptureCoverage
 	ID             string     `json:"id"`
 	Status         string     `json:"status"`
 	LeaseExpiresAt *time.Time `json:"lease_expires_at,omitempty"`
@@ -69,6 +72,9 @@ func HitObservationRule(id string, port Port) string {
 	return fmt.Sprintf(`rule priority="-32740" port port="%d" protocol="%s" log prefix="%s" level="info" limit value="20/s"`, port.Port, port.Protocol, HitRulePrefix(id))
 }
 func validateHitAssignment(item HitMonitorAssignment, server string, at time.Time, fresh bool) error {
+	if err := validateObservationKinds(item.ObservationKinds); err != nil {
+		return err
+	}
 	if !hitID.MatchString(item.ID) || !hitServerID.MatchString(server) || item.ServerID != server || len(item.Ports) < 1 || len(item.Ports) > maxHitPorts || !item.ExpiresAt.After(item.StartsAt) || item.ExpiresAt.Sub(item.StartsAt) > hitLeaseLifetime {
 		return errors.New("invalid endpoint-bound hit-monitor lease")
 	}
@@ -93,6 +99,9 @@ func hitPortsKey(ports []Port) string {
 	return strings.Join(values, ",")
 }
 func ParseHitKernelLog(message string, when time.Time, assignment HitMonitorAssignment, cursor string) (HitEvent, bool) {
+	if assignment.ObservationKinds != nil {
+		return HitEvent{}, false
+	}
 	if cursor == "" || len(cursor) > 4096 || when.Before(assignment.StartsAt) || !when.Before(assignment.ExpiresAt) {
 		return HitEvent{}, false
 	}

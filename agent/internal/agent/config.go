@@ -177,6 +177,9 @@ func ValidatePolicy(p *Policy) error {
 		return errors.New("too many learning sessions")
 	}
 	for _, s := range append(append([]Session{}, p.LearningSessions...), p.LearningTombstones...) {
+		if err := validateObservationKinds(s.ObservationKinds); err != nil {
+			return err
+		}
 		if s.PolicyAction != "" && s.PolicyAction != "observe" && s.PolicyAction != "auto_allow" {
 			return errors.New("invalid learning policy_action")
 		}

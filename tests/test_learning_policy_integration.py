@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from controller.app import App
 from controller.store import Store, digest, now, stamp
+from controller.tests.capture_fixture import typed_event
 from test_integration import request, running
 
 
@@ -39,7 +40,7 @@ class LearningPolicyAcceptanceTests(unittest.TestCase):
                                   'process': 'sshd' if port == 2022 else 'api-service',
                                   'service': 'SSH' if port == 2022 else 'Billing API'} for port in (2022, 80, 443, 8443, 9090)],
                    'discovery_performed': True, 'discovered_at': stamp(),
-                   'capabilities': ['learning_discovery_v1', 'learning_auto_allow_v1'], 'agent_version': '0.4.0',
+                   'capabilities': ['learning_discovery_v1', 'learning_auto_allow_v1','traffic_capture_v1'], 'agent_version': '0.9.0',
                    'protection': {**protected, 'digest': digest(protected), 'ready': True, 'blockers': []}, **extra}
         return self.api('POST', 'agent/report', payload, headers={'X-Agent-ID': identifier})
 
@@ -56,9 +57,10 @@ class LearningPolicyAcceptanceTests(unittest.TestCase):
 
     def upload(self, session, tuples, at=None):
         self.batch_number += 1
-        events = [{'source_ip': source, 'port': port, 'protocol': protocol, 'verdict': verdict,
-                   'count': count, 'first_seen': at or stamp(), 'last_seen': at or stamp()}
-                  for source, port, protocol, verdict, count in tuples]
+        events = [typed_event(source,port,protocol=protocol,
+                   identity=f"{session['id']}:{self.batch_number}:{row_index}:{number}",at=at,
+                   kind='denied_packet' if verdict=='denied' else 'accepted_connection')
+                  for row_index,(source,port,protocol,verdict,count) in enumerate(tuples) for number in range(count)]
         payload = {'batch_id': 'accepted-' + str(self.batch_number), 'session_id': session['id'], 'events': events}
         self.api('POST', 'agent/flows', payload, 202, {'X-Agent-ID': 'learn-a'})
         self.store.process_flows()

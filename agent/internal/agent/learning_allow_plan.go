@@ -25,6 +25,9 @@ func rememberLearningEvidence(state *State, session Session, flow Flow) {
 	if session.PolicyAction != "auto_allow" {
 		return
 	}
+	if session.ObservationKinds != nil && (!validTypedCapture(flow, flow.EventID) || !captureSelected(flow, session.ObservationKinds, session.Ports, session.StartsAt, SessionCutoff(session))) {
+		return
+	}
 	if _, ok := eligibleLearningSource(flow.SourceIP); !ok {
 		return
 	}
@@ -238,6 +241,9 @@ func (a *Agent) validateLearningDelta(p *LearningAllow, now time.Time) error {
 			}
 			for _, session := range ActiveSessions(a.State.Policy, now) {
 				if session.ID != authority.SessionID || session.PolicyAction != "auto_allow" {
+					continue
+				}
+				if captureKindsKey(session.ObservationKinds) != captureKindsKey(authority.ObservationKinds) {
 					continue
 				}
 				assigned := false

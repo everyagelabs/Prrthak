@@ -10,6 +10,7 @@ from unittest.mock import patch
 from controller import hit_monitoring as hm, recovery
 from controller.firewall import WorkflowConflict
 from controller.store import Store, now, stamp
+from controller.tests.capture_fixture import typed_event
 
 
 class HitMonitorTests(unittest.TestCase):
@@ -22,7 +23,7 @@ class HitMonitorTests(unittest.TestCase):
         self.report('two', application='Payments')
 
     def report(self, identifier, application='Billing', **extra):
-        body = dict(hostname=identifier, ips=['10.0.0.' + ('1' if identifier == 'one' else '2')], listeners=[{'port': 22, 'protocol': 'tcp', 'service': 'SSH', 'process': 'sshd'}, {'port': 443, 'protocol': 'tcp', 'service': 'HTTPS', 'process': '=untrusted'}], capabilities=['signed_assignments_v1', hm.CAPABILITY], agent_version='0.7.0', firewalld_state='running')
+        body = dict(hostname=identifier, ips=['10.0.0.' + ('1' if identifier == 'one' else '2')], listeners=[{'port': 22, 'protocol': 'tcp', 'service': 'SSH', 'process': 'sshd'}, {'port': 443, 'protocol': 'tcp', 'service': 'HTTPS', 'process': '=untrusted'}], capabilities=['signed_assignments_v1', hm.CAPABILITY,'traffic_capture_v1'], agent_version='0.9.0', firewalld_state='running')
         body.update(extra)
         self.store.report(identifier, body)
         with self.store.meta() as db:
@@ -46,7 +47,7 @@ class HitMonitorTests(unittest.TestCase):
     def batch(self, monitor, server='one', source='2001:db8::12', port=443, identity='a', at=None):
         lease = self.lease(monitor, server)
         point = at or now()
-        event = {'event_id': hashlib.sha256(identity.encode()).hexdigest(), 'source_ip': source, 'port': port, 'protocol': 'tcp', 'verdict': 'observed', 'count': 1, 'first_seen': stamp(point), 'last_seen': stamp(point)}
+        event = typed_event(source,port,identity=identity,at=point)
         return {'batch_id': identity, 'monitor_id': monitor['id'], 'lease_starts_at': lease['starts_at'], 'lease_expires_at': lease['expires_at'], 'events': [event]}
 
     def stop(self, monitor):

@@ -90,15 +90,16 @@ class PlatformPostgresAcceptance(unittest.TestCase):
     def _populate_valid(self, store, pending=True):
         store.lab_approvals = True  # Fixture proves persistence, not independent production approval.
         baseline = {"management_sources": ["10.99.0.0/24"], "ssh_ports": [2022], "controller_url": "https://controller.example:8787", "management_probe_url": "https://controller.example:8787/api/v1/agent/enforcement/check", "zone": "public"}
-        report = {"hostname": "acceptance-app", "ips": ["10.70.0.11"], "listeners": [{"port": port, "protocol": "tcp", "address": "0.0.0.0", "process": process, "service": service} for port, process, service in ((2022, "sshd", "SSH"), (80, "nginx", "HTTP"), (443, "nginx", "HTTPS"))], "firewalld_state": "running", "discovery_performed": True, "discovered_at": stamp(), "agent_version": "0.4.0", "capabilities": ["learning_discovery_v1", "learning_auto_allow_v1"], "protection": {**baseline, "digest": digest(baseline), "ready": True, "blockers": []}}
+        report = {"hostname": "acceptance-app", "ips": ["10.70.0.11"], "listeners": [{"port": port, "protocol": "tcp", "address": "0.0.0.0", "process": process, "service": service} for port, process, service in ((2022, "sshd", "SSH"), (80, "nginx", "HTTP"), (443, "nginx", "HTTPS"))], "firewalld_state": "running", "discovery_performed": True, "discovered_at": stamp(), "agent_version": "0.9.0", "capabilities": ["learning_discovery_v1", "learning_auto_allow_v1","traffic_capture_v1"], "protection": {**baseline, "digest": digest(baseline), "ready": True, "blockers": []}}
         store.report("acceptance-app", report)
         policy = store.save_policy({"name": "Preserve policy history", "selector": {}, "mode": "monitor", "services": [{"port": 443, "protocol": "tcp", "sources": ["10.50.0.0/24"]}]}, "acceptance-admin")
         store.save_policy({**policy, "services": [{"port": 443, "protocol": "tcp", "sources": ["10.51.0.0/24"]}]}, "acceptance-admin", policy["id"])
         session = store.create_session({"server_ids": ["acceptance-app"], "selection_mode": "discovered", "policy_action": "auto_allow", "auto_allow_confirmed": True, "port_filter": [{"port": 443, "protocol": "tcp"}]}, "acceptance-admin")
         store.report("acceptance-app", {**report, "discovered_at": stamp(), "learning_discovery_session_ids": [session["id"]]})
         def batch(identifier, source, count):
+            from controller.tests.capture_fixture import typed_event
             at = stamp()
-            return {"session_id": session["id"], "batch_id": identifier, "events": [{"source_ip": source, "port": 443, "protocol": "tcp", "verdict": "observed", "count": count, "first_seen": at, "last_seen": at}]}
+            return {"session_id": session["id"], "batch_id": identifier, "events": [typed_event(source,443,identity=session['id']+identifier+str(index),at=at) for index in range(count)]}
         processed = batch("processed-before-migration", "10.50.0.5", 7)
         store.enqueue_flows("acceptance-app", processed)
         store.process_flows()
@@ -124,7 +125,7 @@ class PlatformPostgresAcceptance(unittest.TestCase):
                     payload = json.dumps({"id": key, "fixture": table, "version": 17, "revision": 11, "unicode": "पृथक्", "retained": {"source": "10.40.0.8/32", "port": 443}}, sort_keys=True)
                     values = {"id": key, "data": payload, "server_id": "preserve-endpoint", "session_id": "preserve-session", "version": 17, "revision": 11, "digest": "d" * 64, "protection_digest": "p" * 64, "created_at": at, "expires_at": expiry, "approval_id": "preserve-approval", "active": 1, "policy_id": "preserve-policy", "service_group_id": "preserve-service", "source_ip": "10.40.0.8", "event_time": at, "received_at": at, "batch_key": "preserve-batch", "processed": 0, "evidence_processed": 0, "event_index": 0, "port": 443, "protocol": "tcp", "verdict": "observed", "count": 9, "first_seen": at, "last_seen": at, "event_id": "preserve-event", "channel_id": "preserve-channel", "status": "pending", "next_attempt_at": at, "lease_until": None}
                     values.update(monitor_id="8e6b8d7b-7cb5-484f-8200-83a1f3f9a166", enabled=1,
-                                  event_digest="e" * 64)
+                                  event_digest="e" * 64,capture_kind="legacy_log",capture_backend="journal",count_unit="log_records",address_family="ipv4",capture_processed=1,capture_expires_at=expiry)
                     db.execute(f'INSERT INTO "{table}" ({",".join(columns)}) VALUES ({",".join("?" for _ in columns)})', tuple(values[column] for column in columns))
         result = self._migrate(source)
         target = self._bound()

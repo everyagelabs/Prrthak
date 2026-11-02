@@ -1,4 +1,4 @@
-# GUI-configured 20-server pilot (0.8.0)
+# GUI-configured 20-server pilot (0.9.0)
 
 Configure Prṛthak in the GUI. The installer and fixed local manager generate
 protected files; no manual `.env`, agent JSON, token or CA editing is required.
@@ -51,7 +51,7 @@ flowchart LR
 
 ## 2. Stage the verified release and run one controller installer
 
-Obtain `prthak-controller-0.8.0.tar.gz` and its detached `.signature.json`.
+Obtain `prthak-controller-0.9.0.tar.gz` and its detached `.signature.json`.
 Verify exact archive bytes **before extraction/execution**, using an independently
 approved public release-signing pin and verifier. A public key downloaded beside
 an unknown archive does not establish trust. The project signing authority is
@@ -126,8 +126,8 @@ approved repositories. Family installers check prerequisites; they do not run
 apt/dnf, start firewalld, disable UFW or migrate existing rules. Package hooks
 may activate services, so stage OS work with management access protected.
 
-Stage and independently verify `prthak-agent-0.8.0-linux-amd64.tar.gz` or
-`prthak-agent-0.8.0-linux-arm64.tar.gz`, then extract to a protected root-owned
+Stage and independently verify `prthak-agent-0.9.0-linux-amd64.tar.gz` or
+`prthak-agent-0.9.0-linux-arm64.tar.gz`, then extract to a protected root-owned
 release directory. Use its signed runtime manifest and independently approved
 public trust. The static Go endpoint needs no Git, Python or Go compiler/runtime.
 
@@ -364,3 +364,8 @@ validate HA, an organization tenant or production readiness.
 ## Optional whole-server default deny
 
 After native lockout acceptance, use [Policies → Whole-server default deny](whole-server-default-deny.md) for a small explicit server/group scope. The endpoint needs the separate local opt-in and compatible agent; every push requires a fresh manually checked downtime acknowledgement. Monitor rows do not grant access through the global fallback. Existing sessions and the declared network-control exceptions are preserved. Review the exact affected servers and verify receipts; adding future group members never silently enables this option.
+
+
+## Native traffic capture in 0.9
+
+Upgrade controller and endpoints before creating new learning/monitor scopes. They require `traffic_capture_v1`, with accepted connections and denied packets selected independently or together. Historical log-only sessions remain labelled legacy. Unsupported native contexts and missing coverage are shown; there is no silent journal fallback. See [the capture guide](traffic-capture.md) before enabling per-port automatic grants from denied hits.

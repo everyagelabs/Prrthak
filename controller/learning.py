@@ -90,7 +90,7 @@ def preview(store, value):
             server = store._get(db, "servers", identifier)
             if server is None:
                 raise ValueError(f"Unknown server: {identifier}")
-            hosts.append({"server_id": identifier, "hostname": server["hostname"], "ports": selected_discovered_ports(server.get("listeners", []), port_filter), "last_discovery_at": server.get("last_discovery_at"), "freshness": "cached_preview", "discovery_pending": True, "supported": CAPABILITY in server.get("capabilities", []), "offline": store._heartbeat_stale(server), "synthetic": server.get("synthetic", False)})
+            hosts.append({"server_id": identifier, "hostname": server["hostname"], "ports": selected_discovered_ports(server.get("listeners", []), port_filter), "last_discovery_at": server.get("last_discovery_at"), "freshness": "cached_preview", "discovery_pending": True, "supported": CAPABILITY in server.get("capabilities", []), "capture_supported":"traffic_capture_v1" in server.get("capabilities",[]), "offline": store._heartbeat_stale(server), "synthetic": server.get("synthetic", False)})
     return {"selection_mode": "discovered", "server_ids": ids, "port_filter": port_filter, "servers": hosts, "freshness": "cached_preview", "message": "Cached inventory preview. Start learning requests a fresh scan on every selected server and freezes each server's own selected ports for this learning window."}
 
 
@@ -103,6 +103,8 @@ def create_session(store, value, actor, *, principal=None):
     if mode == "manual" and port_filter:
         raise ValueError("port_filter is for fresh discovery; manual learning uses ports")
     policy_action = value.get("policy_action", "observe")
+    from .traffic_capture import observation_kinds
+    kinds = observation_kinds(value.get("observation_kinds"))
     if policy_action not in ("observe", "auto_allow"):
         raise ValueError("policy_action must be observe or auto_allow")
     if policy_action == "auto_allow" and (mode != "discovered" or value.get("auto_allow_confirmed") is not True):
@@ -123,6 +125,9 @@ def create_session(store, value, actor, *, principal=None):
             if server is None:
                 raise ValueError(f"Unknown server: {identifier}")
             servers.append(server)
+        capture_unsupported=[server['hostname'] for server in servers if 'traffic_capture_v1' not in server.get('capabilities',[])]
+        if capture_unsupported:
+            raise ValueError('New capture scopes require traffic_capture_v1; upgrade these agents: '+', '.join(capture_unsupported[:20]))
         unsupported = [server["hostname"] for server in servers if CAPABILITY not in server.get("capabilities", [])]
         if mode == "discovered" and unsupported:
             raise ValueError("Automatic learning requires an agent supporting learning_discovery_v1 (0.3.0 or later). Upgrade these agents or use manual ports: " + ", ".join(unsupported[:20]))
@@ -136,7 +141,7 @@ def create_session(store, value, actor, *, principal=None):
         for current in store._all(db, "sessions"):
             if current["status"] == "active" and parse_time(current["expires_at"]) > at and set(ids) & set(current["server_ids"]):
                 raise ValueError("A selected server already has an active learning session")
-        session = {"id": str(uuid.uuid4()), "server_ids": ids, "selection_mode": mode, "policy_action": policy_action, "ports": ports, "starts_at": stamp(at), "expires_at": stamp(at + timedelta(seconds=duration)), "status": "active", "created_by": actor}
+        session = {"id": str(uuid.uuid4()), "server_ids": ids, "selection_mode": mode, "policy_action": policy_action, "observation_kinds": kinds, "ports": ports, "starts_at": stamp(at), "expires_at": stamp(at + timedelta(seconds=duration)), "status": "active", "created_by": actor}
         if port_filter:
             session["port_filter"] = port_filter
         if policy_action == "auto_allow":
@@ -153,7 +158,7 @@ def create_session(store, value, actor, *, principal=None):
         for server in servers:
             store._collector_state(server, sessions, at)
             store._put(db, "servers", server)
-        store.audit("learning.started", actor, {"session_id": session["id"], "server_ids": ids, "duration_seconds": duration, "selection_mode": mode, "policy_action": policy_action, "port_filter": port_filter}, db)
+        store.audit("learning.started", actor, {"session_id": session["id"], "server_ids": ids, "duration_seconds": duration, "selection_mode": mode, "policy_action": policy_action, "port_filter": port_filter, "observation_kinds":kinds}, db)
     return session
 
 

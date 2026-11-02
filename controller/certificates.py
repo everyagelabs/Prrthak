@@ -1,6 +1,8 @@
 """Reviewed controller HTTPS material; activation belongs to the supervisor.
 
-Private keys are canonicalized only in memory and encrypted in the private vault.
+Private keys are encrypted in the private vault. Offline TLS preflight briefly
+loads a mode-0600 identity file inside a mode-0700 temporary directory, removes
+it before the in-memory handshake and never changes an active TLS identity.
 No PKCS#12/key password, key bytes or certificate bundle appears in public plans,
 jobs or audit. Endpoint issuing trust is never silently replaced.
 """
@@ -400,7 +402,19 @@ def _material(body, context):
     trust_change = not (same_leaf or established and _trusts(chain, established))
     certificate_pem = b"".join(value.public_bytes(serialization.Encoding.PEM) for value in chain).decode()
     key_pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode()
+    from .certificate_validation import verify_server_identity
+    verify_server_identity(certificate_pem, key_pem, chain[-1].public_bytes(serialization.Encoding.PEM).decode(),
+                           [_name(name)[0] for name in names], partial_chain=not _signed_by(chain[-1], chain[-1]))
     return {"certificate_pem": certificate_pem, "private_key_pem": key_pem, "hostname": hostname, "fingerprint_sha256": _fp(certificate), "trust_change": trust_change, "source": mode if source == "self_signed" else source}, _summary(certificate)
+
+
+def revalidate_activation(material, expected_fingerprint, context):
+    """Recheck queued material before any active identity or staging changes."""
+    checked, _ = _material({"source": "pem", "hostname": material.get("hostname"),
+                            "certificate_pem": material.get("certificate_pem"),
+                            "private_key_pem": material.get("private_key_pem")}, context)
+    if checked["fingerprint_sha256"] != expected_fingerprint:
+        raise ValueError("The queued certificate does not match the reviewed HTTPS identity")
 
 
 def _public_plan(plan):

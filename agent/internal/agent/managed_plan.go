@@ -12,9 +12,16 @@ import (
 
 const maxManagedRules = 64
 const managedCanonicalAllow = -31000
-const managedCanonicalReject = -30999
-const managedStageAllow = -31002
-const managedStageReject = -31001
+const managedCanonicalReject = -30998
+const managedStageAllow = -31004
+const managedStageReject = -31002
+const managedCaptureReject = -30999
+
+// Exact legacy ownership survives upgrades/rollback. New rendering alone uses
+// the reserved slots; old authority is never silently rewritten for capture.
+func managedOwnershipPriority(priority int) bool {
+	return priority == -31004 || priority == -31002 || priority == -31001 || priority == -31000 || priority == -30999 || priority == -30998
+}
 
 func canonicalSources(values []string, management bool) ([]string, error) {
 	seen := map[string]bool{}

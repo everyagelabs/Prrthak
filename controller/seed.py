@@ -90,6 +90,12 @@ def synthetic_firewall_snapshot(server):
     return {**result, "synthetic": True}
 
 
+def synthetic_capture_coverage():
+    """UI-only fixture facts; never claim a connected native capture backend."""
+    return {"capture_backends":[{"backend":backend,"status":"unsupported","ipv4":False,"ipv6":False,"lost_events":None,"error":"Synthetic demo: no native capture backend is connected"} for backend in ("conntrack","nflog")],
+            "capture_gaps":["Synthetic demo only; no kernel connections or denied packets are being captured"]}
+
+
 def mark_synthetic_hosts(store):
     """Migrate only the known demo seed IDs; never mark arbitrary reported agents."""
     from .maintenance import seed_disabled
@@ -100,8 +106,9 @@ def mark_synthetic_hosts(store):
             server = store._get(db, "servers", identifier)
             if server:
                 server["synthetic"] = True
-                server["agent_version"] = "0.3.0-synthetic"
-                server["capabilities"] = ["learning_discovery_v1"]
+                server["agent_version"] = "0.9.0-synthetic"
+                server["capabilities"] = ["learning_discovery_v1","traffic_capture_v1"]
+                if server.get('learning_coverage'):server['learning_coverage'].update(synthetic_capture_coverage())
                 server.setdefault("discovery_interval_seconds", 900)
                 if not server.get("firewall_snapshot"):
                     server["firewall_snapshot"] = synthetic_firewall_snapshot(server)
@@ -166,7 +173,7 @@ def tick_synthetic_hosts(store, at=None):
                 server["last_learning_at"] = session["starts_at"]
                 coverage = server.get("learning_coverage", {})
                 if coverage.get("session_id") != session["id"]:
-                    server["learning_coverage"] = {"session_id": session["id"], "started_at": stamp(max(at, parse_time(session["starts_at"]))), "dropped_events": 0, "rate_limited": False, "error": ""}
+                    server["learning_coverage"] = {"session_id": session["id"], "started_at": stamp(max(at, parse_time(session["starts_at"]))), "dropped_events": 0, "rate_limited": True, "error": "Synthetic demo: no native capture backend is connected", **synthetic_capture_coverage()}
             if not offline and (not server.get("last_discovery_at") or (at - parse_time(server["last_discovery_at"])).total_seconds() >= server.get("discovery_interval_seconds", 900)):
                 server["last_discovery_at"] = stamp(at)
                 server["discovered_at"] = stamp(at)

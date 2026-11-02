@@ -11,6 +11,7 @@ from controller import learning_policies as lp
 from controller import server_management as lifecycle
 from controller.firewall import WorkflowConflict
 from controller.store import Store, digest, now, stamp
+from controller.tests.capture_fixture import typed_event
 
 
 class LearningPolicyTests(unittest.TestCase):
@@ -25,7 +26,7 @@ class LearningPolicyTests(unittest.TestCase):
 
     def report(self, identifier, address, **extra):
         listeners = [{"port": port, "protocol": "tcp", "address": "0.0.0.0", "service": service, "process": process} for port, service, process in ((80, "HTTP", "nginx"), (5432, "PostgreSQL", "postgres"), (2022, "SSH", "sshd"))]
-        return self.store.report(identifier, {"hostname": identifier, "ips": [address], "listeners": listeners, "discovery_performed": True, "discovered_at": stamp(), "firewalld_state": "running", "agent_version": "0.4.0", "capabilities": ["learning_discovery_v1", "learning_auto_allow_v1"], "protection": {**self.baseline, "digest": digest(self.baseline), "ready": True, "blockers": []}, **extra})
+        return self.store.report(identifier, {"hostname": identifier, "ips": [address], "listeners": listeners, "discovery_performed": True, "discovered_at": stamp(), "firewalld_state": "running", "agent_version": "0.9.0", "capabilities": ["learning_discovery_v1", "learning_auto_allow_v1", "traffic_capture_v1"], "protection": {**self.baseline, "digest": digest(self.baseline), "ready": True, "blockers": []}, **extra})
 
     def session(self, auto=True):
         session = self.store.create_session({"server_ids": ["a"], "selection_mode": "discovered", "duration_seconds": 3600, "policy_action": "auto_allow" if auto else "observe", "auto_allow_confirmed": auto}, "admin")
@@ -33,7 +34,8 @@ class LearningPolicyTests(unittest.TestCase):
         return session
 
     def batch(self, session, rows, identifier="batch-1"):
-        events = [{"source_ip": source, "port": port, "protocol": "tcp", "count": count, "verdict": "observed", "first_seen": stamp(), "last_seen": stamp()} for source, port, count in rows]
+        events = [typed_event(source,port,identity=f"{session['id']}:{identifier}:{row_index}:{number}")
+                  for row_index,(source,port,count) in enumerate(rows) for number in range(count)]
         self.store.enqueue_flows("a", {"batch_id": identifier, "session_id": session["id"], "events": events})
         self.store.process_flows()
 
@@ -106,7 +108,7 @@ class LearningPolicyTests(unittest.TestCase):
 
     def test_capability_enabled_learning_retains_five_thousand_exact_sources_and_downgrade_blocks(self):
         session = self.session()
-        capabilities = ["learning_discovery_v1", "learning_auto_allow_v1", "learning_ipsets_v1"]
+        capabilities = ["learning_discovery_v1", "learning_auto_allow_v1", "learning_ipsets_v1","traffic_capture_v1"]
         self.report("a", "10.1.0.1", capabilities=capabilities)
         sources = [str(ipaddress.IPv4Address("10.20.0.1") + index) for index in range(5000)]
         for offset in range(0, len(sources), 1000):
@@ -129,7 +131,7 @@ class LearningPolicyTests(unittest.TestCase):
 
     def test_over_capacity_automatic_evidence_is_blocked_without_loading_or_partial_grant(self):
         session=self.session()
-        self.report('a','10.1.0.1',capabilities=['learning_discovery_v1','learning_auto_allow_v1','learning_ipsets_v1'])
+        self.report('a','10.1.0.1',capabilities=['learning_discovery_v1','learning_auto_allow_v1','learning_ipsets_v1','traffic_capture_v1'])
         self.batch(session,[('10.20.0.1',80,1)])
         before=self.assignment()['services']
         with self.store.meta() as db:

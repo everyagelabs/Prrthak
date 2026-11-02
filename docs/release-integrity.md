@@ -15,7 +15,7 @@ Checks reject modified bytes, unknown signers, unsafe paths and inappropriate wr
 
 ## Candidate signing authority
 
-The 0.8 pilot candidate continues using development public key ID `98ba67b3670c9d3514867d645be89b81`. Its private seed is outside the source tree and Documents; it is never committed, packaged, sent to image builders or stored on deployed controllers. Signing tools reject source-local and known synchronized-folder key locations.
+The 0.9 pilot candidate continues using development public key ID `98ba67b3670c9d3514867d645be89b81`. Its private seed is outside the source tree and Documents; it is never committed, packaged, sent to image builders or stored on deployed controllers. Signing tools reject source-local and known synchronized-folder key locations.
 
 This development authority is **not an organizational offline or hardware signer**. Before production distribution, the release owner must choose and independently approve that authority, protect its private key outside controller hosts, and distribute the public pin through trusted operational tooling. Existing installations must not silently replace their release pin. Online per-deployment policy signing is a separate authority and remains part of the controller's security boundary.
 

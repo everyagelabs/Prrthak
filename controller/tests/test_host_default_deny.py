@@ -194,7 +194,7 @@ class HostDefaultDenyTests(unittest.TestCase):
         self.assertEqual(self.store.assignment('target')[0]['firewall_changes'],[])
         self.assertEqual(self.store.get('firewall_changes',plan['id'])['status'],'invalidated')
         with self.store.meta() as db:
-            server=self.store._get(db,'servers','target');server['capabilities']+=['learning_discovery_v1','learning_auto_allow_v1'];self.store._put(db,'servers',server)
+            server=self.store._get(db,'servers','target');server['capabilities']+=['learning_discovery_v1','learning_auto_allow_v1','traffic_capture_v1'];self.store._put(db,'servers',server)
         with self.assertRaises(ValueError):self.store.create_session({'server_ids':['target'],'selection_mode':'discovered','policy_action':'auto_allow','auto_allow_confirmed':True},self.maker['actor'],principal=self.maker)
         observe=self.store.create_session({'server_ids':['target'],'ports':[{'port':443,'protocol':'tcp'}]},self.maker['actor'],principal=self.maker)
         self.assertEqual(observe['policy_action'],'observe')

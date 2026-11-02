@@ -256,8 +256,11 @@ def _learning_target(session, server):
         raise ValueError("Every selected endpoint needs a fresh nonempty frozen port scope")
     if not server.get("protection", {}).get("ready") or not server.get("ips") or "learning_auto_allow_v1" not in server.get("capabilities", []):
         raise ValueError("Every target needs complete protection, reported addresses and an auto-allow-capable agent")
+    if 'observation_kinds' in session and 'traffic_capture_v1' not in server.get('capabilities',[]):
+        raise ValueError('New automatic learning scopes require typed traffic_capture_v1 evidence')
     normalized = sorted(({"protocol": item["protocol"], "port": item["port"]} for item in ports), key=lambda item: (item["protocol"], item["port"]))
     return {"server_id": identifier, "ports": normalized,
+            **({"observation_kinds":session["observation_kinds"]} if "observation_kinds" in session else {}),
             "excluded_protected_ports": [{**port, "reason": _protected(server, port["port"], port["protocol"])} for port in normalized if _protected(server, port["port"], port["protocol"])],
             "ips": sorted(server["ips"]), **_bindings(server)}
 
@@ -280,6 +283,7 @@ def _learning_scope(store, db, session):
         remaining -= encoded_size(target, remaining)
         matrix.append(target)
     return {"session_id": session["id"], "policy_action": "auto_allow", "selection_mode": "discovered",
+            **({"observation_kinds":session["observation_kinds"]} if "observation_kinds" in session else {}),
             "server_ids": session["server_ids"], "starts_at": session["starts_at"], "expires_at": session["expires_at"], "targets": matrix}
 
 
@@ -298,6 +302,8 @@ def learning_authorized(store, db, session, server=None):
             if session.get("status") != "active" or not parse_time(session["starts_at"]) <= now() < parse_time(session["expires_at"]):
                 return False
             if any(scope[key] != session[key] for key in ("policy_action", "selection_mode", "server_ids", "starts_at", "expires_at")):
+                return False
+            if scope.get("observation_kinds") != session.get("observation_kinds"):
                 return False
             if not signed_target(store, server):
                 return False

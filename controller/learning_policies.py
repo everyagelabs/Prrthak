@@ -172,7 +172,8 @@ def _protected(server, port, protocol):
 
 
 def _row_public(row, server):
-    result = dict(row)
+    from .traffic_capture import public as capture_public
+    result = capture_public(row)
     result["hostname"] = server.get("hostname", row["server_id"])
     frozen_ssh = row["protocol"] == "tcp" and (row.get("service", "").casefold() == "ssh" or "sshd" in row.get("process", "").casefold())
     reason = row.get("source_error", "") or ("SSH access requires the ordinary protected managed-policy review" if frozen_ssh else _protected(server, row["port"], row["protocol"]))
@@ -215,7 +216,9 @@ def _automatic(store, db, session, server, rows, evidence_overflow=False):
     old = store._get(db, "learning_allow_policies", identifier)
     if old and (old.get("removed") or old["status"] == "removed" or not old.get("auto_updates", False)):
         return
-    eligible = {_triple(row) for row in rows if row["server_id"] == server["id"] and (row["protocol"], row["port"]) in frozen and _row_public(row, server)["eligible_for_auto"]}
+    from .traffic_capture import observation_kinds
+    kinds = observation_kinds(session["observation_kinds"]) if 'observation_kinds' in session else ['legacy_log']
+    eligible = {_triple(row) for row in rows if row["server_id"] == server["id"] and (row["protocol"], row["port"]) in frozen and row.get("capture_kind","legacy_log") in kinds and _row_public(row, server)["eligible_for_auto"]}
     if not eligible and old is None and not evidence_overflow:
         return
     policy = dict(old or {"id": identifier, "name": "Learned · " + server.get("hostname", server["id"]), "session_id": session["id"], "server_id": server["id"], "hostname": server.get("hostname", server["id"]), "origin": "auto", "revision": 0, "services": [], "status": "generated", "error": "", "auto_updates": True, "suppressed_tuples": [], "created_at": stamp(), "created_by": session.get("created_by", "automation"), "authority_expires_at": session["expires_at"]})
@@ -248,6 +251,8 @@ def reconcile(store, limit=100):
     """Replay-safe durable evidence transfer; never hold both database transactions."""
     with store.flow_lock, store.read_traffic() as db:
         batches = [dict(row) for row in db.execute("SELECT * FROM batches WHERE processed=1 AND evidence_processed=0 ORDER BY received_at,batch_key LIMIT ?", (limit,)).fetchall()]
+        for batch in batches:
+            batch["accepted_capture_ids"]={row[0] for row in db.execute("SELECT event_id FROM flows WHERE batch_key=? AND event_id<>'' AND capture_processed=1",(batch["batch_key"],))}
     for batch in batches:
         receipt_id = digest(batch["batch_key"])
         with store.lock, store.meta() as db:
@@ -257,20 +262,31 @@ def reconcile(store, limit=100):
                 if session and server:
                     frozen = session.get("discovery_results", {}).get(server["id"], {}).get("listeners", server.get("listeners", []))
                     for event in json.loads(batch["data"]):
+                        if event.get("capture_kind") in ("accepted_connection","denied_packet") and event["event_id"] not in batch["accepted_capture_ids"]:
+                            continue
+                        from .traffic_capture import public as capture_public
+                        captured = capture_public(event)
                         source, cidr, source_error = _source(event["source_ip"])
-                        identifier = digest([session["id"], server["id"], source, event["protocol"], event["port"]])
+                        identity=[session["id"], server["id"], source, event["protocol"], event["port"]]
+                        if captured["capture_kind"]!="legacy_log":identity.extend(captured[key] for key in ("capture_kind","capture_backend","count_unit"))
+                        identifier = digest(identity)
                         row = store._get(db, "learning_evidence", identifier)
                         if row is None:
                             matches = [listener for listener in frozen if listener["port"] == event["port"] and listener["protocol"] == event["protocol"]]
                             listener = next((listener for listener in matches if listener.get("service") or listener.get("process")), matches[0] if matches else {})
-                            row = {"id": identifier, "session_id": session["id"], "server_id": server["id"], "hostname": server.get("hostname", server["id"]), "source_ip": source, "source_cidr": cidr, "source_error": source_error, "port": event["port"], "protocol": event["protocol"], "service": listener.get("service", listener.get("application", "")), "process": listener.get("process", ""), "count": 0, "verdicts": [], "first_seen": event["first_seen"], "last_seen": event["last_seen"]}
+                            row = {"id": identifier, "session_id": session["id"], "server_id": server["id"], "hostname": server.get("hostname", server["id"]), "source_ip": source, "source_cidr": cidr, "source_error": source_error, "port": event["port"], "protocol": event["protocol"], "service": listener.get("service", listener.get("application", "")), "process": listener.get("process", ""), "count": 0, "verdicts": [], "first_seen": event["first_seen"], "last_seen": event["last_seen"], **{key:captured[key] for key in ("capture_kind","capture_backend","count_unit","address_family")}}
                         row.update({"count": row["count"] + event["count"], "verdicts": sorted(set(row["verdicts"]) | {event["verdict"]}), "first_seen": min(row["first_seen"], event["first_seen"]), "last_seen": max(row["last_seen"], event["last_seen"])})
                         _put_evidence(db, row)
                     session["evidence_revision"] = session.get("evidence_revision", 0) + 1
                     store._put(db, "sessions", session)
                     if session.get("policy_action")=="auto_allow":
                         count=db.execute("SELECT COUNT(*) FROM learning_evidence WHERE session_id=? AND server_id=?",(session["id"],server["id"])).fetchone()[0]
-                        overflow=count>MAX_IPSET_SOURCES
+                        overflow=count>3*MAX_IPSET_SOURCES
+                        if count>MAX_IPSET_SOURCES and not overflow:
+                            from .approval_views import _expression
+                            fields=','.join(_expression(db,(key,)) for key in ('source_cidr','protocol','port'))
+                            tuples=db.execute('SELECT COUNT(*) FROM (SELECT '+fields+' FROM learning_evidence WHERE session_id=? AND server_id=? GROUP BY '+fields+') evidence_tuples',(session['id'],server['id'])).fetchone()[0]
+                            overflow=tuples>MAX_IPSET_SOURCES
                         _automatic(store, db, session, server, [] if overflow else _evidence(db, session["id"], server["id"]), evidence_overflow=overflow)
                 store._put(db, "learning_evidence_receipts", {"id": receipt_id, "batch_key": batch["batch_key"], "session_id": batch["session_id"], "server_id": batch["server_id"], "processed_at": stamp()})
         # If this write fails, the committed metadata receipt makes a retry safe.
@@ -285,6 +301,7 @@ def _authority(store, db, policy):
     automatic = policy["origin"] == "auto" and not removed
     from .approvals import delivery
     return {"policy_id": policy["id"], "session_id": policy["session_id"], "kind": "auto" if automatic else "reviewed", "expires_at": policy.get("authority_expires_at", session.get("expires_at", FOREVER)) if automatic else FOREVER,
+            **({"observation_kinds":session["observation_kinds"]} if automatic and "observation_kinds" in session else {}),
             "ports": session.get("server_ports", {}).get(policy["server_id"], []) if automatic else [{"port": row["port"], "protocol": row["protocol"]} for row in policy["services"]],
             "services": policy["services"] if not removed else [], "approval_proof": delivery(session.get("initial_approval_proof") if automatic else policy.get("approval_proof"))}
 
@@ -488,7 +505,7 @@ def recommendations(store, session_id, limit=200, offset=0, server_id=None):
         pending,pending_total=pending_summaries(db,session_id,99 if initial_pending else 100)
         if initial_pending:
             pending.append(pending_summary({**initial, "kind": "initial_learning"}));pending_total+=1
-        return {"session_id": session_id, "policy_action": session.get("policy_action", "observe"), "evidence_revision": session.get("evidence_revision", 0), "rows": rows, "total_rows": total, "limit": limit, "offset": offset, "has_more": offset + limit < total, "order": "server_id,id", "server_id": server_id, "coverage": {"servers": coverage, "total_servers":len(coverage_all),"limit":100,"offset":0,"has_more":len(coverage_all)>100,"rate_limited": any((row["learning_coverage"] or {}).get("rate_limited", True) for row in coverage), "message": "Observed events are sampled evidence, not proof of successful connections or complete coverage. Coverage status lists up to 100 hosts; use server_id for another exact member."}, "generated_policies": policies, "generated_policy_total": policy_total, "pending_approvals": pending,"pending_approval_total":pending_total}
+        return {"session_id": session_id, "policy_action": session.get("policy_action", "observe"), "observation_kinds":session.get("observation_kinds",[]), "evidence_revision": session.get("evidence_revision", 0), "rows": rows, "total_rows": total, "limit": limit, "offset": offset, "has_more": offset + limit < total, "order": "server_id,id", "server_id": server_id, "coverage": {"servers": coverage, "total_servers":len(coverage_all),"limit":100,"offset":0,"has_more":len(coverage_all)>100,"rate_limited": any((row["learning_coverage"] or {}).get("rate_limited", True) for row in coverage), "message": "Transport connections, denied packets and legacy sampled logs have separate count units. Backend support, loss and gaps limit coverage; empty evidence does not prove no hits or application success. Coverage status lists up to 100 hosts; use server_id for another exact member."}, "generated_policies": policies, "generated_policy_total": policy_total, "pending_approvals": pending,"pending_approval_total":pending_total}
 
 
 

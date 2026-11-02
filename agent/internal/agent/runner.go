@@ -14,6 +14,10 @@ import (
 )
 
 type Agent struct {
+	trafficCapture              nativeCapture
+	nextCaptureCheck            time.Time
+	captureCoverage             TrafficCaptureCoverage
+	captureScopeKey             string
 	timingMu                    sync.RWMutex
 	remotePolling               *PollingSettings
 	pollingError                string
@@ -137,8 +141,29 @@ func (a *Agent) ensureProbe() error {
 }
 func (a *Agent) Shutdown(ctx context.Context) error {
 	var first error
+	if a.trafficCapture != nil {
+		lock, err := managedLock(a.Config.StateDir, true)
+		if err == nil {
+			err = clearTrafficCaptureSidecars(withManagedLease(ctx, lock), a.Config.StateDir, a.Commands)
+			unlockManaged(lock)
+		}
+		if err != nil {
+			first = err
+		}
+		if err := a.trafficCapture.Close(); err != nil && first == nil {
+			first = err
+		}
+		flows, coverage := a.trafficCapture.Drain()
+		a.captureCoverage = coverage
+		if err := a.storeCapturedFlows(flows); err != nil && first == nil {
+			first = err
+		}
+		a.trafficCapture = nil
+	}
 	if a.probe != nil {
-		first = a.probe.Close(ctx)
+		if err := a.probe.Close(ctx); err != nil && first == nil {
+			first = err
+		}
 	}
 	if a.hitMonitor != nil {
 		if err := a.hitMonitor.Close(ctx); err != nil && first == nil {
@@ -201,6 +226,17 @@ func (a *Agent) Startup(ctx context.Context) error {
 	}
 	if e := a.recoverManaged(ctx); e != nil {
 		return fmt.Errorf("managed enforcement recovery failed: %w", e)
+	}
+	if !a.Simulate {
+		lock, e := managedLock(a.Config.StateDir, true)
+		if e != nil {
+			return e
+		}
+		e = clearTrafficCaptureSidecars(withManagedLease(ctx, lock), a.Config.StateDir, a.Commands)
+		unlockManaged(lock)
+		if e != nil {
+			return e
+		}
 	}
 	if e := a.restoreLearningEvidenceFromSpool(); e != nil {
 		return e
@@ -327,6 +363,10 @@ func (a *Agent) report(ctx context.Context) error {
 		return e
 	}
 	r := a.inventoryReport(ctx, a.currentTime())
+	if len(a.captureCoverage.Backends) > 0 {
+		coverage := a.captureCoverage
+		r.TrafficCapture = &coverage
+	}
 	securityEvents, securityError := a.probe.Pending(time.Now().UTC())
 	if securityError != nil {
 		a.probe.state.Coverage.Status = "degraded"
@@ -389,6 +429,9 @@ func (a *Agent) report(ctx context.Context) error {
 	}
 	// One summary per report; all session coverage remains persisted locally.
 	for _, s := range active {
+		if s.ObservationKinds != nil && a.confirmed {
+			r.CollectorStatus = "learning"
+		}
 		if cov := a.State.Coverage[s.ID]; cov != nil {
 			r.LearningCoverage = cov
 			break
@@ -441,6 +484,9 @@ func (a *Agent) LearningTick(ctx context.Context, now time.Time) error {
 		return nil
 	}
 	a.collectorError = ""
+	if err := a.tickTrafficCapture(ctx, now); err != nil {
+		a.collectorError = err.Error()
+	}
 	sessions := ActiveSessions(a.State.Policy, now)
 	if !a.confirmed {
 		sessions = nil
@@ -451,6 +497,9 @@ func (a *Agent) LearningTick(ctx context.Context, now time.Time) error {
 	}
 	active := map[string]Session{}
 	for _, s := range sessions {
+		if len(s.ObservationKinds) > 0 {
+			continue
+		}
 		active[s.ID] = s
 	}
 	for _, rule := range a.State.Rules {
@@ -503,6 +552,9 @@ func (a *Agent) LearningTick(ctx context.Context, now time.Time) error {
 		}
 	}
 	for _, s := range sessions {
+		if len(s.ObservationKinds) > 0 {
+			continue
+		}
 		if a.State.Coverage[s.ID] == nil {
 			a.State.Coverage[s.ID] = &Coverage{SessionID: s.ID, StartedAt: now, RateLimited: true}
 		} else if a.State.Coverage[s.ID].EndedAt != nil {

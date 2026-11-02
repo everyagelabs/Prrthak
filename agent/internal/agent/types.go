@@ -2,7 +2,7 @@ package agent
 
 import "time"
 
-const Version = "0.8.0"
+const Version = "0.9.0"
 
 const LearningDiscoveryCapability = "learning_discovery_v1"
 const HostDefaultDenyCapability = "host_default_deny_v1"
@@ -18,6 +18,7 @@ type Service struct {
 	Mode     string   `json:"mode,omitempty"`
 }
 type Session struct {
+	ObservationKinds []string   `json:"observation_kinds,omitempty"`
 	PolicyAction     string     `json:"policy_action,omitempty"`
 	ID               string     `json:"id"`
 	SelectionMode    string     `json:"selection_mode,omitempty"`
@@ -60,6 +61,7 @@ type Listener struct {
 	SystemdUnit  string `json:"systemd_unit,omitempty"`
 }
 type Coverage struct {
+	TrafficCaptureCoverage
 	SessionID     string     `json:"session_id"`
 	StartedAt     time.Time  `json:"started_at"`
 	EndedAt       *time.Time `json:"ended_at,omitempty"`
@@ -68,6 +70,7 @@ type Coverage struct {
 	Error         string     `json:"error,omitempty"`
 }
 type Report struct {
+	TrafficCapture              *TrafficCaptureCoverage     `json:"traffic_capture,omitempty"`
 	HitMonitor                  *HitMonitorCoverage         `json:"hit_monitor,omitempty"`
 	HitMonitoring               []HitMonitorStatus          `json:"hit_monitoring,omitempty"`
 	PollingSettings             *PollingSettingsReport      `json:"polling_settings,omitempty"`
@@ -104,13 +107,18 @@ type Report struct {
 	discoverySequence           uint64                      // local acknowledgement guard; never serialized on the API
 }
 type Flow struct {
-	SourceIP  string    `json:"source_ip"`
-	Port      int       `json:"port"`
-	Protocol  string    `json:"protocol"`
-	Verdict   string    `json:"verdict"`
-	Count     int       `json:"count"`
-	FirstSeen time.Time `json:"first_seen"`
-	LastSeen  time.Time `json:"last_seen"`
+	EventID        string    `json:"event_id,omitempty"`
+	CaptureKind    string    `json:"capture_kind,omitempty"`
+	CaptureBackend string    `json:"capture_backend,omitempty"`
+	CountUnit      string    `json:"count_unit,omitempty"`
+	AddressFamily  string    `json:"address_family,omitempty"`
+	SourceIP       string    `json:"source_ip"`
+	Port           int       `json:"port"`
+	Protocol       string    `json:"protocol"`
+	Verdict        string    `json:"verdict"`
+	Count          int       `json:"count"`
+	FirstSeen      time.Time `json:"first_seen"`
+	LastSeen       time.Time `json:"last_seen"`
 }
 type Batch struct {
 	BatchID   string `json:"batch_id"`

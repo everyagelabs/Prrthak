@@ -73,6 +73,12 @@ func (a *Agent) inventoryReport(ctx context.Context, now time.Time) Report {
 	if !a.Simulate {
 		report.Capabilities = append(report.Capabilities, "endpoint_configuration_v1", "approval_mode_proof_v1", HostDefaultDenyCapability)
 	}
+	// Capability describes the signed typed protocol, independently of kernel
+	// availability. Simulation may discover ports but never claims native data.
+	report.Capabilities = append(report.Capabilities, TrafficCaptureCapability)
+	if a.Simulate {
+		report.TrafficCapture = &TrafficCaptureCoverage{Backends: []CaptureBackendReport{{Backend: "conntrack", Status: "unsupported", Error: "simulation does not capture kernel connections"}, {Backend: "nflog", Status: "unsupported", Error: "simulation does not capture kernel packets"}}, Gaps: []string{"Synthetic simulation supports discovery only; no native traffic observations or firewall actions."}}
+	}
 	report.Capabilities = append(report.Capabilities, "imported_zone_target_v1", "imported_direct_v1", "imported_nat_v1")
 	report.Capabilities = append(report.Capabilities, HitMonitorCapability)
 	report.IPs = append([]string{}, a.inventory.IPs...)

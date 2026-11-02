@@ -1,6 +1,22 @@
 # 5,000-server controller capacity
 
-## Current 0.8 acceptance · 1 November 2026
+## Current 0.9 acceptance · 2 November 2026
+
+The typed-capture build passed all three phases on real Gunicorn HTTPS/mTLS and two fresh private PostgreSQL databases. Each phase verified all 5,000 virtual certificate identities and their current single-Admin authority. The actual Admin policy edit changed the source matrix, version and digest; compilation/publication and the full 30-second polling window are included.
+
+| Phase | Verified identities | Elapsed |
+| --- | ---: | ---: |
+| Initial signed delivery and receipts | 5,000 | 17.253 s |
+| Actual Admin policy PUT, publication and full 30 s polling window | 5,000 | **31.971 s** |
+| Warm polling, 100 discovery reports and 10,000 typed synthetic observations | 5,000 | 14.686 s |
+
+Publication took 1.960 seconds, included in the total. There were zero final failures, four transient policy retries and four transient report retries. The mixed workload retained exactly **5,000 conntrack-format connection observations and 5,000 NFLOG-format denied-packet observations**, half IPv6, as separate units; no flow batch remained pending. Controller source hashes were unchanged, and both owned fixture databases were dropped. Policy/report/ingest p95 was 91.844/192.955/3988.419 ms.
+
+The profile remains two workers × 32 threads, 64 concurrent clients, metadata/traffic pools 8/2 per worker, 30-second control and 900-second discovery on a shared ARM64 development host and PostgreSQL 16.15. The [public machine-readable 0.9 result](../output/capacity/controller-5000-0.9-result.json) records the exact fixture/source hashes, workload, settings and cleanup. The historical records below remain unchanged.
+
+This verifies ordinary policy delivery and typed ingestion, not kernel collection by 5,000 native agents, live Entra sign-in, whole-server default-deny application, HA replication, WAN/DC routing or endurance. Native RHEL/Ubuntu and real deployment acceptance remain deferred. Reproduce with the current benchmark's `--authorization-mode single-admin` and the profile below, always using two new empty disposable databases.
+
+## Historical 0.8 acceptance · 1 November 2026
 
 The whole-server-default-deny build retains the ordinary direct-Admin delivery target on the same isolated ARM64/Gunicorn/private-PostgreSQL profile below.
 

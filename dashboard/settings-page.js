@@ -8,7 +8,7 @@ function platformMarkDraft(target){
   state.platformDraftForm=form;const discard=$('[data-action="platform-agents-discard"],[data-action="platform-application-port-discard"]',form);if(discard)discard.hidden=false;
 }
 function platformHasDraft(){const form=state.platformDraftForm;return state.view==='settings'&&!!form&&$('#'+form.id)===form;}
-function platformClearDraft(form){if(!form||state.platformDraftForm===form)state.platformDraftForm=null;}
+function platformClearDraft(form){if(!form||state.platformDraftForm===form)state.platformDraftForm=null;if(!form||form.id==='platform-certificate-form')platformClearCertificateUpload();}
 function platformHealthBadge(value){const health=platformUI.health(value);return badge(health==='healthy'?'Ready':health==='unavailable'?'Unavailable':'Not reported',health==='healthy'?'':health==='unavailable'?'danger':'neutral');}
 function platformOverviewHTML(includeSetup=true){
   const cluster=state.platformInfo?.cluster || state.cluster || {},nodes=cluster.nodes || [],storage=cluster.storage || {};

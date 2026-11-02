@@ -169,26 +169,26 @@ def run(args):
         namespace = uuid.uuid4()
         identities = [str(uuid.uuid5(namespace, str(index))) for index in range(args.agents)]
         reports = {}
-        capabilities = ["learning_discovery_v1", "learning_auto_allow_v1", "agent_polling_config_v1", "managed_ipsets_v1", "learning_ipsets_v1", "signed_assignments_v1", "approval_mode_proof_v1"]
+        capabilities = ["learning_discovery_v1", "learning_auto_allow_v1", "agent_polling_config_v1", "managed_ipsets_v1", "learning_ipsets_v1", "signed_assignments_v1", "approval_mode_proof_v1", "traffic_capture_v1"]
         started = time.monotonic()
         with store.lock, store.meta() as db:
             if store._all(db, "servers") or store._all(db, "policies"):
                 raise RuntimeError("Disposable benchmark store was not empty")
             for index, identity in enumerate(identities):
                 key = ec.generate_private_key(ec.SECP256R1())
-                certificate = x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, identity)])).issuer_name(ca.subject).public_key(key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now()-timedelta(minutes=1)).not_valid_after(now()+timedelta(days=30)).add_extension(x509.BasicConstraints(ca=False,path_length=None),True).add_extension(x509.KeyUsage(True,False,False,False,False,False,False,False,False),True).add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]),False).sign(ca_key,hashes.SHA256())
+                certificate = x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, identity)])).issuer_name(ca.subject).public_key(key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now()-timedelta(minutes=1)).not_valid_after(now()+timedelta(days=30)).add_extension(x509.BasicConstraints(ca=False,path_length=None),True).add_extension(x509.KeyUsage(True,False,False,False,False,False,False,False,False),True).add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]),False).add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()),False).add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()),False).sign(ca_key,hashes.SHA256())
                 pem = certificate.public_bytes(serialization.Encoding.PEM)
                 (clients / (identity + ".crt")).write_bytes(pem)
                 (clients / (identity + ".key")).write_bytes(key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
                 (clients / (identity + ".key")).chmod(0o600)
                 address = str(ipaddress.IPv4Address("10.230.0.1")+index)
-                report = {"hostname": "virtual-"+str(index), "ips": [address], "os": "virtual-linux-fixture", "os_version": "not-a-real-endpoint", "agent_version": "0.6.0", "capabilities": capabilities,
+                report = {"hostname": "virtual-"+str(index), "ips": [address], "os": "virtual-linux-fixture", "os_version": "not-a-real-endpoint", "agent_version": "0.9.0-virtual-fixture", "capabilities": capabilities,
                           "listeners": [{"port": 2022,"protocol":"tcp","address":"0.0.0.0","process":"sshd","service":"SSH"}, {"port":8443,"protocol":"tcp","address":"0.0.0.0","process":"private-fixture","service":"HTTPS"}],
                           "firewalld_state":"running","firewalld_version":"synthetic","firewall_backend":"synthetic","discovery_performed":False,"discovery_interval_seconds":900,"control_interval_seconds":60,"apply_status":"preview","applied_version":0,"collector_status":"off"}
                 if args.authorization_mode=="single-admin":
                     protected={"management_sources":["192.0.2.0/24"],"ssh_ports":[2022],"controller_url":fixture_origin,"management_probe_url":fixture_origin+"/api/v1/agent/enforcement/check","zone":"public"}
                     report["protection"]={**protected,"digest":digest(protected),"ready":True,"blockers":[]}
-                    report["agent_version"]="0.7.0-virtual-fixture"
+                    report["agent_version"]="0.9.0-virtual-fixture"
                 reports[identity] = report
                 server = {"id": identity, **report, "tags":{},"_metadata_overrides":{"tags":{}},"location_id":None,"location_source":{"type":"unassigned"},"tag_sources":{},"expected_services":[],"desired_version":0,"status":"healthy","created_at":stamp(),"last_seen":stamp(),"last_discovery_at":stamp()}
                 if args.authorization_mode=="single-admin":
@@ -278,7 +278,7 @@ def run(args):
                 if cycle==args.cycles-1 and learners and args.flow_events:
                     admin=connect()
                     try:
-                        _,session,_=request(admin,"learning_setup","POST","/api/v1/learning",{"server_ids":sorted(learners),"ports":[{"port":8443,"protocol":"tcp"}],"selection_mode":"manual","duration_seconds":3600,"policy_action":"observe"},admin_headers)
+                        _,session,_=request(admin,"learning_setup","POST","/api/v1/learning",{"server_ids":sorted(learners),"ports":[{"port":8443,"protocol":"tcp"}],"selection_mode":"manual","duration_seconds":3600,"policy_action":"observe","observation_kinds":["accepted_connection","denied_packet"]},admin_headers)
                     finally:admin.close()
                 phase_started=time.monotonic()
                 changed_phase=args.change_policy and cycle==1
@@ -339,7 +339,12 @@ def run(args):
                             verify_direct_authority(authority_receipts.get(identity,{}),identity,config.fingerprint,epoch)
                             with stats_lock:verified_authorities+=1
                         if session and identity in learners:
-                            at=stamp();events=[{"source_ip":str(ipaddress.IPv4Address("10.231.0.1")+number),"port":8443,"protocol":"tcp","verdict":"observed","count":1,"first_seen":at,"last_seen":at} for number in range(args.flow_events)]
+                            at=stamp();events=[]
+                            for number in range(args.flow_events):
+                                denied=number%2==1
+                                ipv6=number%4>=2
+                                source=str((ipaddress.IPv6Address("2001:db8:231::1") if ipv6 else ipaddress.IPv4Address("10.231.0.1"))+number)
+                                events.append({"event_id":hashlib.sha256((session["id"]+identity+str(number)).encode()).hexdigest(),"source_ip":source,"port":8443,"protocol":"tcp","verdict":"denied" if denied else "allowed","count":1,"first_seen":at,"last_seen":at,"capture_kind":"denied_packet" if denied else "accepted_connection","capture_backend":"nflog" if denied else "conntrack","count_unit":"packets" if denied else "connections","address_family":"ipv6" if ipv6 else "ipv4"})
                             request(connection,"flow_ingest","POST","/api/v1/agent/flows",{"batch_id":"virtual-"+str(cycle)+"-"+identity,"session_id":session["id"],"events":events})
                         report["discovery_performed"]=False
                         if args.cadence=="strict" or changed_receipt:
@@ -386,6 +391,13 @@ def run(args):
                 with store.traffic() as db:
                     retained=db.execute("SELECT COUNT(*),COALESCE(SUM(count),0) FROM flows WHERE session_id=?",(session["id"],)).fetchone()
                 result["synthetic_flow_rows_retained"]=int(retained[0])
+                result["synthetic_capture_format"]="traffic_capture_v1_dual_stack_mixed_units"
+                with store.traffic() as db:
+                    units={row[0]:int(row[1]) for row in db.execute("SELECT count_unit,COALESCE(SUM(count),0) FROM flows WHERE session_id=? GROUP BY count_unit",(session["id"],))}
+                expected_units={"connections":len(learners)*((args.flow_events+1)//2),"packets":len(learners)*(args.flow_events//2)}
+                expected_units={unit:count for unit,count in expected_units.items() if count}
+                result["synthetic_counts_by_unit"]=units
+                if units!=expected_units:failures.append({"operation":"typed_flow_units","error":"Accepted connection and denied packet totals were not preserved separately"})
                 result["synthetic_event_count_retained"]=int(retained[1])
                 expected=len(learners)*args.flow_events
                 if pending or int(retained[0])!=expected or int(retained[1])!=expected:

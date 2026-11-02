@@ -14,6 +14,8 @@ ExecStart=/usr/local/bin/seg-agent --config /etc/seg-agent/config.json
 Restart=on-failure
 RestartSec=10s
 TimeoutStopSec=30s
+KillMode=control-group
+SendSIGKILL=yes
 StateDirectory=seg-agent
 StateDirectoryMode=0700
 UMask=0077
@@ -30,7 +32,7 @@ LockPersonality=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 # root is needed for journal/process discovery and firewalld D-Bus authorization.
 # UFW/zone migration is never automatic. Managed enforcement defaults off.
-# Opt-in enforcement requires two-confirmed policy, management witness and
+# Opt-in enforcement requires current signed authority, management witness and
 # an independent transient systemd rollback timer in a separate cgroup.
 # Supported imported-rule writes require local opt-in and a confirmed controller plan.
 

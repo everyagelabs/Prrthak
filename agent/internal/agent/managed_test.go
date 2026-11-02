@@ -185,7 +185,7 @@ func TestManagedRuntimeFirstCommitAndGenerationReplacement(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(f.writes[0], "runtime:add:rich_rule:rule priority=\"-31002\"") {
+	if !strings.Contains(f.writes[0], "runtime:add:rich_rule:rule priority=\"-31004\"") {
 		t.Fatal("permanent change preceded runtime stage")
 	}
 }
