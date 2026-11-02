@@ -47,7 +47,7 @@ Deny/restrictive imported-rule changes, restrictive learned edits/removal and de
 | R33 | Agent/controller CPU, RAM, packages, VM and Git details | The [README sizing tables](../README.md#expected-cpu-ram-and-storage) and [agent resource record](agent-resources.md) distinguish historical measurements from planning allocations. Source, installer and package workflows are in this private repository. |
 | R34 | Application-security review, vulnerability assessment and code fixes | Scoped source review, adversarial regressions, static/dependency checks and remediation reports are maintained. Tool warnings are triaged; passing tests or scans do not establish that no vulnerabilities remain. |
 | R35 | Prepare a 20-server pilot, with native/DC tests later | Start with one controller and monitoring, enroll a small mixed fleet, review inventory/evidence and exercise approved changes gradually. The actual pilot and deferred infrastructure tests are not claimed as completed. |
-| R36 | One illustrated explanation of prerequisites, roles, ports and flows | Illustrated documents retain their historical snapshot labels. Current 0.10 workflows are described by this Markdown map, the [architecture](architecture.md), [API contract](api-contract.md), [pilot guide](pilot-gui-installation.md), [whole-server workflow](whole-server-default-deny.md) and [capture guide](traffic-capture.md). |
+| R36 | One illustrated explanation of prerequisites, roles, ports and flows | Illustrated documents retain their historical snapshot labels. Current 0.12 workflows are described by this Markdown map, the [architecture](architecture.md), [API contract](api-contract.md), [pilot guide](pilot-gui-installation.md), [whole-server workflow](whole-server-default-deny.md) and [capture guide](traffic-capture.md). |
 | R37 | Separate management, control and discovery communication ports | Installed listener roles separate browser/admin traffic (**8787**), agent policy/authorization (**8788**) and agent enrollment/report/flow uploads (**8789**). The API admits routes according to the actual listener, not a caller-supplied header. |
 | R38 | Application groups such as Platform, Billing and Payments | Saved static/dynamic application groups support inventory browsing, target/source selection, policies and scoped operations. Future matching enrolled servers can join dynamic groups. |
 | R39 | Protect installed code and trace releases to Git | Compiled agents, restricted read-only containers, pinned image identities, detached Ed25519 signatures and startup integrity checks reject changed release bytes. Root/Git owners retain authority; this is not complete source encryption. See [release integrity](release-integrity.md). |
@@ -66,6 +66,17 @@ Deny/restrictive imported-rule changes, restrictive learned edits/removal and de
 | Restart and nonresponding agents | Every agent process begins with fresh OS/firewall/service inventory using its existing enrolled identity. Independent health evaluation raises a critical agent-offline alert after max(180 seconds, three control intervals), then records recovery. Fast listener checks preserve the separately configured full-inventory fallback. |
 | Optional dependency preparation; preserve UFW | Unchecked schema-3 GUI options authorize bounded native package installation with journaled startup suppression and/or private UFW export. No UFW cutover, firewalld activation or automatic enforcement occurs. [Details](endpoint-discovery-and-preparation.md). |
 | Risky ports with reasons and regulatory references | [Risk & compliance](risky-ports-regulatory.md) supplies a configurable advisory catalogue, listener findings and source-backed CERT-In/RBI mapping. Findings do not automatically block traffic, and the mapping does not certify compliance or complete organizational controls. |
+
+## Pilot GUI completion in 0.12
+
+Read Only can page/filter Alerts through the production API wrapper. Traffic
+filters execute before pagination with exact totals and complete bounded scoped
+CSV. Audit provides retained-history pagination, action/actor/date filters and
+redacted scoped export. Ordinary policy wording reflects direct Admin
+publication. Larger policies have [GUI source-set assessment and activation](source-bank-preparation.md)
+with exact reviewed maintenance, protected management checks and rollback; no
+extra CLI bank provisioning is required. Historical assessment tables do not
+supersede these current workflows.
 
 ## Supporting components and remaining evidence
 

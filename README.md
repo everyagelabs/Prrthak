@@ -4,11 +4,11 @@
 
 Prṛthak discovers servers and their real listening services, shows permitted source-to-service access, learns observed source/port relationships, and lets administrators review and apply firewalld changes centrally. The selected server is the destination: an access policy specifies **service/port + allowed sources**, without a separate destination field.
 
-**Pilot candidate: [v0.11.0-pilot.1](https://github.com/everyagelabs/Prrthak/tree/v0.11.0-pilot.1).** Download one reusable fleet setup and install the same matching agent package across your servers. Each server automatically creates its own key, certificate and inventory identity; no per-host kit generation or hostname CSV is required. Fleet enrollment has GUI expiry/revocation and no fixed server-count limit. See [fleet enrollment](docs/fleet-enrollment.md) and [release validation](docs/release-0.11.0-pilot.1.md). Native RHEL/Ubuntu, live Entra and DC/WAN acceptance remain deployment gates. This version adds fast listener-change checks, optional safe dependency/UFW assessment and paginated alerts; see [endpoint discovery and health](docs/endpoint-discovery-and-preparation.md).
+**Pilot candidate: [v0.12.0-pilot.1](https://github.com/everyagelabs/Prrthak/tree/v0.12.0-pilot.1).** Download one reusable fleet setup and install the same matching agent package across your servers. Each server automatically creates its own key, certificate and inventory identity; no per-host kit generation or hostname CSV is required. Fleet enrollment has GUI expiry/revocation and no fixed server-count limit. See [fleet enrollment](docs/fleet-enrollment.md) and [release validation](docs/release-0.12.0-pilot.1.md). Native RHEL/Ubuntu, live Entra and DC/WAN acceptance remain deployment gates. This version adds complete scoped Traffic/Audit navigation and export, corrected Read Only alert navigation and [GUI source-set preparation](docs/source-bank-preparation.md); see [endpoint discovery and health](docs/endpoint-discovery-and-preparation.md).
 
 Private repository: [everyagelabs/Prrthak](https://github.com/everyagelabs/Prrthak). Product owner: **EveryAge Labs Private Limited**.
 
-[0.11 endpoint/health release](docs/release-0.11.0-pilot.1.md) · [0.10 fleet enrollment](docs/release-0.10.0-pilot.1.md) · [0.9 capture/security release](docs/release-0.9.0-pilot.1.md) · [Whole-server default-deny workflow](docs/whole-server-default-deny.md).
+[0.12 GUI completion release](docs/release-0.12.0-pilot.1.md) · [0.11 endpoint/health](docs/release-0.11.0-pilot.1.md) · [0.10 fleet enrollment](docs/release-0.10.0-pilot.1.md) · [0.9 capture/security release](docs/release-0.9.0-pilot.1.md) · [Whole-server default-deny workflow](docs/whole-server-default-deny.md).
 
 ## What was requested, and how it works
 
@@ -228,7 +228,7 @@ These choices support the requirements above. They are not substitutes for the r
 
 ## Documentation, evidence and development
 
-The illustrated PDFs describe earlier snapshots and remain historical guides. Current 0.11 behavior and acceptance limits are recorded in the [Markdown requirements map](docs/requirements-delivery-map.md), current operational documents and [0.11 release evidence](docs/release-0.11.0-pilot.1.md).
+The illustrated PDFs describe earlier snapshots and remain historical guides. Current 0.12 behavior and acceptance limits are recorded in the [Markdown requirements map](docs/requirements-delivery-map.md), current operational documents and [0.11 release evidence](docs/release-0.12.0-pilot.1.md).
 
 - [User requirements and delivery map](output/pdf/prthak-user-requirements-and-delivery-map.pdf)
 - [Architecture and operations handbook](output/pdf/prthak-architecture-operations-guide.pdf)

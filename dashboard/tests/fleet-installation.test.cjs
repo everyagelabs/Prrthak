@@ -37,7 +37,7 @@ test('fleet setup is the default with one architecture-specific agent and no hos
  const f=fixture();await f.show();const html=f.element('#modal-content').innerHTML;
  assert.match(html,/value="fleet" selected/);assert.match(html,/any number of servers/);assert.match(html,/No hostname list, CSV or per-server download/);assert.match(html,/same binary is used on RHEL and Ubuntu/);assert.doesNotMatch(html,/id="agent-install-hostname"|name="(?:max_hosts|server_count|hostnames)"/);
  assert.match(html,/prthak-agent-0\.10\.0-linux-amd64\.tar\.gz/);assert.match(f.c.agentInstallationArchive('arm64'),/0\.10\.0-linux-arm64/);
- f.c.state.data.meta.version='<script>wrong</script>';assert.equal(f.c.agentInstallationArchive('amd64'),'prthak-agent-0.11.0-linux-amd64.tar.gz');
+ f.c.state.data.meta.version='<script>wrong</script>';assert.equal(f.c.agentInstallationArchive('amd64'),'prthak-agent-0.12.0-linux-amd64.tar.gz');
  assert.match(html,/enrollment key grants no dashboard or firewall-policy authority/);
 });
 test('one fleet request downloads only the reusable kit and never renders or persists its enrollment secret',async()=>{
@@ -46,6 +46,24 @@ test('one fleet request downloads only the reusable kit and never renders or per
  assert.equal(body.validity_hours,24);assert.equal(body.name,'Production fleet');assert.equal(body.expected_hostname,undefined);assert.equal(body.setup_mode,undefined);assert.equal(body.control_url,'https://controller.example.test:8788');
  assert.equal(f.downloads.length,1);assert.equal(f.downloads[0].filename,'prthak-agent-setup.json');const kit=JSON.parse(await f.downloads[0].blob.text());assert.equal(kit.schema_version,2);assert.equal(kit.enrollment_profile_id,profileID);assert.equal(kit.enrollment_token,secret);assert.equal(kit.expected_hostname,'');assert.equal(kit.private_key,undefined);
  assert.match(f.element('#agent-installation-result').innerHTML,/Reuse this file on any number/);assert.doesNotMatch(f.element('#modal-content').innerHTML+f.element('#agent-installation-result').innerHTML,new RegExp(secret));assert.equal(JSON.stringify(f.c.state).includes(secret),false);assert.equal(f.errors.length,0);
+});
+test('optional management pins are saved through GUI setup without granting policy authority',async()=>{
+ const f=fixture({request:(path,options)=>options.method==='POST'?enrollmentResponse({config:{...enrollmentResponse().kit.config,management_sources:options.body.management_sources||[]}}):undefined});
+ await f.show();const html=f.element('#modal-content').innerHTML;assert.match(html,/id="agent-install-management-sources"/);assert.match(html,/local safety pins, not access-policy grants/);assert.match(html,/management probe in Settings/);
+ await f.submit({management_sources:'10.90.0.10, 2001:db8:90::10/128\n10.91.0.0/24'});
+ const request=f.requests.find(row=>row.options.method==='POST');assert.deepEqual(JSON.parse(JSON.stringify(request.options.body.management_sources)),['10.90.0.10/32','10.91.0.0/24','2001:db8:90::10/128']);assert.equal(f.downloads.length,1);
+ const kit=JSON.parse(await f.downloads[0].blob.text());assert.deepEqual(kit.config.management_sources,['10.90.0.10/32','10.91.0.0/24','2001:db8:90::10/128']);assert.equal(kit.config.enforce,false);assert.equal(kit.config.allow_firewall_changes,false);
+});
+test('unsafe pins or controller substitution cannot silently widen local management trust',async()=>{
+ for(const management_sources of ['0.0.0.0/0','::/0','fe80::1%eth0/128','::ffff:192.0.2.1/128',Array(101).fill('10.1.0.1/32').join(',')]){
+  const f=fixture();await f.show();await f.submit({management_sources});assert.equal(f.requests.some(row=>row.options.method==='POST'),false);assert.equal(f.downloads.length,0);
+ }
+ for(const row of [{requested:'',returned:['10.90.0.0/24']},{requested:'10.90.0.10/32',returned:[]},{requested:'10.90.0.10/32',returned:['0.0.0.0/0']}]){
+  const f=fixture({request:(path,options)=>options.method==='POST'?enrollmentResponse({config:{...enrollmentResponse().kit.config,management_sources:row.returned}}):undefined});await f.show();await f.submit({management_sources:row.requested});assert.equal(f.downloads.length,0);assert.equal(f.errors.length,1);
+ }
+});
+test('changing management pins fences an enrollment download pending in another trust scope',async()=>{
+ const pending=deferred(),f=fixture({request:(path,options)=>options.method==='POST'?pending.promise:undefined});await f.show();const operation=f.submit({management_sources:'10.90.0.10/32'});f.listeners.input[0]({target:{id:'agent-install-management-sources',value:'10.91.0.10/32'}});pending.resolve(enrollmentResponse({config:{...enrollmentResponse().kit.config,management_sources:['10.90.0.10/32']}}));await operation;assert.equal(f.downloads.length,0);
 });
 test('preparation choices start unchecked, preserve UFW, and do not authorize live migration',async()=>{
  const f=fixture();await f.show();const html=f.element('#modal-content').innerHTML;

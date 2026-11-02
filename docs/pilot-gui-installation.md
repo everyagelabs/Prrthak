@@ -1,4 +1,4 @@
-# GUI-configured 20-server pilot (0.11.0)
+# GUI-configured 20-server pilot (0.12.0)
 
 Configure Prṛthak in the GUI. The installer and fixed local manager generate
 protected files; no manual `.env`, agent JSON, token or CA editing is required.
@@ -51,7 +51,7 @@ flowchart LR
 
 ## 2. Stage the verified release and run one controller installer
 
-Obtain `prthak-controller-0.11.0.tar.gz` and its detached `.signature.json`.
+Obtain `prthak-controller-0.12.0.tar.gz` and its detached `.signature.json`.
 Verify exact archive bytes **before extraction/execution**, using an independently
 approved public release-signing pin and verifier. A public key downloaded beside
 an unknown archive does not establish trust. The project signing authority is
@@ -129,8 +129,8 @@ disables UFW or migrates existing rules. Unsupported administrator overrides or
 uncertain package state block automatic preparation; native acceptance is pending.
 See [endpoint preparation](endpoint-discovery-and-preparation.md).
 
-Stage and independently verify `prthak-agent-0.11.0-linux-amd64.tar.gz` or
-`prthak-agent-0.11.0-linux-arm64.tar.gz`, then extract to a protected root-owned
+Stage and independently verify `prthak-agent-0.12.0-linux-amd64.tar.gz` or
+`prthak-agent-0.12.0-linux-arm64.tar.gz`, then extract to a protected root-owned
 release directory. Use its signed runtime manifest and independently approved
 public trust. The static Go endpoint needs no Git, Python or Go compiler/runtime.
 
@@ -182,6 +182,17 @@ The bundled helper validates ownership/mode, expiry, exact schema, fleet profile
 checked. The installer enables/starts `seg-agent`, preserves existing identity
 and refuses unresolved enforcement/rollback transactions. Success still needs
 the first authenticated endpoint report, not merely an installed file.
+
+## GUI source-set preparation for larger policies
+
+Enter restricted management source IPs/CIDRs in the GUI agent setup if this
+maintenance workflow will be used; initial enforcement remains off. Configure
+and verify the controller's management-probe source/target settings through the
+GUI. After enrollment, use **Servers → Source-set preparation** to assess,
+review and activate the owned source banks. No additional bank-preparation CLI
+is required. Review requires a fresh complete baseline, typed phrase and a
+manually checked downtime acknowledgement. Existing UFW and unsupported/drifted
+contexts block this action. See [the maintenance guide](source-bank-preparation.md).
 
 ## 7. Confirm inventory and enable explicit capabilities gradually
 

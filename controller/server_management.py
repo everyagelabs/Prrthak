@@ -139,6 +139,10 @@ def _blockers(store, db, server, reserved=False):
         problems.append("Stop temporary learning and wait for the agent's cleanup acknowledgement before retirement.")
     from .learning_policies import retirement_blockers
     problems.extend(retirement_blockers(store, db, server))
+    bank_job = server.get("_source_bank_job") or {}
+    bank_receipt = server.get("source_bank_preparation") or {}
+    if bank_job.get("operation") == "prepare_activate" and (bank_receipt.get("id") != bank_job.get("id") or bank_receipt.get("status") not in ("prepared", "rolled_back")):
+        problems.append("Source-bank maintenance has no verified terminal outcome; complete assessment/recovery before retirement.")
     from .hit_monitoring import retirement_blockers as hit_retirement_blockers
     problems.extend(hit_retirement_blockers(store, db, server))
     monitor = server.get("security_monitor", {})

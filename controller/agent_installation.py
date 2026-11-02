@@ -36,7 +36,24 @@ def _interval(value, low, high, name):
     return value
 
 
-KIT_FIELDS = {"family", "architecture", "controller_url", "control_url", "discovery_url", "interval_seconds", "discovery_interval_seconds", "controller_ca_pem", "installation_options"}
+KIT_FIELDS = {"family", "architecture", "controller_url", "control_url", "discovery_url", "interval_seconds", "discovery_interval_seconds", "controller_ca_pem", "installation_options", "management_sources"}
+
+
+def _management_sources(body):
+    values = body.get("management_sources", [])
+    if not isinstance(values, list) or len(values) > 100 or any(not isinstance(value, str) or not 1 <= len(value) <= 128 for value in values):
+        raise ValueError("Choose at most100 restricted management source addresses or canonical CIDRs")
+    from .network_addresses import network
+    result = []
+    for value in values:
+        try:
+            source = network(value)
+            if source.prefixlen == 0 or value != (str(source) if '/' in value else str(source.network_address)):
+                raise ValueError()
+        except ValueError:
+            raise ValueError("Management sources must be native canonical IPs/CIDRs with /0 forbidden; specify the network address explicitly") from None
+        result.append(str(source))
+    return sorted(set(result))
 
 
 def _installation_options(body):
@@ -57,6 +74,7 @@ def _validated(app, body, valid_until=None):
         raise ValueError("Agent setup downloads require an installed HTTPS controller with endpoint issuance enabled")
     if body.get("family") not in ("rhel", "ubuntu") or body.get("architecture") not in ("amd64", "arm64"):
         raise ValueError("Choose RHEL or Ubuntu and the matching amd64 or arm64 package")
+    management_sources = _management_sources(body)
     url = origin(body.get("controller_url", ""))
     channels = {key: origin(body[key]) if body.get(key) else "" for key in ("control_url", "discovery_url")}
     endpoint_ca = _public_ca(app.signer.ca.read_text(), valid_until)
@@ -98,7 +116,7 @@ def _validated(app, body, valid_until=None):
                 "ca_cert": "/etc/seg-agent/controller-ca.crt", "endpoint_ca_cert": "/etc/seg-agent/endpoint-ca.crt" if separate else "",
                 "certificate": "/var/lib/seg-agent/agent.crt", "private_key": "/var/lib/seg-agent/agent.key",
                 "enrollment_token_file": "/etc/seg-agent/enrollment-token", "interval_seconds": interval,
-                "request_timeout_seconds": 15, "zone": "", "enforce": False, "management_sources": [],
+                "request_timeout_seconds": 15, "zone": "", "enforce": False, "management_sources": management_sources,
                 "max_spool_batches": 500, "discovery_interval_seconds": discovery, "allow_firewall_changes": False,
                 "unexpected_port_monitor_enabled": False, "allow_single_admin_pilot": False, "probe_log_rate_per_second": 5, "learning_auto_allow": False}}
 

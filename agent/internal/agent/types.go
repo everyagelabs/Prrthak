@@ -2,7 +2,7 @@ package agent
 
 import "time"
 
-const Version = "0.11.0"
+const Version = "0.12.0"
 
 const LearningDiscoveryCapability = "learning_discovery_v1"
 const HostDefaultDenyCapability = "host_default_deny_v1"
@@ -31,23 +31,24 @@ type Session struct {
 	StoppedAt        *time.Time `json:"stopped_at,omitempty"`
 }
 type Policy struct {
-	AssignmentGeneration int                       `json:"assignment_generation,omitempty"`
-	AssignmentDigest     string                    `json:"assignment_digest,omitempty"`
-	Signature            *PolicySignature          `json:"signature,omitempty"`
-	PollingSettings      *PollingSettings          `json:"polling_settings,omitempty"`
-	LearningAllow        *LearningAllow            `json:"learning_allow,omitempty"`
-	Enforcement          *EnforcementAuthorization `json:"enforcement,omitempty"`
-	ServerID             string                    `json:"server_id"`
-	Version              int                       `json:"version"`
-	Digest               string                    `json:"digest"`
-	Mode                 string                    `json:"mode"`
-	HostDefaultDeny      bool                      `json:"host_default_deny,omitempty"`
-	Services             []Service                 `json:"services"`
-	LearningSessions     []Session                 `json:"learning_sessions"`
-	HitMonitors          []HitMonitorAssignment    `json:"hit_monitors,omitempty"`
-	LearningTombstones   []Session                 `json:"learning_tombstones,omitempty"`
-	GeneratedAt          time.Time                 `json:"generated_at"`
-	FirewallChanges      []FirewallChange          `json:"firewall_changes,omitempty"`
+	SourceBankPreparation *SourceBankPreparationAssignment `json:"source_bank_preparation,omitempty"`
+	AssignmentGeneration  int                              `json:"assignment_generation,omitempty"`
+	AssignmentDigest      string                           `json:"assignment_digest,omitempty"`
+	Signature             *PolicySignature                 `json:"signature,omitempty"`
+	PollingSettings       *PollingSettings                 `json:"polling_settings,omitempty"`
+	LearningAllow         *LearningAllow                   `json:"learning_allow,omitempty"`
+	Enforcement           *EnforcementAuthorization        `json:"enforcement,omitempty"`
+	ServerID              string                           `json:"server_id"`
+	Version               int                              `json:"version"`
+	Digest                string                           `json:"digest"`
+	Mode                  string                           `json:"mode"`
+	HostDefaultDeny       bool                             `json:"host_default_deny,omitempty"`
+	Services              []Service                        `json:"services"`
+	LearningSessions      []Session                        `json:"learning_sessions"`
+	HitMonitors           []HitMonitorAssignment           `json:"hit_monitors,omitempty"`
+	LearningTombstones    []Session                        `json:"learning_tombstones,omitempty"`
+	GeneratedAt           time.Time                        `json:"generated_at"`
+	FirewallChanges       []FirewallChange                 `json:"firewall_changes,omitempty"`
 }
 type Listener struct {
 	ProtectedSSH bool   `json:"protected_ssh,omitempty"`
@@ -70,43 +71,44 @@ type Coverage struct {
 	Error         string     `json:"error,omitempty"`
 }
 type Report struct {
-	PreparationStatus           *HostPreparationStatus      `json:"preparation_status,omitempty"`
-	FastDiscovery               *FastDiscoveryReport        `json:"fast_discovery,omitempty"`
-	TrafficCapture              *TrafficCaptureCoverage     `json:"traffic_capture,omitempty"`
-	HitMonitor                  *HitMonitorCoverage         `json:"hit_monitor,omitempty"`
-	HitMonitoring               []HitMonitorStatus          `json:"hit_monitoring,omitempty"`
-	PollingSettings             *PollingSettingsReport      `json:"polling_settings,omitempty"`
-	LearningAllowOutcome        *LearningAllowOutcome       `json:"learning_allow_outcome,omitempty"`
-	AgentVersion                string                      `json:"agent_version"`
-	Capabilities                []string                    `json:"capabilities"`
-	LearningDiscoverySessionIDs []string                    `json:"learning_discovery_session_ids,omitempty"`
-	Protection                  *Protection                 `json:"protection,omitempty"`
-	ManagedEnforcement          *ManagedEnforcement         `json:"managed_enforcement,omitempty"`
-	Hostname                    string                      `json:"hostname"`
-	IPs                         []string                    `json:"ips"`
-	OS                          string                      `json:"os"`
-	OSVersion                   string                      `json:"os_version"`
-	FirewalldVersion            string                      `json:"firewalld_version"`
-	FirewallBackend             string                      `json:"firewall_backend"`
-	FirewalldState              string                      `json:"firewalld_state"`
-	UFWActive                   bool                        `json:"ufw_active"`
-	Listeners                   []Listener                  `json:"listeners"`
-	AppliedVersion              int                         `json:"applied_version"`
-	ApplyStatus                 string                      `json:"apply_status"`
-	ApplyError                  string                      `json:"apply_error"`
-	CollectorStatus             string                      `json:"collector_status"`
-	LearningCoverage            *Coverage                   `json:"learning_coverage,omitempty"`
-	DiscoveryError              string                      `json:"discovery_error,omitempty"`
-	DiscoveryPerformed          bool                        `json:"discovery_performed"`
-	DiscoveredAt                *time.Time                  `json:"discovered_at,omitempty"`
-	DiscoveryIntervalSeconds    int                         `json:"discovery_interval_seconds"`
-	ControlIntervalSeconds      int                         `json:"control_interval_seconds"`
-	ConfigurationState          *EndpointConfigurationState `json:"configuration_state,omitempty"`
-	FirewallSnapshot            *FirewallSnapshot           `json:"firewall_snapshot,omitempty"`
-	FirewallChangeResults       []FirewallChangeResult      `json:"firewall_change_results,omitempty"`
-	SecurityEvents              []SecurityEvent             `json:"security_events,omitempty"`
-	SecurityMonitor             *SecurityMonitorCoverage    `json:"security_monitor,omitempty"`
-	discoverySequence           uint64                      // local acknowledgement guard; never serialized on the API
+	SourceBankPreparation       *SourceBankPreparationReport `json:"source_bank_preparation,omitempty"`
+	PreparationStatus           *HostPreparationStatus       `json:"preparation_status,omitempty"`
+	FastDiscovery               *FastDiscoveryReport         `json:"fast_discovery,omitempty"`
+	TrafficCapture              *TrafficCaptureCoverage      `json:"traffic_capture,omitempty"`
+	HitMonitor                  *HitMonitorCoverage          `json:"hit_monitor,omitempty"`
+	HitMonitoring               []HitMonitorStatus           `json:"hit_monitoring,omitempty"`
+	PollingSettings             *PollingSettingsReport       `json:"polling_settings,omitempty"`
+	LearningAllowOutcome        *LearningAllowOutcome        `json:"learning_allow_outcome,omitempty"`
+	AgentVersion                string                       `json:"agent_version"`
+	Capabilities                []string                     `json:"capabilities"`
+	LearningDiscoverySessionIDs []string                     `json:"learning_discovery_session_ids,omitempty"`
+	Protection                  *Protection                  `json:"protection,omitempty"`
+	ManagedEnforcement          *ManagedEnforcement          `json:"managed_enforcement,omitempty"`
+	Hostname                    string                       `json:"hostname"`
+	IPs                         []string                     `json:"ips"`
+	OS                          string                       `json:"os"`
+	OSVersion                   string                       `json:"os_version"`
+	FirewalldVersion            string                       `json:"firewalld_version"`
+	FirewallBackend             string                       `json:"firewall_backend"`
+	FirewalldState              string                       `json:"firewalld_state"`
+	UFWActive                   bool                         `json:"ufw_active"`
+	Listeners                   []Listener                   `json:"listeners"`
+	AppliedVersion              int                          `json:"applied_version"`
+	ApplyStatus                 string                       `json:"apply_status"`
+	ApplyError                  string                       `json:"apply_error"`
+	CollectorStatus             string                       `json:"collector_status"`
+	LearningCoverage            *Coverage                    `json:"learning_coverage,omitempty"`
+	DiscoveryError              string                       `json:"discovery_error,omitempty"`
+	DiscoveryPerformed          bool                         `json:"discovery_performed"`
+	DiscoveredAt                *time.Time                   `json:"discovered_at,omitempty"`
+	DiscoveryIntervalSeconds    int                          `json:"discovery_interval_seconds"`
+	ControlIntervalSeconds      int                          `json:"control_interval_seconds"`
+	ConfigurationState          *EndpointConfigurationState  `json:"configuration_state,omitempty"`
+	FirewallSnapshot            *FirewallSnapshot            `json:"firewall_snapshot,omitempty"`
+	FirewallChangeResults       []FirewallChangeResult       `json:"firewall_change_results,omitempty"`
+	SecurityEvents              []SecurityEvent              `json:"security_events,omitempty"`
+	SecurityMonitor             *SecurityMonitorCoverage     `json:"security_monitor,omitempty"`
+	discoverySequence           uint64                       // local acknowledgement guard; never serialized on the API
 }
 type Flow struct {
 	EventID        string    `json:"event_id,omitempty"`

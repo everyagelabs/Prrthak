@@ -90,6 +90,13 @@ class AgentNativePackageTests(unittest.TestCase):
         plan, _ = self.inspect(self.bundle(version="0.11.0"))
         self.assertIn(package.PREPARATION_GUIDE, plan["files"])
 
+    def test_gui_bank_guide_is_required_for_source_bank_release(self):
+        self.inspect(self.bundle(version="0.11.0", omit=[package.SOURCE_BANK_GUIDE]))
+        with self.assertRaisesRegex(ValueError, "missing"):
+            self.inspect(self.bundle(version="0.12.0", omit=[package.SOURCE_BANK_GUIDE]))
+        plan, _ = self.inspect(self.bundle(version="0.12.0"))
+        self.assertIn(package.SOURCE_BANK_GUIDE, plan["files"])
+
     def test_compressed_expansion_and_entry_bounds_are_enforced(self):
         archive=self.bundle()
         with patch.object(package,"MAX_TAR",512),self.assertRaisesRegex(ValueError,"Expanded"):self.inspect(archive)

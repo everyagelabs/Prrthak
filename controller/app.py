@@ -402,6 +402,13 @@ def handler_for(app):
                 elif path == "/api/v1/agent/configuration/check" and method == "POST":
                     from .endpoint_configuration import check
                     self.response(200, check(app, identity, self.body()))
+                elif path == "/api/v1/agent/source-banks/check" and method == "POST":
+                    from .source_banks import verify
+                    if app.demo:
+                        raise PermissionError("Real source-bank maintenance health checks are unavailable in demo mode")
+                    payload = self.body()
+                    self.response(200, app.management_health._check(lambda: verify(app.store, identity, payload), payload,
+                        ("server_id", "id", "plan_digest", "baseline_digest", "protection_digest")))
                 elif path == "/api/v1/agent/policy" and method == "GET":
                     value, etag = app.store.assignment(identity)
                     if app.platform:
@@ -449,7 +456,7 @@ def handler_for(app):
             if method in ("POST", "PUT", "PATCH", "DELETE"):
                 if principal.get("auth_type") == "session":
                     app.auth.require_csrf(self.headers, principal)
-                if path not in ("/api/v1/auth/logout", "/api/v1/firewall/query", "/api/v1/policies/query", "/api/v1/learning-policies/query", "/api/v1/policy-rollouts/query", "/api/v1/host-default-deny/query", "/api/v1/alerts/query") and role not in ("admin", "super_admin"):
+                if path not in ("/api/v1/auth/logout", "/api/v1/firewall/query", "/api/v1/policies/query", "/api/v1/learning-policies/query", "/api/v1/policy-rollouts/query", "/api/v1/host-default-deny/query", "/api/v1/alerts/query", "/api/v1/flows/query", "/api/v1/flows/export.csv", "/api/v1/audit/query", "/api/v1/audit/export.csv", "/api/v1/source-banks/query") and role not in ("admin", "super_admin"):
                     raise PermissionError("Admin or Super Admin role required")
                 origin = self.headers.get("Origin")
                 scheme = "https" if isinstance(self.connection, ssl.SSLSocket) else "http"
@@ -1049,8 +1056,48 @@ def handler_for(app):
                 self.response(200, public_alerts(app.store, self.body()))
             elif len(parts) == 3 and parts[0] == "alerts" and parts[2] == "ack" and method == "POST":
                 self.response(200, app.store.acknowledge(unquote(parts[1]), actor))
+            elif parts == ["flows", "query"] and method == "POST":
+                from .traffic_views import listing
+                self.response(200, listing(app.store, self.body()))
             elif parts == ["audit"] and method == "GET":
-                self.response(200, {"items": sorted(app.store.all("audit"), key=lambda item: item["created_at"], reverse=True)[:500]})
+                from .audit_views import listing, query_parameters
+                self.response(200, listing(app.store, query_parameters(query)))
+            elif parts == ["audit", "query"] and method == "POST":
+                from .audit_views import listing
+                self.response(200, listing(app.store, self.body()))
+            elif parts in (["flows", "export.csv"], ["audit", "export.csv"]) and method == "POST":
+                from . import traffic_views, audit_views
+                views = traffic_views if parts[0] == "flows" else audit_views
+                try:
+                    with views.csv_spool(app.store, self.body()) as (source, size):
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/csv; charset=utf-8")
+                        self.send_header("Content-Disposition", 'attachment; filename="prthak-' + parts[0] + '-history.csv"')
+                        self.send_header("Content-Length", str(size))
+                        self.send_header("Cache-Control", "no-store")
+                        self.security_headers()
+                        self.end_headers()
+                        while chunk := source.read(65536):
+                            self.wfile.write(chunk)
+                except views.ExportBusy as error:
+                    self.response(503, {"error": str(error)}, {"Retry-After": "2"})
+            elif parts == ["source-banks", "query"] and method == "POST":
+                from .source_banks import listing
+                self.response(200, listing(app.store, self.body()))
+            elif parts == ["source-banks"] and method == "GET":
+                from .source_banks import listing
+                self.response(200, listing(app.store, {"limit": int(query.get("limit", [50])[0]), "offset": int(query.get("offset", [0])[0])}))
+            elif parts in (["source-banks", "assess"], ["source-banks", "preview"]) and method == "POST":
+                from . import source_banks
+                if app.demo or not isinstance(self.connection, ssl.SSLSocket):
+                    raise PermissionError("Source-bank maintenance needs an installed HTTPS controller and an authenticated Admin")
+                operation = source_banks.assess if parts[1] == "assess" else source_banks.preview
+                self.response(201, operation(app.store, self.body(), actor, principal))
+            elif len(parts) == 3 and parts[0] == "source-banks" and parts[2] == "confirm" and method == "POST":
+                from .source_banks import confirm
+                if app.demo or not isinstance(self.connection, ssl.SSLSocket):
+                    raise PermissionError("Source-bank maintenance needs an installed HTTPS controller and an authenticated Admin")
+                self.response(200, confirm(app.store, parts[1], self.body(), actor, principal))
             elif parts[:2] == ["agent-installation", "configuration"]:
                 if role not in ("admin", "super_admin") or not isinstance(self.connection, ssl.SSLSocket):
                     raise PermissionError("Endpoint configuration requires Admin access over HTTPS")

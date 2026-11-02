@@ -116,6 +116,19 @@ func checkEnforcementUpgradeSafety(c Config, ownsConfigurationLock bool, ownRevi
 // The caller either holds the managed lease or has just performed the read-only
 // lock/fence preflight above. Preparation rechecks while retaining both leases.
 func checkEnforcementJournals(c Config) error {
+	bankPaths, err := filepath.Glob(filepath.Join(sourceBankDirectory(c.StateDir), "*.json"))
+	if err != nil {
+		return err
+	}
+	if len(bankPaths) > enforcementHistoryMaxEntries {
+		return errors.New("source-bank history exceeds its capacity")
+	}
+	for _, path := range bankPaths {
+		journal, err := readManagedJournal(path, strings.TrimSuffix(filepath.Base(path), ".json"))
+		if err != nil || !terminalManagedPhase(journal.Phase) {
+			return errors.New("source-bank maintenance/recovery is active or unverifiable; binary replacement refused")
+		}
+	}
 	for _, directory := range []string{managedDirectory(c.StateDir), learningAllowDirectory(c.StateDir)} {
 		paths, e := filepath.Glob(filepath.Join(directory, "transactions", "*.json"))
 		if e != nil {

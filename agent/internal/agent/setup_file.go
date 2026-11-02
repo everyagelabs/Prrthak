@@ -257,6 +257,14 @@ func parseSetup(data []byte, hostname string, now time.Time) (Config, setupFile,
 	if c.ManagementSources == nil {
 		c.ManagementSources = []string{}
 	}
+	if len(c.ManagementSources) > 100 {
+		return Config{}, value, errors.New("setup management sources exceed their bound")
+	}
+	if sources, sourceErr := canonicalSources(c.ManagementSources, true); sourceErr != nil {
+		return Config{}, value, errors.New("setup requires restricted management source CIDRs")
+	} else {
+		c.ManagementSources = sources
+	}
 	return c, value, nil
 }
 

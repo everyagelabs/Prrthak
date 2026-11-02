@@ -718,6 +718,8 @@ class Store:
         from .endpoint_diagnostics import fast_discovery, preparation_status
         fast_receipt = fast_discovery(value["fast_discovery"]) if "fast_discovery" in value else None
         preparation_receipt = preparation_status(value["preparation_status"]) if "preparation_status" in value else None
+        from .source_banks import validate_receipt as source_bank_receipt
+        bank_receipt = source_bank_receipt(value["source_bank_preparation"]) if "source_bank_preparation" in value else None
         with self.lock, self.meta() as db:
             if getattr(db, "dialect", "sqlite") != "postgresql":
                 # Separate controller/store instances must serialize before
@@ -739,6 +741,9 @@ class Store:
                 server.pop("fast_discovery", None)
             if preparation_receipt is not None:
                 server["preparation_status"] = preparation_receipt
+            if bank_receipt is not None:
+                from .source_banks import report as source_bank_report
+                source_bank_report(self, db, server, bank_receipt)
             from .hit_monitoring import report_status as report_hit_status
             report_hit_status(self, db, server, value)
             if value.get("configuration_state") is not None:
@@ -896,6 +901,10 @@ class Store:
         from .hit_monitoring import CAPABILITY as hit_capability, assignments as hit_assignments
         if hit_capability in server.get("capabilities", []):
             result["hit_monitors"] = hit_assignments(self, db, server)
+        from .source_banks import assignment as source_bank_assignment
+        preparation = source_bank_assignment(self, db, server)
+        if preparation is not None:
+            result["source_bank_preparation"] = preparation
         return result
 
     def assignment(self, identifier):
@@ -1210,7 +1219,7 @@ class Store:
         learned_page=public_policies(self,"learned")
         learned_policies=learned_page.pop("items")
         from . import __version__
-        return {"servers": servers, "policies": policies, "policy_pagination": policy_page, "learning_policies": learned_policies, "learning_policy_pagination": learned_page, "groups": groups, "service_groups": service_group_listing(self), "locations": locations, "learning_sessions": sessions, "learning_session_pagination": session_page, "alerts": alerts, "alert_pagination": alert_page, "flows": flows, "stats": stats, "meta": {"demo": demo, "synthetic": demo, "version": __version__, "traffic_retention_hours": self.retention_hours, "storage": "Shared PostgreSQL HA baseline" if self.ha else "SQLite development baseline", "ha": self.ha, "generated_at": stamp()}}
+        return {"servers": servers, "policies": policies, "policy_pagination": policy_page, "learning_policies": learned_policies, "learning_policy_pagination": learned_page, "groups": groups, "service_groups": service_group_listing(self), "locations": locations, "learning_sessions": sessions, "learning_session_pagination": session_page, "alerts": alerts, "alert_pagination": alert_page, "flows": flows, "stats": stats, "meta": {"demo": demo, "synthetic": demo, "version": __version__, "traffic_retention_hours": self.retention_hours, "traffic_query_v1": True, "storage": "Shared PostgreSQL HA baseline" if self.ha else "SQLite development baseline", "ha": self.ha, "generated_at": stamp()}}
 
 
     def firewall_inventory(self, selected=None, **options):

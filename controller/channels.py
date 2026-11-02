@@ -13,6 +13,7 @@ CONTROL = {
     "/api/v1/agent/learning-allow/check": "POST",
     "/api/v1/agent/enforcement/check": "POST",
     "/api/v1/agent/configuration/check": "POST",
+    "/api/v1/agent/source-banks/check": "POST",
 }
 DISCOVERY = {path: "POST" for path in (
     "/api/v1/agent/enroll", "/api/v1/agent/certificates/recover",

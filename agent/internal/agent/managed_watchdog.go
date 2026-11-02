@@ -98,7 +98,9 @@ func processIdentity(pid int) string {
 }
 func validManagedNonce(value string) bool { return len(value) == 32 && validDigest(value+value) }
 func readManagedJournal(path, nonce string) (*managedJournal, error) {
-	if !validManagedNonce(nonce) || !filepath.IsAbs(path) || filepath.Base(path) != nonce+".json" || filepath.Base(filepath.Dir(path)) != "transactions" || (filepath.Base(filepath.Dir(filepath.Dir(path))) != "managed" && filepath.Base(filepath.Dir(filepath.Dir(path))) != "learning-allow") {
+	area := filepath.Base(filepath.Dir(filepath.Dir(path)))
+	directory := filepath.Base(filepath.Dir(path))
+	if !validManagedNonce(nonce) || !filepath.IsAbs(path) || filepath.Base(path) != nonce+".json" || (directory != "transactions" && !(directory == "source-bank-transactions" && area == "managed")) || (area != "managed" && area != "learning-allow") {
 		return nil, errors.New("invalid managed watchdog journal path/nonce")
 	}
 	raw, e := readPrivateSetupBound(path, 16*1024*1024)
@@ -113,6 +115,12 @@ func readManagedJournal(path, nonce string) (*managedJournal, error) {
 		return nil, errors.New("managed journal identity invalid")
 	}
 	if e := validateManagedSetJournal(&journal); e != nil {
+		return nil, e
+	}
+	if (directory == "source-bank-transactions") != (journal.SourceBankPreparation != nil) {
+		return nil, errors.New("source-bank journal area/type mismatch")
+	}
+	if e := validateSourceBankJournal(&journal); e != nil {
 		return nil, e
 	}
 	return &journal, nil
@@ -137,6 +145,9 @@ func managedOwned(rule string) bool {
 	return managedOwnershipPriority(info.Priority) && strings.HasPrefix(info.LogPrefix, "PRTM") && len(info.LogPrefix) == 17 && strings.HasSuffix(info.LogPrefix, ":") && info.LogLevel == "debug" && info.LogLimit == "1/m" && (info.Action == "accept" || info.Action == "reject")
 }
 func rollbackManaged(ctx context.Context, runner CommandRunner, path string, journal *managedJournal) error {
+	if journal.SourceBankPreparation != nil {
+		return rollbackSourceBanks(ctx, runner, path, journal, nil)
+	}
 	if err := checkManagedCommandFence(ctx); err != nil {
 		return err
 	}
@@ -436,6 +447,9 @@ func bootElapsedSeconds() float64 {
 }
 
 func managedCommittedSuccessor(path string, journal *managedJournal) bool {
+	if journal.SourceBankPreparation != nil {
+		return false
+	}
 	if journal.Next.Generation == "" {
 		return false
 	}
@@ -467,6 +481,9 @@ func managedCommittedSuccessor(path string, journal *managedJournal) bool {
 func (a *Agent) recoverAllEnforcementLocked(ctx context.Context) error {
 	if err := checkManagedCommandFence(ctx); err != nil {
 		return err
+	}
+	if e := a.recoverSourceBankPreparationLocked(ctx); e != nil {
+		return e
 	}
 	if e := a.recoverManagedLocked(ctx); e != nil {
 		return e

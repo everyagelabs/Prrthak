@@ -171,14 +171,14 @@ func TestEndpointChannelURLsRouteControlAndDiscoveryWithoutManagementFallback(t 
 		t.Fatal(err)
 	}
 	client.HTTP.Transport = transport
-	for _, path := range []string{"/api/v1/agent/policy", "/api/v1/agent/enforcement/check", "/api/v1/agent/firewall/check", "/api/v1/agent/learning-allow/check", "/api/v1/agent/configuration/check", "/api/v1/agent/certificates/renew", "/api/v1/agent/enroll", "/api/v1/agent/certificates/recover", "/api/v1/agent/report", "/api/v1/agent/flows", "/api/v1/agent/hits"} {
+	for _, path := range []string{"/api/v1/agent/policy", "/api/v1/agent/enforcement/check", "/api/v1/agent/source-banks/check", "/api/v1/agent/firewall/check", "/api/v1/agent/learning-allow/check", "/api/v1/agent/configuration/check", "/api/v1/agent/certificates/renew", "/api/v1/agent/enroll", "/api/v1/agent/certificates/recover", "/api/v1/agent/report", "/api/v1/agent/flows", "/api/v1/agent/hits"} {
 		response, err := client.request(context.Background(), "POST", path, map[string]string{}, "")
 		if err != nil {
 			t.Fatal(err)
 		}
 		response.Body.Close()
 	}
-	if len(seen["management.example"]) != 0 || len(seen["control.example:8788"]) != 6 || len(seen["discovery.example:8789"]) != 5 {
+	if len(seen["management.example"]) != 0 || len(seen["control.example:8788"]) != 7 || len(seen["discovery.example:8789"]) != 5 {
 		t.Fatalf("incorrect listener routing: %v", seen)
 	}
 	c.ControlURL = ""

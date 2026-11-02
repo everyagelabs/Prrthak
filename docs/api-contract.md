@@ -375,3 +375,55 @@ includes 50 unresolved summaries and `alert_pagination` with exact aggregate
 counts; newer resolved history cannot conceal an older open outage. Large
 navigation details are explicitly marked omitted rather than loaded without a
 bound. Lateral-movement events retain target-endpoint scope matching.
+
+
+## Complete Traffic and Audit navigation (0.12)
+
+`POST /api/v1/flows/query` applies endpoint/tag/group/location scope, ports and
+literal search before aggregation and pagination. Its bounded page includes
+exact relationship/endpoint totals, separate counts by observation unit and a
+stable full-dimension ordering. The request accepts `window_seconds`,
+`server_ids`, `search_server_ids`, `ports`, `search`, optional `as_of`, `limit`
+(default 50, maximum 100) and `offset`. `as_of` fixes the query window, not an
+immutable cross-request database snapshot; late processing and retention remain
+explicit. The overview/topology flow list remains a labelled bounded preview.
+
+`GET /api/v1/audit` and `POST /api/v1/audit/query` accept bounded pagination,
+`search` (action/actor/event ID), exact `action`/`actor` and inclusive
+`from_at`/`to_at`. Detail values are excluded from search and are defensively
+redacted in output. Large navigation details are explicitly omitted.
+
+`POST /api/v1/flows/export.csv` and `POST /api/v1/audit/export.csv` use the same
+applied filters without `limit`/`offset`. They return complete scoped CSV within
+explicit export bounds, or fail before headers. They never silently export
+only a loaded page. Private anonymous spools, bounded concurrency and CSV
+formula protection apply. Read Only can query/export; session CSRF/origin
+checks remain mandatory. No mutation or lookalike path inherits that exception.
+
+## GUI source-bank maintenance (0.12)
+
+`POST /api/v1/source-banks/query` returns bounded public job/receipt summaries.
+Read Only may inspect; Admin mutations are distinct. `POST /source-banks/assess`
+and `/source-banks/preview` accept `server_ids`/`group_ids`, freezing 1–100 current
+endpoints. Assessment creates a signed read-only agent job. Preview requires
+fresh successful receipts and returns exact targets, baseline/protection
+digests, assessed times, blockers, a review digest/nonce, expiry and challenge.
+
+`POST /source-banks/{review_id}/confirm` requires exactly `digest`,
+`confirmation_nonce`, `confirmation_phrase: "PREPARE SOURCE BANKS"` and literal
+`acknowledge_downtime: true` from the same current Admin. It creates per-endpoint
+`prepare_activate` assignments with independent exact Admin proofs. Pending is
+never returned as kernel-applied.
+
+Signed policy auxiliary `source_bank_preparation` contains `id`, `operation`,
+`plan_digest`, `baseline_digest`, `protection_digest`, `expires_at` and activation
+`approval_proof`. Agent capability is `source_bank_preparation_v1`.
+Authenticated report field of the same name carries the bounded schema-1
+status, bindings, counts and blockers. Activation receipts must match the exact
+reviewed binding; late progress or contradictory terminal replays cannot revive
+an operation. The control listener alone admits
+`POST /api/v1/agent/source-banks/check`; fresh nonce/SSH/controller checks and
+current authority are revalidated before/after probing. Admission is durably
+recorded before endpoint writes. Unresolved admitted operations cannot be
+erased by expiry/reassessment or bypassed by endpoint retirement. Recovery
+invalidates pending jobs and reviews. [GUI sequence and safety](source-bank-preparation.md).

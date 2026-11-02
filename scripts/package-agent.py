@@ -27,6 +27,7 @@ for arch in ('amd64', 'arm64'):
              (root / 'docs' / 'traffic-capture.md', 'docs/traffic-capture.md'),
              (root / 'docs' / 'fleet-enrollment.md', 'docs/fleet-enrollment.md'),
              (root / 'docs' / 'endpoint-discovery-and-preparation.md', 'docs/endpoint-discovery-and-preparation.md'),
+             (root / 'docs' / 'source-bank-preparation.md', 'docs/source-bank-preparation.md'),
              (root / 'docs' / 'linux-validation.md', 'docs/linux-validation.md'),
              (root / 'docs' / 'scale-validation.md', 'docs/scale-validation.md'),
              (root / 'docs' / 'ipset-enforcement.md', 'docs/ipset-enforcement.md'),
@@ -62,6 +63,10 @@ for arch in ('amd64', 'arm64'):
    service-start suppression and export private UFW evidence. UFW is preserved;
    no firewall activation or migration is performed. See
    docs/endpoint-discovery-and-preparation.md before selecting preparation.
+   Source banks are prepared later in Servers > Source-set preparation through
+   a separate exact maintenance review. No additional bank-preparation CLI is
+   required. Set restricted management source IPs/CIDRs in the GUI setup when
+   this workflow is intended; setup remains monitor-only.
 3. From this extracted release directory run exactly one matching installer:
 
    sudo ./scripts/install-agent-rhel.sh --setup-file /root/prthak-agent-setup.json

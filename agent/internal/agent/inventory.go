@@ -68,6 +68,7 @@ func (a *Agent) inventoryReport(ctx context.Context, now time.Time) Report {
 	report := *a.inventory
 	report.AgentVersion = Version
 	report.PreparationStatus = ReadHostPreparationStatus(a.Config.StateDir)
+	report.SourceBankPreparation = ReadSourceBankPreparationStatus(a.Config.StateDir)
 	if a.fastDiscoveryEnabled && !a.Simulate {
 		status := a.fastDiscoveryReport
 		report.FastDiscovery = &status
@@ -80,6 +81,7 @@ func (a *Agent) inventoryReport(ctx context.Context, now time.Time) Report {
 		report.Capabilities = append(report.Capabilities, FastDiscoveryCapability)
 	}
 	if !a.Simulate {
+		report.Capabilities = append(report.Capabilities, SourceBankPreparationCapability)
 		report.Capabilities = append(report.Capabilities, "endpoint_configuration_v1", "approval_mode_proof_v1", HostDefaultDenyCapability)
 	}
 	// Capability describes the signed typed protocol, independently of kernel

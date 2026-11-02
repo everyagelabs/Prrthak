@@ -15,33 +15,23 @@ the controller checks the reported capability before preparing a larger overlay.
 
 ## Initial bank provisioning
 
+Use **Servers → Source-set preparation** or an endpoint's source-set panel.
+The 0.12 GUI requests a read-only assessment, freezes an exact fresh maintenance
+review and requires the same Admin's typed phrase plus manually checked downtime
+acknowledgement. The agent creates missing owned empty definitions and safely
+activates them with management checks and an independent rollback watchdog.
+No extra CLI command is required. See [the complete GUI workflow](source-bank-preparation.md).
+
 The official [firewall-cmd interface](https://firewalld.org/documentation/man-pages/firewall-cmd.html)
-creates ipsets in permanent configuration only. Entry changes can be runtime
-changes. Prṛthak therefore uses pre-provisioned dual banks and never reloads
-firewalld while applying a policy. Missing banks block the operation before
-access changes begin.
-
-Review the empty permanent definitions first:
-
-```sh
-sudo python3 scripts/prepare-managed-ipsets.py
-sudo python3 scripts/prepare-managed-ipsets.py --apply \
-  --confirm 'PROVISION EMPTY PRTHAK SOURCE BANKS'
-```
-
-This creates missing empty `hash:net` definitions and preserves existing
-definitions. It does **not** reload firewalld, open a port, migrate UFW or erase
-existing rules. Load these empty definitions during a separately reviewed
-firewall maintenance window, after preserving the runtime/permanent baseline
-and verifying out-of-band/bastion access. This one-time activation cannot be
-made into a runtime creation call by the agent: firewalld does not expose that
-supported operation. Do not reload a live server merely to satisfy a pending
-policy without the maintenance checks.
+creates ipsets in permanent configuration; activation therefore requires a
+controlled maintenance reload. Unsupported runtime/permanent drift or foreign
+contexts block this action. Ordinary large policy changes still never reload.
+The old `prepare-managed-ipsets.py` helper remains a compatibility tool, not a
+required part of the GUI workflow.
 
 Normal managed banks are `prthak_a4_00`…`31`, `prthak_b4_00`…`31` and their
 IPv6 `6` equivalents. Learned additive banks use the separate `prthak_la*`
-and `prthak_lb*` namespaces. Reserving these namespaces for Prṛthak is part of
-the reviewed provisioning operation.
+and `prthak_lb*` namespaces. These canonical namespaces are reserved for Prṛthak.
 
 ## Transaction and recovery
 

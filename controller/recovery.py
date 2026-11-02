@@ -414,7 +414,7 @@ def _overlay_safety(db, safety, recovery_id):
         if json.loads(row[1]).get("used") is True:
             Store._put(db, "tokens", json.loads(row[1]))
     for value in _json_rows(db, "maintenance_settings"):
-        if value["id"].startswith(("endpoint_recovery:", "recovery_control:", "endpoint_revoke_review:")):
+        if value["id"].startswith(("endpoint_recovery:", "recovery_control:", "endpoint_revoke_review:", "source_bank_review:")):
             db.execute("DELETE FROM maintenance_settings WHERE id=?", (value["id"],))
     for key, value in current_settings.items():
         if key.startswith("endpoint_recovery:") and value.get("used") is True:
@@ -444,6 +444,8 @@ def _overlay_safety(db, safety, recovery_id):
             db.execute("DELETE FROM servers WHERE id=?", (identifier,))
             continue
         server.pop("_compiled", None)
+        server.pop("_source_bank_job", None)
+        server.pop("source_bank_preparation", None)
         current = source_servers.get(identifier, {})
         server["_recovery_version_floor"] = max(current.get("applied_version", 0), current.get("desired_version", 0), current.get("_compiled", {}).get("version", 0))
         server["recovery_reconciliation_required"] = True

@@ -42,6 +42,9 @@ check:
 	node --check dashboard/alerts-catalogue-page.js
 	node --check dashboard/account-menu.js
 	node --check dashboard/risk-page.js
+	node --check dashboard/traffic-catalogue-page.js
+	node --check dashboard/audit-catalogue-page.js
+	node --check dashboard/source-banks-page.js
 	node --check dashboard/app.js
 	node --check dashboard/filters.js
 	node --check dashboard/topology.js

@@ -24,6 +24,8 @@ func checkNewEnforcementJournalBudget(stateDir, area string) error {
 		path = filepath.Join(stateDir, area, "transactions")
 	case "firewall-changes":
 		path = filepath.Join(stateDir, area)
+	case "source-banks":
+		path = sourceBankDirectory(stateDir)
 	default:
 		return errEnforcementHistoryCapacity
 	}

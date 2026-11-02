@@ -65,6 +65,28 @@ class AgentKitTests(unittest.TestCase):
             create_kit(self.app, self.body, "demo")
         self.assertEqual(self.store.all("tokens"), [])
 
+    def test_restricted_management_sources_are_pinned_at_install_without_enforcement(self):
+        sources = ["10.90.0.10/32", "2001:db8:90::10/128", "10.91.0.0/24", "10.90.0.10"]
+        kit = create_kit(self.app, {**self.body, "management_sources": sources}, "admin")
+        self.assertEqual(kit["config"]["management_sources"], ["10.90.0.10/32", "10.91.0.0/24", "2001:db8:90::10/128"])
+        self.assertEqual(kit["schema_version"], 1)
+        for key in ("enforce", "allow_firewall_changes", "learning_auto_allow", "unexpected_port_monitor_enabled"):
+            self.assertFalse(kit["config"][key])
+        fleet = create_fleet_kit(self.app, {**{key: value for key, value in self.body.items() if key != "expected_hostname"}, "management_sources": sources}, "admin")["kit"]
+        self.assertEqual(fleet["schema_version"], 2)
+        self.assertEqual(fleet["config"]["management_sources"], kit["config"]["management_sources"])
+        self.assertFalse(fleet["config"]["enforce"])
+
+    def test_invalid_or_unrestricted_bootstrap_management_pins_never_mint_credentials(self):
+        for sources in (None, True, "10.90.0.10/32", [None], ["0.0.0.0/0"], ["::/0"], ["10.91.0.1/24"],
+                        ["::ffff:192.0.2.1/128"], ["fe80::1%eth0/128"], ["999.0.0.1/32"],
+                        ["10.90.0.10/32"] * 101, ["1" * 129]):
+            for create, body in ((create_kit, self.body), (create_fleet_kit, {key: value for key, value in self.body.items() if key != "expected_hostname"})):
+                with self.subTest(sources=sources, kind=create.__name__), self.assertRaises(ValueError):
+                    create(self.app, {**body, "management_sources": sources}, "admin")
+        self.assertEqual(self.store.all("tokens"), [])
+        self.assertEqual(self.store.all("audit"), [])
+
     def test_preparation_is_explicit_schema_three_with_existing_enrollment_lifetimes(self):
         from controller.store import parse_time
         for options in ({"install_dependencies": True, "ufw_action": "preserve"},

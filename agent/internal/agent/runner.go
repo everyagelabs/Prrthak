@@ -14,49 +14,55 @@ import (
 )
 
 type Agent struct {
-	fastDiscoveryEnabled        bool
-	nextFastDiscovery           time.Time
-	fastListenerFingerprint     string
-	fastDiscoveryReport         FastDiscoveryReport
-	listenerSnapshot            func(context.Context) (listenerSnapshot, error)
-	trafficCapture              nativeCapture
-	nextCaptureCheck            time.Time
-	captureCoverage             TrafficCaptureCoverage
-	captureScopeKey             string
-	timingMu                    sync.RWMutex
-	remotePolling               *PollingSettings
-	pollingError                string
-	checkLearningHealth         func(context.Context, *LearningAllow, Protection, string) error
-	protection                  *Protection
-	protectionDiscoverySequence uint64
-	armManaged                  func(context.Context, string, *managedJournal) error
-	checkManagedHealth          func(context.Context, *Policy, Protection, string) error
-	Config                      Config
-	Client                      *Client
-	checkFirewallAuthorization  func(context.Context, FirewallChange, string) error
-	Commands                    CommandRunner
-	State                       State
-	Simulate                    bool
-	SimulateHostname            string
-	Generation                  string
-	confirmed                   bool
-	applyError                  string
-	collectorError              string
-	nextRuleCheck               time.Time
-	inventory                   *Report
-	lastDiscoveryAttempt        time.Time
-	lastFullDiscoveryAttempt    time.Time
-	lastDiscoverySuccess        time.Time
-	forceDiscovery              bool
-	discoveryPending            bool
-	discoverySequence           uint64
-	learningDiscoveryAttempts   map[string]time.Time
-	clock                       func() time.Time
-	firewallRecoveryError       string
-	AdditionalObservationRules  func() []OwnedRule
-	probe                       *ProbeMonitor
-	hitMonitor                  *HitMonitor
-	lastProbeError              string
+	checkSourceBankHealth        func(context.Context, *Policy, *SourceBankPreparationAssignment, Protection) error
+	sourceBankConfigDigest       func() (string, error)
+	sourceBankConfigurationLease func() (*os.File, error)
+	sourceBankHeartbeatAt        time.Time
+	sourceBankSkipInventory      bool
+	sourceBankOwnedRulesOverride []ManagedRule
+	fastDiscoveryEnabled         bool
+	nextFastDiscovery            time.Time
+	fastListenerFingerprint      string
+	fastDiscoveryReport          FastDiscoveryReport
+	listenerSnapshot             func(context.Context) (listenerSnapshot, error)
+	trafficCapture               nativeCapture
+	nextCaptureCheck             time.Time
+	captureCoverage              TrafficCaptureCoverage
+	captureScopeKey              string
+	timingMu                     sync.RWMutex
+	remotePolling                *PollingSettings
+	pollingError                 string
+	checkLearningHealth          func(context.Context, *LearningAllow, Protection, string) error
+	protection                   *Protection
+	protectionDiscoverySequence  uint64
+	armManaged                   func(context.Context, string, *managedJournal) error
+	checkManagedHealth           func(context.Context, *Policy, Protection, string) error
+	Config                       Config
+	Client                       *Client
+	checkFirewallAuthorization   func(context.Context, FirewallChange, string) error
+	Commands                     CommandRunner
+	State                        State
+	Simulate                     bool
+	SimulateHostname             string
+	Generation                   string
+	confirmed                    bool
+	applyError                   string
+	collectorError               string
+	nextRuleCheck                time.Time
+	inventory                    *Report
+	lastDiscoveryAttempt         time.Time
+	lastFullDiscoveryAttempt     time.Time
+	lastDiscoverySuccess         time.Time
+	forceDiscovery               bool
+	discoveryPending             bool
+	discoverySequence            uint64
+	learningDiscoveryAttempts    map[string]time.Time
+	clock                        func() time.Time
+	firewallRecoveryError        string
+	AdditionalObservationRules   func() []OwnedRule
+	probe                        *ProbeMonitor
+	hitMonitor                   *HitMonitor
+	lastProbeError               string
 }
 
 func New(c Config, simulate bool, hostname string) (*Agent, error) {
@@ -278,6 +284,15 @@ func (a *Agent) Sync(ctx context.Context) error {
 		}
 		if e := a.validateAssignmentReplay(a.State.Policy, time.Now().UTC()); e != nil {
 			return e
+		}
+		if handled, err := a.processSourceBankPreparation(ctx, a.State.Policy); handled {
+			if reportErr := a.report(ctx); reportErr != nil {
+				return reportErr
+			}
+			if err != nil {
+				return err
+			}
+			return a.writeReadyStatus("ready", nil)
 		}
 		if e := a.processManaged(ctx, a.State.Policy); e != nil {
 			_ = a.report(ctx)

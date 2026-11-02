@@ -35,7 +35,7 @@ async function workspace(view='overview',options={}) {
  context.apiResponses=options.responses || {};
  context.FormData=class{constructor(form){this.values=form.values || {};}get(key){return this.values[key] ?? null;}getAll(key){const value=this.values[key];return Array.isArray(value)?value:value==null?[]:[value];}};
  vm.createContext(context);
- for(const file of ['locations.js','filters.js','topology.js','routing.js','services.js','firewall.js','firewall-page.js','managed.js','managed-page.js','default-deny-page.js','locations-page.js','metadata-page.js','access-page.js','server-lifecycle-page.js','service-groups-page.js','learning-page.js','hit-monitoring-page.js','recommendations.js','approvals-page.js','recommendations-page.js','platform.js','settings-setup-page.js','settings-page.js','settings-ha-page.js','settings-appliance-page.js','settings-certificates-page.js','settings-agents-page.js','settings-notifications-page.js','settings-endpoint-certificates-page.js','settings-recovery-page.js','settings-application-port-page.js','policy-catalogue-page.js','alerts-catalogue-page.js','account-menu.js','risk-page.js','agent-installation.js','app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context,{filename:file});
+ for(const file of ['locations.js','filters.js','topology.js','routing.js','services.js','firewall.js','firewall-page.js','managed.js','managed-page.js','default-deny-page.js','locations-page.js','metadata-page.js','access-page.js','server-lifecycle-page.js','service-groups-page.js','learning-page.js','hit-monitoring-page.js','recommendations.js','approvals-page.js','recommendations-page.js','platform.js','settings-setup-page.js','settings-page.js','settings-ha-page.js','settings-appliance-page.js','settings-certificates-page.js','settings-agents-page.js','settings-notifications-page.js','settings-endpoint-certificates-page.js','settings-recovery-page.js','settings-application-port-page.js','policy-catalogue-page.js','alerts-catalogue-page.js','account-menu.js','risk-page.js','agent-installation.js','traffic-catalogue-page.js','audit-catalogue-page.js','source-banks-page.js','app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context,{filename:file});
  await new Promise(setImmediate);
  const run=script=>vm.runInContext(script,context);
  async function click(action,dataset={}){context.testButton={disabled:false,dataset:{action,...dataset}};return run('handleAction({target:{closest:()=>testButton}})');}
@@ -1169,4 +1169,61 @@ test('unavailable fast discovery and preparation errors remain escaped diagnosti
  const html=env.run('serverDrawerServicesHTML(diagnosticHost)');
  assert.match(html,/Unavailable on this kernel/);assert.match(html,/&lt;script&gt;snapshot&lt;\/script&gt;/);assert.match(html,/&lt;img src=x onerror=alert\(1\)&gt;/);assert.match(html,/firewalld at preparation<\/dt><dd>Inactive/);assert.doesNotMatch(html,/<script>|<img src=x/);
  const legacy=env.run('discoveryTimingHTML({})');assert.match(legacy,/using full inventory scans/);assert.doesNotMatch(legacy,/every 5 seconds|Active/);
+});
+
+test('production API wrapper permits Read Only catalogue queries with CSRF and still refuses mutations',async()=>{
+ const env=await workspace('alerts',{mode:'entra',role:'read_only'});
+ for(const route of ['/alerts/query','/flows/query','/audit/query','/source-banks/query']){
+  const before=env.requests.length;env.context.readQueryRoute=route;
+  await env.run('api(readQueryRoute,{method:"POST",body:{limit:50,offset:50}})');
+  assert.equal(env.requests.length,before+1);const request=env.requests.at(-1);
+  assert.equal(request.url,'/api/v1'+route);assertCookieMutation(request);
+ }
+ for(const route of ['/alerts/example/ack','/alerts/query/ack','/flows/query/delete','/audit/query/clear','/policies']){
+  const before=env.requests.length;env.context.writeRoute=route;
+  await assert.rejects(env.run('api(writeRoute,{method:"POST",body:{}})'),/Read Only access cannot change/);
+  assert.equal(env.requests.length,before);
+ }
+});
+
+test('policy editor explains direct Admin publication and retains distinct downtime acknowledgement',async()=>{
+ const env=await workspace('policies',{mode:'entra',role:'admin'});await env.run('showPolicy("policy-1")');
+ const html=env.element('#modal-content').innerHTML;
+ assert.match(html,/Admin save publishes/);assert.match(html,/endpoint receipt confirms/);assert.match(html,/separate downtime acknowledgement/);
+ assert.doesNotMatch(html,/requires reviewed rollout|second approver|two.person/i);
+});
+
+test('Read Only Traffic finds older matching relationships beyond the overview preview using application and historical port filters',async()=>{
+ const at=new Date().toISOString(),before=new Date(Date.now()-3600000).toISOString();
+ const other={...host,id:'payment-host',hostname:'payments-app',tags:{application:'payments'},listeners:[{port:443,protocol:'tcp'}]},preview={server_id:other.id,source_ip:'192.0.2.2',port:443,protocol:'tcp',verdict:'allowed',capture_kind:'accepted_connection',capture_backend:'conntrack',count_unit:'connections',address_family:'ipv4',count:1,first_seen:at,last_seen:at};
+ const overview={...structuredClone(fixture),servers:[structuredClone(host),other],flows:[preview],meta:{...fixture.meta,traffic_query_v1:true}};
+ const query=options=>{const value=JSON.parse(options.body),filtered=value.server_ids?.includes('host-1')&&value.ports.includes('443/tcp');return {items:filtered?[{...preview,server_id:'host-1',source_ip:'198.51.100.99',count:7}]:[preview],total:filtered?1:602,endpoint_count:filtered?1:2,counts_by_unit:{connections:filtered?7:608,packets:0,log_records:0},limit:50,offset:value.offset,has_more:!filtered,window_seconds:value.window_seconds,as_of:value.as_of||at,from_time:before,coverage:'Complete matching retained relationships; graph shows only the loaded page.',filter_before_pagination:true};};
+ const env=await workspace('traffic',{mode:'entra',role:'read_only',responses:{'/api/v1/overview':overview,'POST /api/v1/flows/query':query}});
+ env.run("state.filters.application=['billing'];state.filters.ports=['443/tcp'];render()");await new Promise(setImmediate);
+ const request=env.requests.filter(row=>row.url==='/api/v1/flows/query').at(-1),body=JSON.parse(request.options.body);assert.deepEqual(body.server_ids,['host-1']);assert.deepEqual(body.ports,['443/tcp']);assertCookieMutation(request);
+ const html=env.element('#view-content').innerHTML;assert.match(html,/198\.51\.100\.99/);assert.doesNotMatch(html,/192\.0\.2\.2/);assert.match(html,/1–1 of 1 matching relationships/);assert.match(html,/Export matching CSV/);assert.match(env.element('#filter-result-count').innerHTML||html,/1 matching relationships/);assert.equal(env.run('visibleFlows()[0].source_ip'),'198.51.100.99');
+});
+
+test('Read Only Traffic page actions reach the shared API and show exact full-scope counts beyond500',async()=>{
+ const at=new Date().toISOString(),before=new Date(Date.now()-3600000).toISOString(),overview={...structuredClone(fixture),meta:{...fixture.meta,traffic_query_v1:true}};
+ const env=await workspace('traffic',{mode:'entra',role:'read_only',responses:{'/api/v1/overview':overview,'POST /api/v1/flows/query':options=>{const query=JSON.parse(options.body),count=Math.min(50,507-query.offset);return {items:Array.from({length:count},(_,index)=>({server_id:'host-1',source_ip:`198.51.${Math.floor((query.offset+index)/255)}.${(query.offset+index)%255}`,port:8443,protocol:'tcp',count:1,verdict:'allowed',count_unit:'connections',capture_kind:'accepted_connection',capture_backend:'conntrack',address_family:'ipv4',first_seen:at,last_seen:at})),total:507,endpoint_count:1,counts_by_unit:{connections:507,packets:0,log_records:0},limit:50,offset:query.offset,has_more:query.offset+count<507,window_seconds:query.window_seconds,as_of:query.as_of||at,from_time:before,coverage:'All matching retained traffic before pagination.',filter_before_pagination:true};}}});
+ await env.click('traffic-catalogue-page',{offset:'500'});const request=env.requests.filter(row=>row.url==='/api/v1/flows/query').at(-1);assert.equal(JSON.parse(request.options.body).offset,500);assertCookieMutation(request);assert.match(env.element('#view-content').innerHTML,/501–507 of 507 matching relationships/);assert.match(env.element('#view-content').innerHTML,/graph and chart visualize the loaded page/);assert.equal(env.run('visibleFlows().length'),7);assert.match(env.run("filterResultText('traffic')"),/507 matching relationships/);
+});
+
+
+test('source-set preparation uses the shared modal action submit and actual checkbox event path for Admin and Read Only',async()=>{
+ const sha=letter=>letter.repeat(64),at=new Date().toISOString(),sourceHost={...host,capabilities:[...host.capabilities,'signed_assignments_v1','source_bank_preparation_v1'],configuration_state:{digest:sha('b')},protection_digest:sha('c')};
+ const overview={...structuredClone(fixture),servers:[sourceHost],meta:{...fixture.meta,demo:false}};
+ const receipt={schema_version:1,id:'bank-assess-one',operation:'assess',plan_digest:sha('d'),status:'assessed',checked_at:at,baseline_digest:sha('a'),protection_digest:sha('c'),missing_banks:256,active_banks:0,permanent_banks:0,created_banks:0,activation_required:true,blockers:[]};
+ let activated=false;
+ const assessment={id:receipt.id,server_id:'host-1',operation:'assess',status:'assigned',plan_digest:sha('d')};
+ const review={id:'bank-review-one',kind:'source_bank_preparation',status:'preview',digest:sha('e'),confirmation_nonce:'n'.repeat(43),challenge:'PREPARE SOURCE BANKS',expires_at:new Date(Date.now()+120000).toISOString(),can_apply:true,blockers:[],targets:[{server_id:'host-1',hostname:'lab-api',missing_banks:256,active_banks:0,permanent_banks:0,activation_required:true,baseline_digest:sha('a'),protection_digest:sha('c'),assessed_at:at,blockers:[]}]};
+ const responses={'/api/v1/overview':overview,'POST /api/v1/source-banks/query':()=>({items:[{server_id:'host-1',hostname:'lab-api',capable:true,job:activated?{...assessment,id:'bank-activate-one',operation:'prepare_activate'}:assessment,receipt}],total:1,limit:50,offset:0,has_more:false}),'POST /api/v1/source-banks/assess':{items:[assessment],count:1},'POST /api/v1/source-banks/preview':review,'POST /api/v1/source-banks/bank-review-one/confirm':()=>{activated=true;return {id:review.id,status:'assigned',count:1,items:[{...assessment,id:'bank-activate-one',operation:'prepare_activate'}]};}};
+ const env=await workspace('servers',{mode:'entra',role:'admin',responses});assert.match(env.element('#view-content').innerHTML,/data-action="source-bank-open"/);
+ await env.click('source-bank-open',{id:'host-1'});assert.equal(env.element('#modal-title').textContent,'Prepare source banks');await env.submit('source-bank-selection-form',{server_ids:['host-1'],group_ids:[]});
+ await env.click('source-bank-preview');assert.equal(env.element('#modal-title').textContent,'Review source-bank maintenance');assert.match(env.element('#modal-content').innerHTML,/reload firewalld/);assert.doesNotMatch(env.element('#modal-content').innerHTML,/id="source-bank-ack"[^>]*checked/);
+ await env.submit('source-bank-confirm-form',{acknowledge_downtime:'on',confirmation_phrase:'PREPARE SOURCE BANKS'});assert.equal(env.requests.some(row=>row.url.endsWith('/bank-review-one/confirm')),false);
+ const check=env.element('#source-bank-ack'),phrase=env.element('#source-bank-phrase');check.closest=()=>null;phrase.closest=()=>null;check.checked=true;env.listeners.change.forEach(handler=>handler({target:check}));phrase.value='PREPARE SOURCE BANKS';env.listeners.input.forEach(handler=>handler({target:phrase}));assert.equal(env.element('#source-bank-confirm').disabled,false);
+ await env.submit('source-bank-confirm-form',{});const push=env.requests.find(row=>row.url.endsWith('/bank-review-one/confirm'));assertCookieMutation(push);assert.deepEqual(JSON.parse(push.options.body),{digest:sha('e'),confirmation_nonce:review.confirmation_nonce,confirmation_phrase:'PREPARE SOURCE BANKS',acknowledge_downtime:true});assert.match(env.element('#source-bank-status').innerHTML,/Historical receipt/);assert.equal(env.run('sourceBanksState.review'),null);assert.equal(env.run('sourceBanksState.acknowledged'),'');
+ const readonly=await workspace('servers',{mode:'entra',role:'read_only',responses});await readonly.click('source-bank-open',{id:'host-1'});assert.match(readonly.element('#modal-content').innerHTML,/Status is available to Read Only/);const before=readonly.requests.length;await readonly.submit('source-bank-selection-form',{server_ids:['host-1']});await readonly.click('source-bank-preview');assert.equal(readonly.requests.length,before);assertCookieMutation(readonly.requests.find(row=>row.url==='/api/v1/source-banks/query'));
 });
