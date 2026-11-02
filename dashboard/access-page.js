@@ -5,6 +5,7 @@ function accessRole(value) { return accessRoles.includes(value)?value:'read_only
 function accessRoleLabel(value) { return ({read_only:'Read Only',admin:'Admin',super_admin:'Super Admin'})[accessRole(value)]; }
 function canManageUsers() { return state.role==='super_admin'; }
 function clearDashboardIdentity() {
+  if(typeof metadataClearIdentity==='function')metadataClearIdentity();
   if(typeof clearPolicyDeployments==='function')clearPolicyDeployments();
   if(typeof platformClearCertificateUpload==='function')platformClearCertificateUpload();
   if(typeof clearAgentInstallation==='function')clearAgentInstallation();
@@ -12,6 +13,7 @@ function clearDashboardIdentity() {
   state.accessUsers=[];state.accessLoaded=false;state.accessError='';state.serverDeletePlan=null;sessionStorage.removeItem('segment-token');
 }
 function applyDashboardIdentity(auth) {
+  const previousMetadataIdentity=typeof metadataIdentity==='function'?metadataIdentity():null;
   const previousDeploymentIdentity=typeof policyDeploymentsIdentity==='function'?policyDeploymentsIdentity():null;
   const previousIdentity=typeof platformCertificateUploadIdentity==='function'?platformCertificateUploadIdentity():null;
   const previousAgentIdentity=typeof agentInstallationIdentity==='function'?agentInstallationIdentity():null;
@@ -19,6 +21,7 @@ function applyDashboardIdentity(auth) {
   state.role=demo?'super_admin':accessRole(auth.role);
   state.user=auth.user || null;state.authType=demo?'demo':auth.auth_type || (state.token&&state.authConfig?.mode==='tokens'?'token':null);
   state.csrfToken=typeof auth.csrf_token==='string'?auth.csrf_token:'';state.authError='';
+  if(previousMetadataIdentity!==null&&previousMetadataIdentity!==metadataIdentity())metadataClearIdentity();
   if(previousIdentity!==null&&previousIdentity!==platformCertificateUploadIdentity())platformClearCertificateUpload();
   if(previousAgentIdentity!==null&&previousAgentIdentity!==agentInstallationIdentity())clearAgentInstallation();
   if(previousDeploymentIdentity!==null&&previousDeploymentIdentity!==policyDeploymentsIdentity())clearPolicyDeployments();

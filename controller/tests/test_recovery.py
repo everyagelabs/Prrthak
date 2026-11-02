@@ -178,6 +178,22 @@ class SQLiteRecoveryTests(unittest.TestCase):
         self.assertNotIn("writer_nonce", public)
         self.assertNotIn("BEGIN PRIVATE KEY", json_text)
 
+    def test_restore_rebuilds_endpoint_learning_index_without_restarting_capture(self):
+        with self.store.meta() as db:
+            self.store._put(db, "sessions", {"id":"restore-active-scope", "server_ids":["target"], "status":"active",
+                "selection_mode":"manual", "policy_action":"observe", "ports":[{"port":443,"protocol":"tcp"}],
+                "starts_at":stamp(now()-timedelta(minutes=1)), "expires_at":stamp(now()+timedelta(hours=1))})
+        self.backup = maintenance.backup_create(self.store,self.maker["actor"])
+        self.queued()
+        self.assertFalse(recovery.supervisor_tick(Supervisor(self.manager)))
+        restored = Store(self.directory)
+        self.assertEqual(restored.get("sessions","restore-active-scope")["status"],"stopped")
+        assignment = restored.assignment("target")[0]
+        self.assertEqual(assignment["learning_sessions"],[])
+        self.assertEqual([scope["id"] for scope in assignment["learning_tombstones"]],["restore-active-scope"])
+        with restored.read_meta() as db:
+            self.assertEqual(db.execute("SELECT status FROM learning_session_targets WHERE session_id=?",("restore-active-scope",)).fetchone()[0],"stopped")
+
     def test_revocations_disabled_users_retired_and_new_identities_are_high_water(self):
         disabled = self.person("55555555-5555-5555-5555-555555555555")
         with self.store.meta() as db:

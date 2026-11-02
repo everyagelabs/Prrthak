@@ -1,4 +1,8 @@
-# Illustrated deployment and onboarding guide - 0.6
+# Illustrated deployment and onboarding guides
+
+The current **0.14.0 illustrated pilot guide** is available as [PDF](prthak-pilot-0.14.0.pdf) and [self-contained HTML](prthak-pilot-0.14.0.html). It covers current components, ports, GUI configuration, one-command installation, central metadata review, per-port learning, safe publication, rollout evidence, sizing and platform operations. Its diagrams explain workflows; they are not relabeled historical screenshots or native acceptance evidence. Regenerate with `python3 scripts/build-current-pilot-guide.py` using ReportLab.
+
+## Historical 0.6 edition
 
 > **Historical 0.6 edition.** Its screenshots and approval instructions predate the current direct-Admin workflow. Use [current requirements](../requirements-delivery-map.md), [authentication](../authentication.md), [managed enforcement](../managed-enforcement.md) and [API contract](../api-contract.md) for current operations. No second person or approval-mode selector is required; only the documented risky/destructive actions retain two explicit same-actor confirmations. The historical PDF is unchanged. The HTML has only this current-workflow warning added; its original verification record remains historical, not a new render attestation.
 

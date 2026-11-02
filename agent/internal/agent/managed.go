@@ -88,12 +88,12 @@ func (a *Agent) managedMutation(ctx context.Context, path string, journal *manag
 	return nil
 }
 func (a *Agent) applyManaged(ctx context.Context, p *Policy, protection Protection) error {
+	a.managedOptOutRemovalAttested = false
 	removal := !p.HostDefaultDeny && p.Enforcement != nil && p.Enforcement.Intent == "remove_host_default_deny"
 	cleanup := p.Enforcement != nil && p.Enforcement.Intent == "remove_managed_rules" && a.State.ManagedBundle != nil && len(a.State.ManagedBundle.Rules) > 0
 	if !a.Config.Enforce && !removal || a.Simulate {
 		if !a.Simulate && a.State.ManagedBundle != nil && len(a.State.ManagedBundle.Rules) > 0 {
-			old := a.State.ManagedBundle
-			a.State.ManagedEnforcement = &ManagedEnforcement{Status: "enforced", Version: old.Version, Digest: old.Digest, ApprovalID: old.ApprovalID, Error: "local enforcement disabled; committed restrictions remain until reviewed cleanup", UpdatedAt: time.Now().UTC()}
+			return a.observeOptedOutManaged(ctx, p, protection)
 		} else {
 			a.managedStatus("preview", p, "")
 		}
@@ -452,10 +452,47 @@ func (a *Agent) applyManaged(ctx context.Context, p *Policy, protection Protecti
 	a.State.ManagedBundle = &journal.Next
 	a.State.AppliedVersion = p.Version
 	a.managedStatus("enforced", p, "")
+	// Explicit reviewed removal is allowed after a local opt-out. Its actual
+	// final readback remains a current outcome for this process; cached startup
+	// state never inherits this attestation.
+	a.managedOptOutRemovalAttested = removal && !a.Config.Enforce
 	if e = atomicJSON(filepath.Join(managedDirectory(a.Config.StateDir), "committed.json"), journal.Next); e != nil {
 		return e
 	}
 	return a.save()
+}
+
+const managedOptOutMessage = "local enforcement is disabled; last-good policy is historical and restrictions require readback or reviewed cleanup"
+
+// Opting out does not remove existing restrictions. It also cannot attest a
+// fresh apply from the cache. Continue read-only drift detection under the same
+// lease as every access mutation, without recovering or repairing the firewall.
+func (a *Agent) observeOptedOutManaged(ctx context.Context, p *Policy, protection Protection) error {
+	a.managedOptOutRulesPresent = nil
+	a.managedStatus("error", p, managedOptOutMessage)
+	fail := func(err error) error {
+		a.State.ManagedEnforcement.Error = managedOptOutMessage + "; read-only drift check failed: " + err.Error()
+		return err
+	}
+	lock, err := managedLock(a.Config.StateDir, true)
+	if err != nil {
+		return fail(err)
+	}
+	defer unlockManaged(lock)
+	ctx = withManagedLease(ctx, lock)
+	if configurationMutationBlocked(a.Config) {
+		return fail(errors.New("endpoint configuration recovery is unfinished"))
+	}
+	if err = checkEnforcementJournals(a.Config); err != nil {
+		return fail(err)
+	}
+	if err = a.managedPreflight(ctx, protection, a.State.ManagedBundle.HostDefaultDeny); err != nil {
+		return fail(err)
+	}
+	present := true
+	a.managedOptOutRulesPresent = &present
+	a.State.ManagedEnforcement.Error = "local enforcement is disabled; last-good restrictions are present by read-only inspection; no policy was applied"
+	return nil
 }
 func (a *Agent) processManaged(ctx context.Context, p *Policy) error {
 	protection := Protection{}
@@ -517,7 +554,8 @@ func (a *Agent) enrichManagedStatus() {
 	if a.State.ManagedEnforcement == nil {
 		return
 	}
-	a.State.ManagedEnforcement.LastGoodVersion = 0
+	result := a.State.ManagedEnforcement
+	result.LastGoodVersion = 0
 	a.State.ManagedEnforcement.LastGoodDigest = ""
 	a.State.ManagedEnforcement.Generation = ""
 	a.State.ManagedEnforcement.CommittedAt = nil
@@ -526,9 +564,11 @@ func (a *Agent) enrichManagedStatus() {
 	if a.State.ManagedBundle != nil {
 		a.State.ManagedEnforcement.LastGoodVersion = a.State.ManagedBundle.Version
 		a.State.ManagedEnforcement.LastGoodDigest = a.State.ManagedBundle.Digest
-		a.State.ManagedEnforcement.Generation = a.State.ManagedBundle.Generation
-		a.State.ManagedEnforcement.CommittedAt = a.State.ManagedBundle.CommittedAt
-		if verification := a.State.PolicyVerification; verification != nil && verification.ReadbackAt != nil && verification.Report.AppliedGeneration == a.State.ManagedBundle.Generation && verification.Assignment.Version == a.State.ManagedBundle.Version && verification.Assignment.Digest == a.State.ManagedBundle.Digest && verification.Assignment.ApprovalID == a.State.ManagedEnforcement.ApprovalID {
+		if result.Status == "enforced" {
+			a.State.ManagedEnforcement.Generation = a.State.ManagedBundle.Generation
+			a.State.ManagedEnforcement.CommittedAt = a.State.ManagedBundle.CommittedAt
+		}
+		if verification := a.State.PolicyVerification; result.Status == "enforced" && verification != nil && verification.ReadbackAt != nil && verification.Report.AppliedGeneration == a.State.ManagedBundle.Generation && verification.Assignment.Version == a.State.ManagedBundle.Version && verification.Assignment.Digest == a.State.ManagedBundle.Digest && verification.Assignment.ApprovalID == a.State.ManagedEnforcement.ApprovalID {
 			a.State.ManagedEnforcement.VerificationID = verification.Assignment.ID
 			a.State.ManagedEnforcement.VerificationReadbackAt = verification.ReadbackAt
 		}
@@ -536,4 +576,24 @@ func (a *Agent) enrichManagedStatus() {
 	a.State.ManagedEnforcement.HostDefaultDenyActive = a.State.ManagedBundle != nil && a.State.ManagedBundle.HostDefaultDeny
 	present := a.State.ManagedBundle != nil && len(a.State.ManagedBundle.Rules) > 0
 	a.State.ManagedEnforcement.ManagedRulesPresent = &present
+	if !a.Config.Enforce && present && !a.Simulate && !a.managedOptOutRemovalAttested {
+		// This also normalizes startup/cache receipts before the first sync.
+		// A current generation/readback witness must never be reconstructed
+		// from the last-good bundle while local application is disabled.
+		if result.Status == "enforced" {
+			result.Status = "error"
+			result.Error = managedOptOutMessage
+		}
+		result.AlreadyPresent = false
+		result.Generation = ""
+		result.CommittedAt = nil
+		result.VerificationID = ""
+		result.VerificationReadbackAt = nil
+		result.ManagedRulesPresent = a.managedOptOutRulesPresent
+		if result.ManagedRulesPresent == nil {
+			// On status=error this bool is not an absence proof; controllers
+			// retain the last known whole-host ownership conservatively.
+			result.HostDefaultDenyActive = false
+		}
+	}
 }

@@ -335,8 +335,119 @@ func TestEndpointConfigurationRecoveryAfterDeadCoordinatorOrReboot(t *testing.T)
 	if string(current) != "old" || string(ca) != "old-ca" {
 		t.Fatal("startup recovery did not preserve previous settings/trust")
 	}
+	pending, err := configurationJournalReadUnder(root, "/var/lib/seg-agent/configuration-transitions/"+identifier+".json")
+	if err != nil || pending.Status != "restart_pending" {
+		t.Fatal("restored files were reported terminal before a fresh daemon start", pending, err)
+	}
+	if _, err := os.Stat(directory + "/active"); err != nil {
+		t.Fatal("startup inverse removed its recovery fence before a fresh daemon start")
+	}
+	if err := recoverConfigurationUnder(root, func(*configurationJournal) bool { return false }, nil); err != nil {
+		t.Fatal("fresh daemon could not load the restored configuration", err)
+	}
 	if _, err := os.Stat(directory + "/active"); !os.IsNotExist(err) {
-		t.Fatal("recovered generation left mutation gate armed")
+		t.Fatal("fresh daemon left the completed recovery fence armed")
+	}
+}
+
+func configurationRestartFixture(t *testing.T) (string, *configurationJournal, string) {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(root+"/etc/seg-agent", 0700); err != nil {
+		t.Fatal(err)
+	}
+	journal := &configurationJournal{SchemaVersion: 1, ReviewID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", Status: "armed", Deadline: time.Now().Add(-time.Minute), ConfigPath: "/etc/seg-agent/config.json", OldConfig: []byte("old-config"), CandidateConfig: []byte("candidate-config"), OldCA: []byte("old-ca"), CandidateCA: []byte("candidate-ca")}
+	for path, value := range map[string][]byte{journal.ConfigPath: journal.CandidateConfig, "/etc/seg-agent/controller-ca.crt": journal.CandidateCA} {
+		if err := os.WriteFile(root+path, value, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root, journal, persistConfigurationAttempt(t, root, journal)
+}
+
+func TestEndpointConfigurationRestartFailureRemainsRetryableAndFenced(t *testing.T) {
+	root, journal, path := configurationRestartFixture(t)
+	commands := &configurationCommands{err: errors.New("transient systemd restart failure")}
+	if err := restoreConfigurationUnder(root, path, journal, commands); err == nil {
+		t.Fatal("failed restart reported success")
+	}
+	logical := "/var/lib/seg-agent/configuration-transitions/" + journal.ReviewID + ".json"
+	pending, err := configurationJournalReadUnder(root, logical)
+	if err != nil || pending.Status != "restart_pending" || pending.RestartError != commands.err.Error() {
+		t.Fatal("failed restart did not persist retryable diagnostic state", pending, err)
+	}
+	c := defaultConfig()
+	c.StateDir = root + "/var/lib/seg-agent"
+	if !configurationMutationBlocked(c) || CheckEnforcementUpgradeSafety(c) == nil || checkEnforcementUpgradeSafety(c, true, journal.ReviewID) == nil {
+		t.Fatal("pending restart allowed access writes or binary replacement")
+	}
+	commands.err = nil
+	if err := rollbackEndpointConfigurationUnder(root, logical, commands); err != nil {
+		t.Fatal("watchdog did not retry the failed restart", err)
+	}
+	complete, err := configurationJournalReadUnder(root, logical)
+	if err != nil || complete.Status != "rolled_back" || complete.RestartError != "" || len(commands.calls) != 2 || configurationMutationBlocked(c) {
+		t.Fatal("successful watchdog retry did not complete exact recovery", complete, commands.calls, err)
+	}
+}
+
+func TestEndpointConfigurationPendingRestartFreshStartupAndLiveHelper(t *testing.T) {
+	root, journal, path := configurationRestartFixture(t)
+	commands := &configurationCommands{err: errors.New("restart failed")}
+	if err := restoreConfigurationUnder(root, path, journal, commands); err == nil {
+		t.Fatal("fixture requires a failed restart")
+	}
+	lease, err := configurationLeaseUnder(root, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An external systemctl restart waits for ExecStart while holding this
+	// lease. Startup must load the exact inverse without recursive restart or
+	// waiting for that same lease, and must not clear the helper's fence.
+	if err = recoverConfigurationUnder(root, nil, nil); err != nil {
+		t.Fatal("replacement daemon deadlocked/refused the live restart helper", err)
+	}
+	current, err := configurationJournalReadUnder(root, "/var/lib/seg-agent/configuration-transitions/"+journal.ReviewID+".json")
+	if err != nil || current.Status != "restart_pending" {
+		t.Fatal("replacement daemon prematurely completed the helper's recovery", current, err)
+	}
+	lease.Close()
+	if err = recoverConfigurationUnder(root, nil, nil); err != nil {
+		t.Fatal("fresh startup did not recover a lost restart helper", err)
+	}
+	current, err = configurationJournalReadUnder(root, "/var/lib/seg-agent/configuration-transitions/"+journal.ReviewID+".json")
+	if err != nil || current.Status != "rolled_back" {
+		t.Fatal("fresh startup did not attest restored configuration", current, err)
+	}
+}
+
+func TestEndpointConfigurationPendingRestartRefusesChangedFilesAndSuccessor(t *testing.T) {
+	for _, change := range []string{"settings", "trust", "successor"} {
+		t.Run(change, func(t *testing.T) {
+			root, journal, path := configurationRestartFixture(t)
+			commands := &configurationCommands{err: errors.New("restart failed")}
+			if err := restoreConfigurationUnder(root, path, journal, commands); err == nil {
+				t.Fatal("fixture requires a pending inverse")
+			}
+			switch change {
+			case "settings":
+				os.WriteFile(root+journal.ConfigPath, []byte("different-generation"), 0600)
+			case "trust":
+				os.WriteFile(root+"/etc/seg-agent/controller-ca.crt", []byte("different-trust"), 0600)
+			case "successor":
+				next := *journal
+				next.ReviewID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+				next.Status = "armed"
+				persistConfigurationAttempt(t, root, &next)
+			}
+			commands.err = nil
+			if err := restoreConfigurationUnder(root, path, journal, commands); err == nil || len(commands.calls) != 1 {
+				t.Fatal("retry restarted or accepted changed inverse/successor", err, commands.calls)
+			}
+			if change != "successor" && recoverConfigurationUnder(root, nil, nil) == nil {
+				t.Fatal("startup accepted changed restored settings/trust")
+			}
+		})
 	}
 }
 func TestEndpointConfigurationInverseHandlesDeathBeforeTrustFileCommit(t *testing.T) {

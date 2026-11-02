@@ -167,6 +167,38 @@ func (a *Agent) plannedCaptureSidecars(ctx context.Context, scopes []capturePort
 			owned[rule.Zone+"\x00"+managedSemanticKey(rule.Rule)] = true
 		}
 	}
+	if bundle := a.State.LearningAllowBundle; bundle != nil {
+		// Learned allowances run before the terminal managed reject. Only
+		// exact rules in our committed ledger, present in both scopes with
+		// unchanged source-set contents, can be excluded from foreign-order
+		// blockers. A PRTL prefix alone never establishes ownership.
+		if err := validateManagedCommittedSets(ctx, a.Commands, learningBundleRecord(bundle)); err != nil {
+			return nil, gaps, fmt.Errorf("learning overlay prevents exact NFLOG verdict classification: %w", err)
+		}
+		sets := map[string]string{}
+		for _, set := range bundle.IPSets {
+			if !strings.HasPrefix(set.Name, "prthak_l") || sets[set.Name] != "" {
+				return nil, gaps, errors.New("ambiguous learning source-set ownership prevents exact NFLOG verdict classification")
+			}
+			sets[set.Name] = set.Family
+		}
+		for _, rule := range bundle.Rules {
+			if !a.ownsLearningAllowRule(rule.Zone, rule.Rule) {
+				return nil, gaps, errors.New("invalid owned learning overlay for exact NFLOG verdict classification")
+			}
+			info, _ := parseManagedRich(rule.Rule) // ownsLearningAllowRule already validated the exact shape.
+			if info.SourceIPSet != "" && (sets[info.SourceIPSet] == "" || (sets[info.SourceIPSet] == "inet") != (info.Family == "ipv4")) {
+				return nil, gaps, errors.New("missing learning source-set ownership prevents exact NFLOG verdict classification")
+			}
+			for _, scope := range []string{"runtime", "permanent"} {
+				present, err := firewallQuery(ctx, a.Commands, scope, rule.Zone, "rich_rule", rule.Rule)
+				if err != nil || !present {
+					return nil, gaps, errors.New("committed learning overlay rule drift prevents exact NFLOG verdict classification")
+				}
+			}
+			owned[rule.Zone+"\x00"+managedSemanticKey(rule.Rule)] = true
+		}
+	}
 	for _, observation := range a.ownedFirewallObservationRules() {
 		owned[observation.Zone+"\x00"+observation.Rule] = true
 	}

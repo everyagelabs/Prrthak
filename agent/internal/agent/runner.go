@@ -31,6 +31,8 @@ type Agent struct {
 	captureCoverage                      TrafficCaptureCoverage
 	captureScopeKey                      string
 	timingMu                             sync.RWMutex
+	managedOptOutRulesPresent            *bool
+	managedOptOutRemovalAttested         bool
 	remotePolling                        *PollingSettings
 	pollingError                         string
 	checkLearningHealth                  func(context.Context, *LearningAllow, Protection, string) error

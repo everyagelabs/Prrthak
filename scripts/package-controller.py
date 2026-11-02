@@ -95,6 +95,12 @@ def selected_paths(root: Path) -> list[str]:
     for path in documentation.iterdir():
         if path.suffix == '.md':
             names.add(path.relative_to(root).as_posix())
+    guides = documentation / 'guide'
+    if guides.is_symlink():
+        raise PackageError('Illustrated guide directory must not be a symlink')
+    for path in guides.glob('prthak-pilot-*'):
+        if re.fullmatch(r'prthak-pilot-[0-9]+\.[0-9]+\.[0-9]+\.(pdf|html)', path.name):
+            names.add(path.relative_to(root).as_posix())
     assets = root / 'dashboard/assets'
     if assets.is_symlink() or not assets.is_dir():
         raise PackageError('Expected a real dashboard assets directory')

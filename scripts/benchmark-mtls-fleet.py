@@ -43,6 +43,24 @@ def percentile(values, fraction):
     return round(values[min(len(values)-1, max(0, math.ceil(len(values)*fraction)-1))] * 1000, 3) if values else None
 
 
+def seed_retained_history(store, identities, count):
+    """Retain expired full-fleet history outside timers through canonical writes."""
+    if not 0 <= count <= 100:
+        raise ValueError('Retained history must contain 0..100 expired sessions')
+    written = 0
+    with store.lock, store.meta() as db:
+        for index in range(count):
+            value = {'id': str(uuid.uuid4()), 'server_ids': list(identities), 'status': 'expired',
+                     'selection_mode': 'explicit', 'policy_action': 'suggest',
+                     'observation_kinds': ['allowed', 'denied'], 'ports': [{'port': 443, 'protocol': 'tcp'}],
+                     'starts_at': stamp(now() - timedelta(days=31)), 'expires_at': stamp(now() - timedelta(days=30)),
+                     'created_by': 'private-retained-history-fixture'}
+            written += len(json.dumps(value, separators=(',', ':')).encode())
+            store._put(db, 'sessions', value)
+    return {'expired_sessions': count, 'endpoint_memberships': len(identities) * count,
+            'canonical_bytes': written, 'seeded_before_phase_timers': True}
+
+
 def verify_changed_policy(policy, previous_receipt, expected_services):
     """A refreshed signature/304 alone is not a successfully delivered edit."""
     if not previous_receipt or policy.get("version", -1) <= previous_receipt[0] or policy.get("digest") == previous_receipt[1]:
@@ -224,6 +242,7 @@ def run(args):
                     print(json.dumps({"prepared_registered_certificates":index+1}),flush=True)
             store.compile_all(db)
         fixture_policy = store.save_policy({"name":"Private fixture two-service source policy","mode":"enforce" if principal else "monitor","selector":{"application":"http-fleet"} if principal else {},"services":[{"port":port,"protocol":"tcp","sources":[str(ipaddress.IPv4Address(base)+index)+"/32" for index in range(args.policy_sources)]} for port,base in ((8443,"10.232.0.1"),(5432,"10.233.0.1"))]},principal["actor"] if principal else "private-benchmark-fixture",principal=principal)
+        result['retained_learning_history'] = seed_retained_history(store, identities, args.retained_learning_sessions)
         result["private_setup_seconds"] = round(time.monotonic()-started,3)
         environment = dict(os.environ, PRTHAK_SUPERVISED_CHILD="1", SEG_SUPER_ADMIN_TOKEN=token, PYTHONUNBUFFERED="1", **provider_environment)
         if args.backend == "postgresql":
@@ -475,6 +494,7 @@ def main():
     parser.add_argument("--authorization-mode",choices=("monitor","single-admin"),default="monitor",help="single-admin seeds a current local Entra session, saves symbolic enforce intent and measures its real signed per-host authority; never contacts Microsoft")
     parser.add_argument("--change-policy",action="store_true",help="Edit the real source policy before cycle2; include compile/publication and verify all new versions/digests/sources")
     parser.add_argument("--verification-capable",action="store_true",help="Advertise current verification-capable agents and verify their signed passive leases; no kernel witnesses or firewall enforcement are simulated")
+    parser.add_argument('--retained-learning-sessions', type=int, default=0, help='Seed 0..100 expired full-fleet sessions before timing; exercises history-independent delivery')
     parser.add_argument("--poll-window-seconds",type=float,default=0,help="Spread cycle2 polls across this window AFTER the edit is published; timer also includes publication")
     parser.add_argument("--control-interval-seconds",type=int,default=60,help="Set and verify the actual controller polling profile; 30 leaves processing headroom inside a60s delivery budget")
     parser.add_argument("--require-target",action="store_true",help="Fail if any complete cycle misses60seconds, even when HTTP calls succeed")
@@ -490,6 +510,8 @@ def main():
     parser.add_argument("--traffic-dsn-env",default="PRTHAK_HTTP_TEST_TRAFFIC_DSN")
     parser.add_argument("--output",type=Path,required=True)
     args=parser.parse_args()
+    if not 0 <= args.retained_learning_sessions <= 100:
+        parser.error('Retained history must contain 0..100 expired sessions')
     if args.verification_capable and args.authorization_mode != "single-admin":
         parser.error("Observation-lease delivery requires the exact single-admin publication fixture")
     if not 1<=args.agents<=20000 or not 1<=args.cycles<=10 or not 1<=args.concurrency<=256 or not 1<=args.workers<=8 or not 2<=args.threads<=128 or not 1<=args.timeout<=120 or not 1<=args.policy_sources<=1000 or not 0<=args.learning_agents<=1000 or not 0<=args.flow_events<=2000 or not 0<=args.discovery_agents<=args.agents:

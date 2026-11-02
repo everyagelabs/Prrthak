@@ -154,12 +154,14 @@ def _matches(server, lease):
     return bundle.get("version") == lease["version"] and bundle.get("digest") == lease["digest"] and (server.get("protection") or {}).get("digest") == lease["protection_digest"] and digest(sorted(set(server.get("ips", [])))) == lease["target_ips_digest"]
 
 
-def _authorized(store, db, lease):
+def _authorized(store, db, lease, server):
     row = db.execute("SELECT data FROM managed_approvals WHERE server_id=? AND approval_id=? AND version=? AND digest=? AND active=1 LIMIT 1", (lease["server_id"], lease["approval_id"], lease["version"], lease["digest"])).fetchone()
     if row is None:
         return False
     from .approvals import authorized
-    return authorized(store, db, json.loads(row[0]).get("approval_proof"), server_id=lease["server_id"])
+    from .managed import direct_authorities_valid
+    approval = json.loads(row[0])
+    return direct_authorities_valid(store, db, server, approval) and authorized(store, db, approval.get("approval_proof"), server_id=lease["server_id"])
 
 
 def assignment(store, db, server, at=None):
@@ -171,7 +173,7 @@ def assignment(store, db, server, at=None):
         target = json.loads(row[0])
         if not _matches(server, target["lease"]):
             continue
-        if _authorized(store, db, target["lease"]):
+        if _authorized(store, db, target["lease"], server):
             return copy.deepcopy(target["lease"])
     return None
 
@@ -278,7 +280,7 @@ def report(store, db, server, receipt):
             raise ValueError("Verification sequence reused for different evidence")
         return False
     invalidation = receipt["state"] in ("superseded", "error")
-    if target["apply_status"] in ("failed", "rolled_back") or not invalidation and (not _matches(server, lease) or not _authorized(store, db, lease) or target["apply_status"] == "superseded" or target["traffic_status"] == "failed"):
+    if target["apply_status"] in ("failed", "rolled_back") or not invalidation and (not _matches(server, lease) or not _authorized(store, db, lease, server) or target["apply_status"] == "superseded" or target["traffic_status"] == "failed"):
         return False
     checked = parse_time(receipt["checked_at"])
     if checked > now() + timedelta(seconds=60) or checked < parse_time(lease["starts_at"]) - timedelta(seconds=60) or not invalidation and now() > parse_time(lease["expires_at"]) + timedelta(seconds=UPLOAD_GRACE_SECONDS):

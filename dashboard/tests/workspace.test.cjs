@@ -14,7 +14,7 @@ async function workspace(view='overview',options={}) {
  const identity=options.identity || {role,demo:mode==='demo',auth_type:mode==='demo'?'demo':mode==='tokens'?'token':'session',csrf_token:mode==='entra'?'session-csrf-fixture':'',user:{id:mode==='demo'?'demo':'super-self',display_name:mode==='demo'?'Demo administrator':'Priya Operator',email:'priya@example.test',role}};
  const authStatus=options.authStatus;
  const config={mode,configured:mode==='entra',login_url:mode==='entra'?'/api/v1/auth/login':null,...options.config};
- function element(selector){if(!elements.has(selector))elements.set(selector,{id:selector.startsWith('#')?selector.slice(1):'',attributes:{},innerHTML:'',textContent:'',hidden:false,open:false,disabled:false,value:'',dataset:{},style:{},classList:{values:new Set(),add(...names){names.forEach(name=>this.values.add(name));},remove(...names){names.forEach(name=>this.values.delete(name));},toggle(name,force){const enabled=force===undefined?!this.values.has(name):force;if(enabled)this.values.add(name);else this.values.delete(name);return enabled;},contains(name){return this.values.has(name);}},querySelector:element,querySelectorAll:()=>[],addEventListener(){},removeEventListener(){},setAttribute(name,value){this.attributes[name]=String(value);},getAttribute(name){return this.attributes[name] ?? null;},append(){},remove(){},focus(){document.activeElement=this;},matches:()=>false,showModal(){this.open=true;},close(){this.open=false;},setSelectionRange(){},click(){}});return elements.get(selector);}
+ function element(selector){if(!elements.has(selector))elements.set(selector,{id:selector.startsWith('#')?selector.slice(1):'',attributes:{},innerHTML:'',textContent:'',hidden:false,open:false,disabled:false,value:'',dataset:{},style:{},classList:{values:new Set(),add(...names){names.forEach(name=>this.values.add(name));},remove(...names){names.forEach(name=>this.values.delete(name));},toggle(name,force){const enabled=force===undefined?!this.values.has(name):force;if(enabled)this.values.add(name);else this.values.delete(name);return enabled;},contains(name){return this.values.has(name);}},querySelector:element,querySelectorAll:()=>[],eventListeners:{},addEventListener(type,handler){(this.eventListeners[type] ||= []).push(handler);},removeEventListener(){},setAttribute(name,value){this.attributes[name]=String(value);},getAttribute(name){return this.attributes[name] ?? null;},append(){},remove(){},focus(){document.activeElement=this;},matches:()=>false,showModal(){this.open=true;},close(){this.open=false;},setSelectionRange(){},click(){}});return elements.get(selector);}
  const document={body:element('body'),createElement:tag=>element('created:'+tag),querySelector:element,querySelectorAll:()=>[],getElementById:id=>element('#'+id),activeElement:null,hidden:false,addEventListener:(type,handler)=>{(listeners[type] ||= []).push(handler)}};
  const context={console,Date,Map,Set,JSON,Array,String,Number,Error,URL,URLSearchParams,Intl,AbortController,TextEncoder,Blob,document,location:{pathname:'/'+view,hash:'',search:'',assign:url=>navigation.push(url),replace:url=>navigation.push(url)},window:{addEventListener(){},localStorage:{getItem:key=>displayStorage.get(key) ?? null,setItem(key,value){displayStorage.set(key,String(value));displayStorageChanges.push({key,value:String(value)});}}},sessionStorage:{getItem:key=>storage.get(key) ?? null,setItem(key,value){storage.set(key,String(value));storageChanges.push({operation:'set',key,value:String(value)});},removeItem(key){storage.delete(key);storageChanges.push({operation:'remove',key});}},setInterval:()=>1,setTimeout:()=>1,clearTimeout(){},fetch:async(url,options={})=>{
   requests.push({url,options});let data={};
@@ -188,11 +188,13 @@ test('bulk assignment reviews the selected IDs and preserves every untouched tag
 test('bulk remove and automatic reset are explicit, while reserved DC tags and empty changes never preview',async()=>{
  const env=await workspace('servers');env.context.apiResponses={'/api/v1/metadata/bulk/preview':metadataPlan()};env.run('state.metadataBulkIds=["host-1"]');
  for(const [tagMode,expected] of [['remove',{tag_updates:{owner:null}}],['automatic',{reset_tag_keys:['owner']}]] ){
+  env.run('showMetadataBulk(["host-1"])');
   await env.listeners.submit.at(-1)(metadataForm(env,'metadata-bulk-form',{tag_mode:tagMode,tags:'owner',location_mode:'automatic'}));
   const body=JSON.parse(env.requests.filter(item=>item.url==='/api/v1/metadata/bulk/preview').at(-1).options.body);
   assert.deepEqual(body,{server_ids:['host-1'],...expected,location_mode:'automatic'});
  }
  const before=env.requests.length;
+ env.run('showMetadataBulk(["host-1"])');
  await env.listeners.submit.at(-1)(metadataForm(env,'metadata-bulk-form',{tag_mode:'merge',tags:'dc=Untrusted',location_mode:'keep'}));
  assert.equal(env.requests.length,before);assert.match(env.element('#form-error').textContent,/location|DC/i);
  await env.listeners.submit.at(-1)(metadataForm(env,'metadata-bulk-form',{tag_mode:'merge',tags:'',location_mode:'keep'}));assert.equal(env.requests.length,before);
@@ -200,11 +202,11 @@ test('bulk remove and automatic reset are explicit, while reserved DC tags and e
 test('single-server saves preserve automatic assignments unless the administrator explicitly pins or resets them',async()=>{
  const env=await workspace('servers');const values={expected:'2022/tcp',tags:'application=billing,owner=finance'};
  env.element('#server-location').value=location.id;env.element('#server-location-mode').value='keep';
- const event=metadataForm(env,'server-form',values,{id:host.id});await env.listeners.submit.at(-1)(event);
+ env.run('showEditServer("host-1")');const event=metadataForm(env,'server-form',values,{id:host.id});await env.listeners.submit.at(-1)(event);
  let body=JSON.parse(env.requests.filter(item=>item.options.method==='PATCH').at(-1).options.body);assert.equal(body.location_id,undefined);assert.equal(body.location_mode,undefined);
- env.element('#server-location-mode').value='automatic';values.reset_tag_keys='owner';await env.listeners.submit.at(-1)(event);
+ env.run('showEditServer("host-1")');env.element('#server-location-mode').value='automatic';values.reset_tag_keys='owner';await env.listeners.submit.at(-1)(event);
  body=JSON.parse(env.requests.filter(item=>item.options.method==='PATCH').at(-1).options.body);assert.equal(body.location_mode,'automatic');assert.equal(body.location_id,undefined);assert.deepEqual(body.reset_tag_keys,['owner']);
- env.element('#server-location').value='';env.element('#server-location-mode').value='manual';await env.listeners.submit.at(-1)(event);
+ env.run('showEditServer("host-1")');env.element('#server-location').value='';env.element('#server-location-mode').value='manual';await env.listeners.submit.at(-1)(event);
  body=JSON.parse(env.requests.filter(item=>item.options.method==='PATCH').at(-1).options.body);assert.equal(body.location_id,null,'explicit unassignment remains a manual pin');
 });
 test('subnet changes and removals use preview routes before applying to saved locations',async()=>{
@@ -225,7 +227,7 @@ test('CSV file reading is local and imports have bounded escaped previews with a
  env.context.localCSV=csv;env.run('metadataChange({target:{id:"metadata-csv-file",files:[{size:localCSV.length,text:async()=>localCSV}]}})');await new Promise(setImmediate);
  assert.equal(env.element('#metadata-csv-text').value,csv);assert.equal(env.requests.filter(item=>item.options.method==='POST').length,0);
  await env.listeners.submit.at(-1)(metadataForm(env,'metadata-csv-form',{csv}));let html=env.element('#modal-content').innerHTML;
- assert.match(html,/first 100 of 105/);assert.match(html,/Manual overrides preserved: application/);assert.match(html,/Stored for future discovery/);assert.match(html,/&lt;img src=x&gt;/);assert.doesNotMatch(html,/<img src=x>/);
+ assert.match(html,/Showing 1–100 of 105 frozen review rows/);assert.match(html,/Manual overrides preserved: application/);assert.match(html,/Stored for future discovery/);assert.match(html,/&lt;img src=x&gt;/);assert.doesNotMatch(html,/<img src=x>/);
  assert.equal(env.requests.filter(item=>item.url.endsWith('/apply')).length,0);await env.run('metadataAction({dataset:{action:"metadata-plan-apply"}})');
  const apply=env.requests.find(item=>item.url==='/api/v1/metadata/imports/review-1/apply');assert.deepEqual(JSON.parse(apply.options.body),{confirmation_nonce:'reviewed-nonce'});
 });
@@ -1252,4 +1254,16 @@ test('immediate single-Admin bulk rollout form opens durable progress with exact
  const env=await workspace('policies',{mode:'entra',role:'admin',responses:{'/api/v1/overview':overview,'POST /api/v1/policy-rollouts':()=>{published=true;return plan;},'/api/v1/policy-deployments?limit=10&offset=0':()=>({items:published?[change]:[],total:published?1:0,active_total:published?1:0,limit:10,offset:0,has_more:false}),'POST /api/v1/policy-rollouts/query':{items:[],total:0,limit:20,offset:0,has_more:false}}});
  await env.click('managed-new-rollout');const formHTML=env.element('#modal-content').innerHTML;assert.equal(env.element('#modal-title').textContent,'Apply managed policies');assert.match(formHTML,/can change its live firewall rules/);assert.match(formHTML,/One current Admin performs this action/);assert.match(formHTML,/SSH\/controller protection and rollback readiness/);assert.match(formHTML,/dedicated downtime acknowledgement/);assert.match(formHTML,/>Apply selected policies</);assert.doesNotMatch(formHTML,/review only|NO LIVE CHANGE AUTHORIZED|name="server_ids"[^>]*checked/);await env.submit('managed-rollout-form',{name:plan.name,server_ids:ids});await new Promise(setImmediate);
  const writes=mutations(env);assert.equal(writes.length,1);assert.equal(writes[0].url,'/api/v1/policy-rollouts');assert.deepEqual(JSON.parse(writes[0].options.body),{name:plan.name,server_ids:ids});assertCookieMutation(writes[0]);assert.equal(env.run('state.activeManagedRollout.status'),'queued');assert.equal(env.run('policyDeploymentsState.open'),true);assert.equal(env.element('#policy-deployments-count').textContent,'1');assert.match(env.element('#policy-deployments-list').innerHTML,/0 \/ 2<\/strong> Applied/);assert.match(env.element('#policy-deployments-list').innerHTML,/0 \/ 2<\/strong> Traffic verified/);assert.equal(env.requests.some(row=>row.url.endsWith('/confirm')),false);
+});
+test('policy deletion exposes its returned cleanup deployment in top-right progress through the actual shared mutation path',async()=>{
+ const change={...deploymentWorkspaceSummary(),label:'Remove Billing policy',applied_count:0};let deleted=false;
+ const env=await workspace('policies',{mode:'entra',role:'admin',responses:{'DELETE /api/v1/policies/policy-1':()=>{deleted=true;return {deleted:true,deployment:change};},'/api/v1/policy-deployments?limit=10&offset=0':()=>({items:deleted?[change]:[],total:deleted?1:0,active_total:deleted?1:0,limit:10,offset:0,has_more:false})}});
+ await env.click('delete-policy',{id:'policy-1'});assert.equal(mutations(env).length,0);await env.click('confirm-delete',{id:'policy-1'});await new Promise(setImmediate);
+ const writes=mutations(env);assert.equal(writes.length,1);assert.equal(writes[0].url,'/api/v1/policies/policy-1');assert.equal(writes[0].options.method,'DELETE');assert.deepEqual(JSON.parse(writes[0].options.body),{expected_revision:1});assertCookieMutation(writes[0]);assert.equal(env.run('policyDeploymentsState.open'),true);assert.match(env.element('#policy-deployments-list').innerHTML,/Remove Billing policy/);assert.match(env.element('#policy-deployments-list').innerHTML,/0 \/ 1<\/strong> Applied/);assert.equal(env.requests.some(row=>row.url.endsWith('/confirm')),false);
+});
+
+// The browser queues close events; a replacement dialog may already be open.
+test('metadata native close invalidates its own request and delayed close cannot invalidate a reopened dialog',async()=>{
+ const env=await workspace('servers',{mode:'entra',role:'admin'}),modal=env.element('#modal');await env.click('metadata-import');env.element('#metadata-csv-text').value='private draft';const closed=modal.eventListeners.close.at(-1);assert.equal(env.run('metadataAsync.active'),true);modal.open=false;closed();assert.equal(env.run('metadataAsync.active'),false);assert.equal(env.run('state.metadataPlan'),null);
+ await env.click('metadata-import');const generation=env.run('metadataAsync.generation');assert.equal(modal.open,true);closed();assert.equal(env.run('metadataAsync.generation'),generation);assert.equal(env.run('metadataAsync.active'),true);assert.match(env.element('#modal-content').innerHTML,/metadata-csv-form/);
 });

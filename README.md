@@ -4,11 +4,11 @@
 
 Prṛthak discovers servers and their real listening services, shows permitted source-to-service access, learns observed source/port relationships, and lets administrators review and apply firewalld changes centrally. The selected server is the destination: an access policy specifies **service/port + allowed sources**, without a separate destination field.
 
-**Pilot candidate: [v0.13.0-pilot.1](https://github.com/everyagelabs/Prrthak/tree/v0.13.0-pilot.1).** Download one reusable fleet setup and install the same matching agent package across your servers. Each server automatically creates its own key, certificate and inventory identity; no per-host kit generation or hostname CSV is required. Fleet enrollment has GUI expiry/revocation and no fixed server-count limit. See [fleet enrollment](docs/fleet-enrollment.md) and [release validation](docs/release-0.13.0-pilot.1.md). Native RHEL/Ubuntu, live Entra and DC/WAN acceptance remain deployment gates. This version adds [live bulk rollout and per-port verification](docs/policy-rollout-verification.md), exact duplicate bypass and tracking of automatic tag/group resolution. Complete Traffic/Audit navigation, Read Only alert navigation and [GUI source-set preparation](docs/source-bank-preparation.md) remain available.
+**Pilot candidate: [v0.14.0-pilot.1](https://github.com/everyagelabs/Prrthak/tree/v0.14.0-pilot.1).** Download one reusable fleet setup and install the same matching agent package across your servers. Each server automatically creates its own key, certificate and inventory identity; no per-host kit generation or hostname CSV is required. Fleet enrollment has GUI expiry/revocation and no fixed server-count limit. See [fleet enrollment](docs/fleet-enrollment.md) and [release validation](docs/release-0.14.0-pilot.1.md). Native RHEL/Ubuntu, live Entra and DC/WAN acceptance remain deployment gates. This candidate fixes the ten findings in the [audit remediation record](docs/audit-remediation-0.14.md), including merged-author revocation, cleanup authority, restart recovery, denied capture, truthful readback, retained-history polling and complete metadata review. It retains [live bulk rollout and per-port verification](docs/policy-rollout-verification.md), exact duplicate bypass and automatic tag/group tracking. Complete Traffic/Audit navigation, Read Only alert navigation and [GUI source-set preparation](docs/source-bank-preparation.md) remain available.
 
 Private repository: [Prṛthak](https://github.com/everyagelabs/Prrthak). Product owner: **Airtel Payments Bank**.
 
-[0.12 GUI completion release](docs/release-0.12.0-pilot.1.md) · [0.11 endpoint/health](docs/release-0.11.0-pilot.1.md) · [0.10 fleet enrollment](docs/release-0.10.0-pilot.1.md) · [0.9 capture/security release](docs/release-0.9.0-pilot.1.md) · [Whole-server default-deny workflow](docs/whole-server-default-deny.md).
+[0.13 rollout verification](docs/release-0.13.0-pilot.1.md) · [0.12 GUI completion release](docs/release-0.12.0-pilot.1.md) · [0.11 endpoint/health](docs/release-0.11.0-pilot.1.md) · [0.10 fleet enrollment](docs/release-0.10.0-pilot.1.md) · [0.9 capture/security release](docs/release-0.9.0-pilot.1.md) · [Whole-server default-deny workflow](docs/whole-server-default-deny.md).
 
 ## What was requested, and how it works
 
@@ -230,7 +230,7 @@ These choices support the requirements above. They are not substitutes for the r
 
 ## Documentation, evidence and development
 
-The illustrated PDFs describe earlier snapshots and remain historical guides. Current 0.13 behavior and acceptance limits are recorded in the [Markdown requirements map](docs/requirements-delivery-map.md), current operational documents and [0.13 release evidence](docs/release-0.13.0-pilot.1.md).
+The current [illustrated PDF](docs/guide/prthak-pilot-0.14.0.pdf) and [HTML guide](docs/guide/prthak-pilot-0.14.0.html) describe the GUI installation and operational flows, communication, roles, sizing and evidence limits. Older illustrated PDFs remain historical. Current 0.14 behavior and acceptance limits are recorded in the [Markdown requirements map](docs/requirements-delivery-map.md), current operational documents and [0.14 release evidence](docs/release-0.14.0-pilot.1.md).
 
 - [User requirements and delivery map](output/pdf/prthak-user-requirements-and-delivery-map.pdf)
 - [Architecture and operations handbook](output/pdf/prthak-architecture-operations-guide.pdf)

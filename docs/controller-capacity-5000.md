@@ -1,6 +1,37 @@
 # 5,000-server controller capacity
 
-## Current 0.13 acceptance · 2 November 2026
+## Current 0.14 retained-history acceptance - 2 November 2026
+
+The ten-finding remediation passed with 5,000 current virtual mTLS identities,
+including 100 expired full-fleet learning sessions retained before measurement:
+19,533,300 canonical bytes and 500,000 indexed endpoint memberships. The result
+checks exact current contributor authority and signed passive observation leases
+for every endpoint rather than fabricating native enforcement success.
+
+| Phase | Verified identities | Elapsed |
+| --- | ---: | ---: |
+| Initial signed delivery and receipts | 5,000 | 20.060 s |
+| Actual Admin policy PUT, publication and full 30 s polling window | 5,000 | **33.792 s** |
+| Warm polling, 100 discovery reports and 10,000 typed observations | 5,000 | 16.462 s |
+
+Publication took 3.779 seconds, included in the total. Zero final failures;
+four policy and two report retries. All 10,000 observations were retained as
+5,000 connection and 5,000 denied-packet records, with no pending batch after
+drain. Policy/report/ingest p95 was 146.016/220.991/4081.771 ms. Runtime hashes
+remained unchanged and both owned databases were removed.
+
+Profile: two workers x 32 threads, 64 clients, metadata/traffic pools 8/2,
+30-second control / 900-second full discovery and private PostgreSQL 16.15 on
+the shared ARM64 development host. Certificate/inventory/history preparation
+is outside phase timers. The [public result](../output/capacity/controller-5000-0.14-result.json)
+records workload, source hashes and cleanup. Reproduce using the command below
+with `--verification-capable --retained-learning-sessions 100`.
+
+This adds retained-history coverage; it does not qualify native 5,000-host
+firewall application, full audit/traffic-history endurance, simultaneous native
+collectors, largest policies, enrollment storms, WAN/HA or live Entra.
+
+## Historical 0.13 acceptance · 2 November 2026
 
 The bulk-verification build passed with 5,000 current verification-capable
 virtual mTLS identities. Every cycle checked each signed policy's exact

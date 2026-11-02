@@ -464,6 +464,8 @@ def _overlay_safety(db, safety, recovery_id):
         for field in ("initial_approval_proof", "initial_approval_plan", "initial_approval_target_bindings"):
             session.pop(field, None)
         Store._put(db, "sessions", session)
+    from .learning_targets import rebuild as rebuild_learning_targets
+    rebuild_learning_targets(Store, db)
     for rollout in _json_rows(db, "managed_rollouts"):
         if rollout.get("status") in ("draft", "awaiting_second_confirmation", "authorized"):
             rollout.update(status="invalidated", invalidated_at=stamp(), invalidation_reason="Database recovery requires a fresh authorized rollout")

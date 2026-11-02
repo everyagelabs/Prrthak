@@ -81,6 +81,28 @@ class ChangedPolicyFixtureAssertions(unittest.TestCase):
                 fixture.verify_changed_policy({**self.policy, 'services': services}, self.before, self.services)
 
 
+class RetainedHistoryFixtureAssertions(unittest.TestCase):
+    def test_expired_history_is_retained_without_becoming_current_agent_authority(self):
+        from controller.store import Store
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(directory)
+            store.report('current-host', {'hostname': 'current-host', 'ips': ['192.0.2.10'], 'listeners': []})
+            result = fixture.seed_retained_history(store, ['current-host', 'other-host'], 3)
+            self.assertEqual(result['expired_sessions'], 3)
+            self.assertEqual(result['endpoint_memberships'], 6)
+            retained = store.all('sessions')
+            self.assertEqual(len(retained), 3)
+            self.assertTrue(all(row['status'] == 'expired' and row['server_ids'] == ['current-host', 'other-host'] for row in retained))
+            assignment = store.assignment('current-host')[0]
+            self.assertEqual(assignment['learning_sessions'], [])
+            self.assertEqual(assignment.get('learning_tombstones', []), [])
+
+    def test_history_fixture_refuses_unbounded_preparation(self):
+        for count in (-1, 101):
+            with self.subTest(count=count), self.assertRaises(ValueError):
+                fixture.seed_retained_history(None, [], count)
+
+
 class PassiveLeaseFixtureAssertions(unittest.TestCase):
     def setUp(self):
         start = fixture.now()

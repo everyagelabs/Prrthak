@@ -40,13 +40,14 @@ META_TABLES = (
     "learning_evidence_receipts", "learning_policy_previews", "locations",
     "maintenance_backups", "maintenance_plans", "maintenance_settings",
     "managed_approvals", "managed_outcomes", "managed_rollouts", "metadata_ip_profiles",
-    "metadata_plans", "metadata_subnets", "policies", "policy_revisions", "retired_endpoints",
+    "metadata_plans", "metadata_subnets", "policies", "policy_intent_headers", "policy_revisions", "retired_endpoints",
     "policy_deployments", "policy_deployment_targets",
     "security_alert_windows", "security_event_receipts", "server_lifecycle_plans",
-    "server_reservations", "servers", "service_group_revisions", "service_groups", "sessions", "tokens",
+    "server_reservations", "servers", "service_group_revisions", "service_groups", "sessions", "learning_session_targets", "tokens",
 )
 TRAFFIC_TABLES = ("batches", "flows", "hit_batches", "hit_events", "hit_limits")
 SPECIAL_COLUMNS = {
+    "learning_session_targets": ("id", "session_id", "server_id", "status", "starts_at", "expires_at", "cutoff_at", "state_digest"),
     "policy_deployments": ("id", "created_at", "deadline_at", "data"),
     "policy_deployment_targets": ("id", "deployment_id", "server_id", "created_at", "deadline_at", "apply_status", "traffic_status", "data"),
     "hit_monitor_targets": ("id", "monitor_id", "server_id", "enabled", "data"),

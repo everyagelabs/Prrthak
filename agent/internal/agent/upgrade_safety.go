@@ -86,7 +86,7 @@ func checkEnforcementUpgradeSafety(c Config, ownsConfigurationLock bool, ownRevi
 		if readErr != nil || json.Unmarshal(raw, &journal) != nil || journal.SchemaVersion != 1 {
 			return errors.New("configuration rollback journal is invalid; replacement refused")
 		}
-		if journal.Status == "armed" && !(ownsConfigurationLock && len(ownReview) == 1 && journal.ReviewID == ownReview[0]) {
+		if !configurationTerminal(journal.Status) && !(journal.Status == "armed" && ownsConfigurationLock && len(ownReview) == 1 && journal.ReviewID == ownReview[0]) {
 			return errors.New("independent configuration rollback is active; replacement refused")
 		}
 	}

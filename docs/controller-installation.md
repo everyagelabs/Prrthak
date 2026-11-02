@@ -1,12 +1,12 @@
 # Install the controller from a verified release
 
-**Preferred 0.6.1 pilot flow:** after prerequisites and verified extraction, run
+**Preferred 0.14.0 pilot flow:** after prerequisites and verified extraction, run
 `sudo ./scripts/install-controller.sh --gui-setup` once and complete configuration
 in **Settings → Setup**. No manually prepared `.env` is needed. See
 [GUI pilot installation](pilot-gui-installation.md). The file-based procedure
 below remains an advanced compatibility path for existing installations.
 
-Git is an optional way for an administrator to obtain approved source. The installed controller, local manager and containers do not invoke Git. A verified controller installation archive carries the required public source and setup files, so Git is not required on a management VM or an endpoint. This task does not create or publish an external Git repository; use your approved private repository and release commit when choosing the source-checkout route.
+Git is an optional way for an administrator to obtain approved source. The installed controller, local manager and containers do not invoke Git. A verified controller installation archive carries the required public source and setup files, so Git is not required on a management VM or an endpoint. Use the reviewed candidate from https://github.com/everyagelabs/Prrthak and pin its exact release commit when choosing the source-checkout route.
 
 ## Host prerequisites
 
@@ -24,17 +24,17 @@ RHEL 8's default Python3.6 is insufficient for this host manager. Prepare an app
 
 ## Obtain and verify a release
 
-The source archive is named `prthak-controller-0.6.0.tar.gz`. It contains public runtime Python modules, browser assets, Dockerfiles, fixed local manager/helpers, `.env.example`, installer/verifier and these guides. It excludes tests, populated environment files, keys, certificates, databases, private state and agent binaries.
+The source archive is named `prthak-controller-0.14.0.tar.gz`. It contains public runtime Python modules, browser assets, Dockerfiles, fixed local manager/helpers, `.env.example`, installer/verifier and these guides. It excludes tests, populated environment files, keys, certificates, databases, private state and agent binaries.
 
-Top-level public Markdown runbooks and `agent/README.md` are included to preserve installation and operational references. Their source-local evidence links can refer to private assessment artifacts, generated capacity results, illustrated HTML/PDF guides or other development fixtures; those artifacts are not part of this runtime installation archive. Obtain the separately retained assessment/source evidence when reviewing those historical measurements. Agent installers and binaries are distributed in their separate verified endpoint packages.
+Top-level public Markdown runbooks and `agent/README.md` are included to preserve installation and operational references. The current illustrated 0.14.0 HTML/PDF guide is included under docs/guide. Source-local evidence links can also refer to private assessment artifacts, generated capacity results, historical illustrated guides or development fixtures; those historical/private artifacts are not part of this runtime installation archive. Obtain the separately retained assessment/source evidence when reviewing those historical measurements. Agent installers and binaries are distributed in their separate verified endpoint packages.
 
 Before extraction, use an independently approved copy of `verify-release.py`, a separately provisioned trusted public release pin, and the detached signature:
 
 ```sh
 python3 /approved/tools/verify-release.py \
   --public-trust-file /approved/trust/prthak-release-public-trust.json \
-  --signature prthak-controller-0.6.0.tar.gz.signature.json \
-  prthak-controller-0.6.0.tar.gz
+  --signature prthak-controller-0.14.0.tar.gz.signature.json \
+  prthak-controller-0.14.0.tar.gz
 ```
 
 Use an approved administration tool environment supporting Ed25519 verification. Python3.10+ with the compatible `cryptography` requirement is recommended; the running installed endpoint needs neither. A public key downloaded next to an untrusted archive does not establish authenticity. The included `deploy/release-public-trust.json` describes the current **local project** public authority; it is not independent organizational approval.
@@ -44,9 +44,9 @@ Place the verified archive and extracted release in protected root-owned locatio
 ```sh
 sudo install -d -o root -g root -m 0755 /opt/prthak/releases
 sudo tar --no-same-owner --no-same-permissions \
-  -xzf /protected/releases/prthak-controller-0.6.0.tar.gz \
+  -xzf /protected/releases/prthak-controller-0.14.0.tar.gz \
   -C /opt/prthak/releases
-cd /opt/prthak/releases/prthak-controller-0.6.0
+cd /opt/prthak/releases/prthak-controller-0.14.0
 sudo install -o root -g root -m 0600 .env.example /root/prthak-node.env
 sudoedit /root/prthak-node.env
 ```
@@ -55,7 +55,7 @@ The alternative is an approved source checkout, pinned to a reviewed release com
 
 ## Configure and validate
 
-The same `.env.example` and installer are used at Noida, Pune, cloud and other management sites. Give each node a unique `NODE_ID`, `SITE` and reachable `NODE_IP`. Set `DATA_ROOT`, a stable HTTPS `CONTROLLER_ORIGIN`, approved bind/port values and initial worker/database-pool settings appropriate to the VM plan. The default dashboard/API publication is 8787. The present combined API listener is not a separate discovery/control port design.
+The same `.env.example` and installer are used at Noida, Pune, cloud and other management sites. Give each node a unique `NODE_ID`, `SITE` and reachable `NODE_IP`. Set `DATA_ROOT`, a stable HTTPS `CONTROLLER_ORIGIN`, approved bind/port values and initial worker/database-pool settings appropriate to the VM plan. The default dashboard/API publication is 8787. The installed profile separates management HTTPS 8787, policy/control HTTPS 8788 and enrollment/discovery HTTPS 8789. The legacy combined profile is an explicit compatibility option.
 
 Keep all enrollment, cluster, replication, signing and Entra secrets out of source control. Blank optional bootstrap secrets are generated privately by the installer. A cluster join still requires verified HTTPS trust; the cluster password alone does not establish node identity. Joining/HA setup and operational configuration are managed through the Platform GUI after authenticated setup.
 

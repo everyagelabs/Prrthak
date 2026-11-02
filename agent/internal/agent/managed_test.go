@@ -11,6 +11,153 @@ import (
 	"time"
 )
 
+type managedReadOnlyRunner struct {
+	CommandRunner
+	t     *testing.T
+	reads int
+}
+
+func (r *managedReadOnlyRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+	r.t.Helper()
+	if managedLeaseFromContext(ctx) == nil {
+		r.t.Fatal("opt-out drift check ran outside the shared access lease")
+	}
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--add-") || strings.HasPrefix(arg, "--remove-") || strings.HasPrefix(arg, "--change-") || arg == "--reload" || arg == "--complete-reload" || name == "systemctl" || name == "systemd-run" {
+			r.t.Fatal("opt-out inspection attempted a firewall/service mutation", name, args)
+		}
+	}
+	r.reads++
+	return r.CommandRunner.Run(ctx, name, args...)
+}
+
+func assertManagedOptOutHasNoCurrentAttestation(t *testing.T, a *Agent, lastGood int) {
+	t.Helper()
+	a.enrichManagedStatus()
+	r := a.State.ManagedEnforcement
+	if r.Status != "error" || r.Error == "" || r.LastGoodVersion != lastGood || r.LastGoodDigest == "" || r.Generation != "" || r.CommittedAt != nil || r.VerificationID != "" || r.VerificationReadbackAt != nil || r.AlreadyPresent {
+		t.Fatal("opt-out reconstructed a fresh enforced/readback outcome from history", r)
+	}
+}
+
+func TestManagedOptOutChecksRetainedRulesReadOnlyAndDoesNotAttestApply(t *testing.T) {
+	a, f, protection := managedTestAgent(t)
+	p := managedTestPolicy(protection, 1, "198.51.100.0/24")
+	if err := a.applyManaged(context.Background(), p, protection); err != nil {
+		t.Fatal(err)
+	}
+	a.Config.Enforce = false
+	// A cached receipt or startup journal must not appear freshly enforced,
+	// even before the first opt-out policy poll has run.
+	assertManagedOptOutHasNoCurrentAttestation(t, a, 1)
+	if a.State.ManagedEnforcement.ManagedRulesPresent != nil {
+		t.Fatal("startup cache fabricated current kernel presence")
+	}
+	readOnly := &managedReadOnlyRunner{CommandRunner: f, t: t}
+	a.Commands = readOnly
+	writes := f.mutations
+	next := managedTestPolicy(protection, 2, "203.0.113.0/24")
+	if err := a.applyManaged(context.Background(), next, protection); err != nil {
+		t.Fatal(err)
+	}
+	assertManagedOptOutHasNoCurrentAttestation(t, a, 1)
+	if readOnly.reads == 0 || f.mutations != writes || a.State.AppliedVersion != 1 || a.State.ManagedEnforcement.Version != 2 || a.State.ManagedEnforcement.ManagedRulesPresent == nil || !*a.State.ManagedEnforcement.ManagedRulesPresent {
+		t.Fatal("read-only retained inspection did not preserve exact historical state", a.State.ManagedEnforcement)
+	}
+	// Re-enabling application can freshly read back the unchanged installed
+	// policy, without writing or manufacturing a new historical commit.
+	a.Config.Enforce = true
+	if err := a.applyManaged(context.Background(), p, protection); err != nil {
+		t.Fatal(err)
+	}
+	a.enrichManagedStatus()
+	if a.State.ManagedEnforcement.Status != "enforced" || a.State.ManagedEnforcement.Generation == "" || !a.State.ManagedEnforcement.AlreadyPresent || f.mutations != writes {
+		t.Fatal("genuine fresh readback could not recover from a local opt-out", a.State.ManagedEnforcement)
+	}
+}
+
+func TestManagedOptOutReportsRuleOrSourceSetDriftWithoutRepair(t *testing.T) {
+	for _, drift := range []string{"runtime_rule", "permanent_rule", "source_set"} {
+		t.Run(drift, func(t *testing.T) {
+			a, f, protection := scaleManagedAgent(t)
+			sources := []string{"198.51.100.0/24"}
+			if drift == "source_set" {
+				sources = largeSources(0, 65)
+			}
+			p := managedTestPolicy(protection, 1, sources...)
+			if err := a.applyManaged(context.Background(), p, protection); err != nil {
+				t.Fatal(err)
+			}
+			a.Config.Enforce = false
+			// First prove presence, then make it drift: a later failed check
+			// must clear that in-process presence evidence as well.
+			if err := a.applyManaged(context.Background(), p, protection); err != nil {
+				t.Fatal(err)
+			}
+			switch drift {
+			case "runtime_rule":
+				f.set("runtime", "rich_rule", a.State.ManagedBundle.Rules[0].Rule, false)
+			case "permanent_rule":
+				f.set("permanent", "rich_rule", a.State.ManagedBundle.Rules[0].Rule, false)
+			case "source_set":
+				f.sets["runtime|"+a.State.ManagedBundle.IPSets[0].Name] = []string{"0.0.0.0/0"}
+			}
+			readOnly := &managedReadOnlyRunner{CommandRunner: f, t: t}
+			a.Commands = readOnly
+			writes, bulk := f.mutations, f.bulk
+			if err := a.applyManaged(context.Background(), p, protection); err == nil || !strings.Contains(err.Error(), "drift") {
+				t.Fatal("local opt-out skipped committed firewall drift", err)
+			}
+			assertManagedOptOutHasNoCurrentAttestation(t, a, 1)
+			if readOnly.reads == 0 || f.mutations != writes || f.bulk != bulk || a.State.ManagedEnforcement.ManagedRulesPresent != nil {
+				t.Fatal("drift was repaired or reported as known-present", a.State.ManagedEnforcement)
+			}
+		})
+	}
+}
+
+func TestManagedOptOutCannotReadAroundAnActiveAccessTransaction(t *testing.T) {
+	for _, pending := range []string{"lease", "journal", "configuration"} {
+		t.Run(pending, func(t *testing.T) {
+			a, f, protection := managedTestAgent(t)
+			p := managedTestPolicy(protection, 1, "198.51.100.0/24")
+			if err := a.applyManaged(context.Background(), p, protection); err != nil {
+				t.Fatal(err)
+			}
+			a.Config.Enforce = false
+			switch pending {
+			case "lease":
+				lock, err := managedLock(a.Config.StateDir, true)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer unlockManaged(lock)
+			case "journal":
+				nonce := strings.Repeat("a", 32)
+				j := &managedJournal{Nonce: nonce, Phase: "armed", PID: os.Getpid(), Deadline: time.Now().Add(time.Minute), Next: *a.State.ManagedBundle}
+				if err := saveManagedJournal(managedJournalPath(a.Config.StateDir, nonce), j); err != nil {
+					t.Fatal(err)
+				}
+			case "configuration":
+				directory := filepath.Join(a.Config.StateDir, "configuration-transitions")
+				os.MkdirAll(directory, 0700)
+				id := "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+				atomicJSON(filepath.Join(directory, id+".json"), configurationJournal{SchemaVersion: 1, ReviewID: id, Status: "restart_pending"})
+				atomicJSON(filepath.Join(directory, "active"), map[string]string{"review_id": id})
+			}
+			readOnly := &managedReadOnlyRunner{CommandRunner: f, t: t}
+			a.Commands = readOnly
+			if err := a.applyManaged(context.Background(), p, protection); err == nil {
+				t.Fatal("unfinished transaction was ignored")
+			}
+			assertManagedOptOutHasNoCurrentAttestation(t, a, 1)
+			if readOnly.reads != 0 || a.State.ManagedEnforcement.ManagedRulesPresent != nil {
+				t.Fatal("opt-out bypassed the mutation/recovery fence")
+			}
+		})
+	}
+}
+
 type managedFake struct {
 	*firewallFake
 	failAt               int

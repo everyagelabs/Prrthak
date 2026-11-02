@@ -126,7 +126,8 @@ class PlatformPostgresAcceptance(unittest.TestCase):
                     values = {"id": key, "data": payload, "server_id": "preserve-endpoint", "session_id": "preserve-session", "version": 17, "revision": 11, "digest": "d" * 64, "protection_digest": "p" * 64, "created_at": at, "expires_at": expiry, "approval_id": "preserve-approval", "active": 1, "policy_id": "preserve-policy", "service_group_id": "preserve-service", "source_ip": "10.40.0.8", "event_time": at, "received_at": at, "batch_key": "preserve-batch", "processed": 0, "evidence_processed": 0, "event_index": 0, "port": 443, "protocol": "tcp", "verdict": "observed", "count": 9, "first_seen": at, "last_seen": at, "event_id": "preserve-event", "channel_id": "preserve-channel", "status": "pending", "next_attempt_at": at, "lease_until": None}
                     values.update(monitor_id="8e6b8d7b-7cb5-484f-8200-83a1f3f9a166", enabled=1,
                                   event_digest="e" * 64,capture_kind="legacy_log",capture_backend="journal",count_unit="log_records",address_family="ipv4",capture_processed=1,capture_expires_at=expiry)
-                    values.update(deadline_at=expiry, deployment_id="preserve-deployment", apply_status="pending", traffic_status="awaiting_apply")
+                    values.update(deadline_at=expiry, deployment_id="preserve-deployment", apply_status="pending", traffic_status="awaiting_apply",
+                                  starts_at=at, cutoff_at=expiry, state_digest="f" * 64)
                     db.execute(f'INSERT INTO "{table}" ({",".join(columns)}) VALUES ({",".join("?" for _ in columns)})', tuple(values[column] for column in columns))
         result = self._migrate(source)
         target = self._bound()
@@ -145,6 +146,30 @@ class PlatformPostgresAcceptance(unittest.TestCase):
         self.assertEqual(identifier, 74)
         self.assertEqual(target.readiness(), {"metadata": True, "traffic": True})
         self.evidence.append({"test": "all_fixed_tables", "metadata_tables": len(runtime.META_TABLES), "traffic_tables": len(runtime.TRAFFIC_TABLES), "each_table_rows": 1, "preserved_flow_id": 73, "next_flow_id": identifier, "canonical_hashes_verified": True})
+
+    def test_empty_initialized_postgres_accepts_fenced_sqlite_import_without_seed_bookkeeping(self):
+        source = Store(self.directory / "empty-target-import")
+        self.assertEqual(source.all("maintenance_settings"), [])
+        source.report("learning-endpoint", {"hostname":"learning-endpoint", "ips":["192.0.2.10"], "listeners":[], "capabilities":["traffic_capture_v1"]})
+        policy = source.save_policy({"name":"Imported monitor", "mode":"monitor", "selector":{},
+            "services":[{"port":443,"sources":["198.51.100.0/24"]}]}, "fixture")
+        session = source.create_session({"server_ids":["learning-endpoint"], "ports":[{"port":443,"protocol":"tcp"}]}, "fixture")
+        # Exercise the production pre-initialized target path, not a mock or a
+        # manually-cleared target. All schema-only startup tables stay empty.
+        empty_target = PostgresStore(self.dsns["metadata"], self.dsns["traffic"])
+        with empty_target.read_meta() as db:
+            for table in runtime.META_TABLES:
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM "'+table+'"').fetchone()[0],0,table)
+        result = self._migrate(source)
+        target = self._bound(initialize=True)
+        self.assertEqual(target.get("policies",policy["id"])["name"],"Imported monitor")
+        self.assertEqual([scope["id"] for scope in target.assignment("learning-endpoint")[0]["learning_sessions"]],[session["id"]])
+        with target.read_meta() as db:
+            self.assertEqual(db.execute("SELECT status FROM learning_session_targets WHERE session_id=?",(session["id"],)).fetchone()[0],"active")
+        self.assertEqual(target.readiness(),{"metadata":True,"traffic":True})
+        self.assertTrue(result["verified"])
+        self.assertEqual(json.loads((source.path/runtime.FENCE_NAME).read_text())["state"],"RETIRED")
+        self.evidence.append({"test":"empty_initialized_target_real_sqlite_import", "source_fenced":True, "active_learning_index_preserved":True})
 
     def test_real_state_policy_versions_receipts_and_pending_queue_continue_after_migration(self):
         source = Store(self.directory / "valid-state")

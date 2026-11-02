@@ -44,6 +44,8 @@ class ControllerPackageTests(unittest.TestCase):
         self.put('docs/private-not-shipped.html','excluded rendered guide\n')
         self.put('docs/private-not-shipped.pdf',b'excluded generated PDF')
         self.put('docs/nested/not-in-top-level-allowlist.md','excluded nested development documentation\n')
+        self.put('docs/guide/prthak-pilot-0.14.0.pdf', b'public illustrated fixture')
+        self.put('docs/guide/prthak-pilot-0.14.0.html', 'public current guide fixture')
         self.signing=patch.dict(os.environ,{},clear=False)
         self.signing.start();self.addCleanup(self.signing.stop)
         os.environ.pop('PRTHAK_RELEASE_SIGNING_KEY_FILE',None)
@@ -85,6 +87,8 @@ class ControllerPackageTests(unittest.TestCase):
         self.assertNotIn('docs/private-not-shipped.html',contents)
         self.assertNotIn('docs/private-not-shipped.pdf',contents)
         self.assertNotIn('docs/nested/not-in-top-level-allowlist.md',contents)
+        self.assertIn('docs/guide/prthak-pilot-0.14.0.pdf', contents)
+        self.assertIn('docs/guide/prthak-pilot-0.14.0.html', contents)
         manifest=json.loads(contents['MANIFEST.json'][1])
         for name,item in manifest['files'].items():
             self.assertEqual(hashlib.sha256(contents[name][1]).hexdigest(),item['sha256'])

@@ -1,4 +1,5 @@
 from contextlib import closing
+from datetime import timedelta
 import fcntl
 import json
 import os
@@ -13,7 +14,7 @@ import uuid
 
 from controller import platform_runtime as runtime
 from controller.postgres import DependencyUnavailable, PostgresStore, Row
-from controller.store import Store
+from controller.store import Store, now, stamp
 
 
 class Cursor:
@@ -151,10 +152,13 @@ class RuntimeTests(unittest.TestCase):
         with self.store.meta() as db:
             self.store._put(db, "auth_users", {"id": "account", "role": "SuperAdmin"})
             self.store._put(db, "learning_evidence_receipts", {"id": "receipt", "server_id": "host"})
+            self.store._put(db, "sessions", {"id":"migrate-scope", "server_ids":["host"], "status":"active",
+                "starts_at":stamp(), "expires_at":stamp(now()+timedelta(hours=1))})
         rows, proof, fingerprint, backup = runtime._snapshot_source(self.directory, self.deployment)
         self.assertEqual(proof["metadata"]["counts"]["servers"], 1)
         self.assertEqual(proof["metadata"]["counts"]["auth_users"], 1)
         self.assertEqual(proof["metadata"]["counts"]["learning_evidence_receipts"], 1)
+        self.assertEqual(proof["metadata"]["counts"]["learning_session_targets"], 1)
         self.assertEqual(len(fingerprint), 64)
         self.assertTrue((backup / "manifest.json").is_file())
         self.assertEqual(json.loads(rows["metadata"]["servers"][0][1])["id"], "host")

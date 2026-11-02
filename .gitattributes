@@ -1,0 +1,2 @@
+# PDF byte streams and cross-reference offsets must never be text-normalized.
+*.pdf binary

@@ -16,12 +16,14 @@ from .review_limits import MAX_REVIEW_BYTES as MAX_ROLLOUT_BYTES, encoded_size a
 def initialize(db):
     db.executescript("""
       CREATE TABLE IF NOT EXISTS policy_revisions (id TEXT PRIMARY KEY, policy_id TEXT NOT NULL, revision INTEGER NOT NULL, created_at TEXT NOT NULL, data TEXT NOT NULL, UNIQUE(policy_id,revision));
+      CREATE TABLE IF NOT EXISTS policy_intent_headers (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS policy_revision_lookup ON policy_revisions(policy_id,revision);
       CREATE TABLE IF NOT EXISTS bundle_history (id TEXT PRIMARY KEY, server_id TEXT NOT NULL, version INTEGER NOT NULL, digest TEXT NOT NULL, created_at TEXT NOT NULL, data TEXT NOT NULL, UNIQUE(server_id,version));
       CREATE INDEX IF NOT EXISTS bundle_history_lookup ON bundle_history(server_id,version);
       CREATE TABLE IF NOT EXISTS managed_rollouts (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS managed_approvals (id TEXT PRIMARY KEY, server_id TEXT NOT NULL, version INTEGER NOT NULL, digest TEXT NOT NULL, protection_digest TEXT NOT NULL, approval_id TEXT NOT NULL, expires_at TEXT NOT NULL, active INTEGER NOT NULL, data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS managed_approval_lookup ON managed_approvals(server_id,version,digest,protection_digest,active,expires_at);
+      CREATE INDEX IF NOT EXISTS managed_approval_active ON managed_approvals(server_id,active);
       CREATE TABLE IF NOT EXISTS managed_outcomes (id TEXT PRIMARY KEY, server_id TEXT NOT NULL, version INTEGER NOT NULL, approval_id TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS managed_outcome_lookup ON managed_outcomes(server_id,version,created_at);
     """)
@@ -68,6 +70,11 @@ def record_bundle(db, bundle, actor="compiler", reason="Effective policy changed
 def backfill(store, db):
     for policy in store._all(db, "policies"):
         record_revision(db, policy, "migration", "Existing active policy imported into immutable history")
+        # A canonical writer-derived scalar binds the small authority
+        # projection to symbolic intent without decoding source matrices on
+        # every endpoint poll. This also upgrades pre-index policy rows.
+        if (store._get(db, "policy_intent_headers", policy["id"]) or {}).get("digest") != digest(policy_intent(policy)):
+            store._put(db, "policies", policy)
     for server in store._all(db, "servers"):
         if server.get("_compiled"):
             record_bundle(db, server["_compiled"], "migration", "Existing effective bundle imported into immutable history")
@@ -362,6 +369,82 @@ def authorize_policy(store, db, policy, actor, principal):
     policy["direct_authorization"] = approvals.decide(store, db, plan, actor, principal)
 
 
+def direct_authorities_valid(store, db, server, approval):
+    """Revalidate every saved contributor by primary key, never fleet scans.
+
+    Explicit exact rollouts have their own current human authorization. Only
+    automatically resolved approvals carry the contributing intent manifest.
+    """
+    expected = approval.get("intent_authorities")
+    if expected is None or approval.get("intent") == "remove_managed_rules":
+        return True
+    identifiers = server.get("matched_policy_ids", [])
+    if (not isinstance(expected, list) or not expected or len(expected) > 20000
+            or any(not isinstance(item, str) or not re.fullmatch(r"[a-f0-9]{64}", item) for item in expected)
+            or not isinstance(identifiers, list) or len(identifiers) > 20000):
+        return False
+    from . import approvals
+    from .approval_views import _expression
+    hashes = []
+    identifiers = sorted(set(identifiers))
+    for start in range(0, len(identifiers), 100):
+        ids = identifiers[start:start + 100]
+        fields = ",".join([_expression(db, ("mode",), "p"), _expression(db, ("direct_authorization",), "p"), _expression(db, ("digest",), "h")])
+        rows = db.execute("SELECT " + fields + " FROM policies p LEFT JOIN policy_intent_headers h ON h.id=p.id WHERE p.id IN (" + ",".join("?" for _ in ids) + ")", tuple(ids))
+        for row in rows:
+            if row[0] != "enforce":
+                continue
+            value = json.loads(row[1]) if row[1] else None
+            if (not isinstance(value, dict) or value.get("mode") != "single_admin"
+                    or not isinstance(row[2], str) or not re.fullmatch(r"[a-f0-9]{64}", row[2])
+                    or value.get("scope", {}).get("intent_digest") != row[2]
+                    or not approvals.authorized(store, db, value)):
+                return False
+            hashes.append(value["binding_digest"])
+    return sorted(hashes) == sorted(expected)
+
+
+def retire_invalid_direct_approvals(store, db, server):
+    """Writer-only retirement; read admission already fails closed."""
+    for row in db.execute("SELECT id,data FROM managed_approvals WHERE server_id=? AND active=1", (server["id"],)).fetchall():
+        approval = json.loads(row[1])
+        if approval.get("intent_authorities") is not None and not direct_authorities_valid(store, db, server, approval):
+            db.execute("UPDATE managed_approvals SET active=0 WHERE id=? AND active=1", (row[0],))
+            store.audit("managed_policy.authority_invalidated", "system", {"server_id": server["id"], "approval_id": approval.get("approval_id")}, db)
+
+
+def authorize_cleanup(store, db, server, actor, principal):
+    """Bind this Admin's deletion to exact ordinary managed-rule removal.
+
+    Whole-host fallback ownership is deliberately excluded; its dedicated
+    downtime acknowledgement remains mandatory.
+    """
+    from . import approvals
+    from .host_default_deny import guarded
+    if guarded(server) or server.get("_host_default_deny_owned_cleanup_required"):
+        return False
+    if server.get("_compiled", {}).get("mode") == "enforce" or not server.get("_managed_rules_active"):
+        return False
+    if not server.get("protection", {}).get("ready") or not approvals.signed_target(store, server):
+        return False
+    current = baseline(server)
+    identifier = str(uuid.uuid4())
+    plan = {"id": identifier, "plan_digest": digest({"action": "remove_managed_rules", "baseline": current})}
+    approvals.request(store, db, plan, actor, principal, endpoint_ids=[server["id"]], scope_kind="managed_rollout")
+    decision = approvals.decide(store, db, plan, actor, principal)
+    normalized = {"authorized": True, "approval_id": identifier, "approved_digest": current["digest"], "approved_version": current["version"],
+        "protection_digest": current["protection_digest"], "binding_digest": current["binding_digest"], "digest": current["binding_digest"],
+        "approved_ips": current["ips"], "target_digest": current["target_digest"], "intent": "remove_managed_rules", "confirmation_count": 1,
+        "expires_at": "9999-12-31T23:59:59Z", "approval_proof": decision}
+    db.execute("UPDATE managed_approvals SET active=0 WHERE server_id=? AND active=1", (server["id"],))
+    db.execute("INSERT INTO managed_approvals(id,server_id,version,digest,protection_digest,approval_id,expires_at,active,data) VALUES(?,?,?,?,?,?,?,?,?)",
+        (identifier + ":" + server["id"], server["id"], current["version"], current["digest"], current["protection_digest"], identifier, normalized["expires_at"], 1, json.dumps(normalized)))
+    server["_managed_intent_proof"] = decision
+    store._put(db, "servers", server)
+    store.audit("managed_policy.cleanup_authorized", actor, {"server_id": server["id"], "version": current["version"], "approval_id": identifier}, db)
+    return True
+
+
 def reconcile_direct(store, db, server, policies=None, validity=None):
     """Bind saved, live Admin intent to the newly resolved exact host bundle."""
     from . import approvals
@@ -377,13 +460,17 @@ def reconcile_direct(store, db, server, policies=None, validity=None):
             policy = policies.get(identifier) if policies is not None else store._get(db, "policies", identifier)
             if policy and policy.get("mode") != "enforce":continue
             value = (policy or {}).get("direct_authorization")
-            if not policy or (value or {}).get("mode") != "single_admin":return False
+            if not policy or (value or {}).get("mode") != "single_admin":
+                retire_invalid_direct_approvals(store, db, server)
+                return False
             key = (identifier, (value or {}).get("binding_digest"))
             valid = validity.get(key) if validity is not None else None
             if valid is None:
                 valid = bool(approvals.authorized(store, db, value) and value.get("scope", {}).get("intent_digest") == digest(policy_intent(policy)))
                 if validity is not None:validity[key] = valid
-            if not valid:return False
+            if not valid:
+                retire_invalid_direct_approvals(store, db, server)
+                return False
             proofs.append(value)
         if not proofs:return False
     elif server.get("_managed_rules_active"):
@@ -405,7 +492,7 @@ def reconcile_direct(store, db, server, policies=None, validity=None):
     decision = {"authorized":True,"approval_id":identifier,"approved_digest":current["digest"],"approved_version":current["version"],
         "protection_digest":current["protection_digest"],"binding_digest":current["binding_digest"],"digest":current["binding_digest"],
         "approved_ips":current["ips"],"target_digest":current["target_digest"],"intent":"enforce" if enforcing else "remove_managed_rules",
-        "confirmation_count":1,"expires_at":"9999-12-31T23:59:59Z","approval_proof":proof,"intent_authorities":sources}
+        "confirmation_count":1,"expires_at":"9999-12-31T23:59:59Z","approval_proof":proof,**({"intent_authorities":sources} if enforcing else {})}
     db.execute("UPDATE managed_approvals SET active=0 WHERE server_id=? AND active=1", (server["id"],))
     db.execute("INSERT INTO managed_approvals(id,server_id,version,digest,protection_digest,approval_id,expires_at,active,data) VALUES(?,?,?,?,?,?,?,?,?)",
         (identifier+":"+server["id"],server["id"],current["version"],current["digest"],current["protection_digest"],identifier,decision["expires_at"],1,json.dumps(decision)))
@@ -441,6 +528,9 @@ def authorization(store, db, server):
         # Confirm inserts normalized approvals only in the same transaction that
         # queues the rollout; cancel atomically deactivates these rows. Never load
         # a whole-fleet preview JSON on an individual endpoint polling path.
+        if not direct_authorities_valid(store, db, server, approval):
+            result["reason"] = "A contributing saved policy authority was revoked or changed"
+            continue
         if approval["confirmation_count"] >= (1 if approval.get("approval_proof", {}).get("mode") == "single_admin" else 2) and approval.get("approved_ips") == current["ips"] and approvals.authorized(store, db, approval.get("approval_proof"), plan_id=approval["approval_id"], server_id=server["id"]):
             return {**result, **approval, "approval_proof": approvals.delivery(approval.get("approval_proof")), "authorized": True, "reason": "Exact bundle and protected baseline explicitly reviewed"}
     return result

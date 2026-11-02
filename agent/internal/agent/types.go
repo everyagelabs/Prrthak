@@ -2,7 +2,7 @@ package agent
 
 import "time"
 
-const Version = "0.13.0"
+const Version = "0.14.0"
 
 const LearningDiscoveryCapability = "learning_discovery_v1"
 const HostDefaultDenyCapability = "host_default_deny_v1"

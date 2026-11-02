@@ -73,6 +73,7 @@ type configurationJournal struct {
 	SchemaVersion       int       `json:"schema_version"`
 	ReviewID            string    `json:"review_id"`
 	Status              string    `json:"status"`
+	RestartError        string    `json:"restart_error,omitempty"`
 	Deadline            time.Time `json:"deadline"`
 	DeadlineBootSeconds float64   `json:"deadline_boot_seconds"`
 	ConfigPath          string    `json:"config_path"`
@@ -357,6 +358,8 @@ func restoreConfiguration(path string, journal *configurationJournal, commands C
 var ErrStaleConfigurationReview = errors.New("configuration rollback refuses an inactive review generation")
 var errStaleConfigurationReview = ErrStaleConfigurationReview
 var errConfigurationAlreadyCompleted = errors.New("configuration journal was already completed; no restore was performed")
+var errConfigurationBusy = errors.New("configuration generation is busy")
+var errConfigurationRestartRequired = errors.New("abandoned endpoint configuration restored; a fresh daemon start is required")
 
 func configurationTerminal(status string) bool {
 	return status == "committed" || status == "rolled_back" || status == "not_started"
@@ -385,9 +388,13 @@ func configurationLeaseUnder(root string, wait time.Duration) (*os.File, error) 
 		if err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
 			return file, nil
 		}
+		if err != syscall.EAGAIN && err != syscall.EWOULDBLOCK {
+			file.Close()
+			return nil, err
+		}
 		if !time.Now().Before(deadline) {
 			file.Close()
-			return nil, errors.New("configuration generation is busy")
+			return nil, errConfigurationBusy
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -443,10 +450,18 @@ func restoreConfigurationLockedUnder(root, path string, journal *configurationJo
 	if configurationTerminal(fresh.Status) {
 		return errConfigurationAlreadyCompleted
 	}
-	if fresh.Status != "armed" || fresh.ReviewID != active {
+	if fresh.Status != "armed" && fresh.Status != "restart_pending" || fresh.ReviewID != active {
 		return errStaleConfigurationReview
 	}
 	*journal = *fresh
+	if journal.Status == "restart_pending" {
+		// A retry must not overwrite a later file edit just because the review
+		// pointer still exists. The inverse was already written durably.
+		if err = configurationRestoredFilesUnder(root, journal); err != nil {
+			return err
+		}
+		return restartRestoredConfigurationUnder(root, path, journal, commands)
+	}
 	configPath := root + journal.ConfigPath
 	caPath := root + "/etc/seg-agent/controller-ca.crt"
 	endpointPath := root + "/etc/seg-agent/endpoint-ca.crt"
@@ -471,13 +486,75 @@ func restoreConfigurationLockedUnder(root, path string, journal *configurationJo
 	if err != nil {
 		return err
 	}
+	journal.Status = "restart_pending"
+	journal.RestartError = ""
+	if err = atomicJSON(path, journal); err != nil {
+		return err
+	}
+	return restartRestoredConfigurationUnder(root, path, journal, commands)
+}
+
+// Files being restored is not evidence that the daemon has loaded them. Keep
+// the durable generation fence until systemd confirms a restart, or a subsequent
+// ExecStart verifies these files before main reloads the restored configuration.
+func configurationRestoredFilesUnder(root string, journal *configurationJournal) error {
+	for path, expected := range map[string][]byte{journal.ConfigPath: journal.OldConfig, "/etc/seg-agent/controller-ca.crt": journal.OldCA} {
+		actual, err := readConfigurationPublic(root + path)
+		if err != nil || !bytes.Equal(actual, expected) {
+			return errors.New("configuration restart refuses changed restored settings or trust")
+		}
+	}
+	endpointPath := root + "/etc/seg-agent/endpoint-ca.crt"
+	if len(journal.OldEndpointCA) > 0 {
+		actual, err := readConfigurationPublic(endpointPath)
+		if err != nil || !bytes.Equal(actual, journal.OldEndpointCA) {
+			return errors.New("configuration restart refuses changed restored endpoint trust")
+		}
+	} else if len(journal.CandidateEndpointCA) > 0 {
+		if _, err := os.Lstat(endpointPath); !os.IsNotExist(err) {
+			return errors.New("configuration restart refuses unexpected endpoint trust")
+		}
+	}
+	return nil
+}
+
+func completeConfigurationRollbackUnder(root, path string, journal *configurationJournal) error {
+	active, err := configurationActiveReview(root)
+	if err != nil || active != journal.ReviewID {
+		return errStaleConfigurationReview
+	}
+	fresh, err := configurationJournalReadUnder(root, "/var/lib/seg-agent/configuration-transitions/"+journal.ReviewID+".json")
+	if err != nil {
+		return err
+	}
+	if fresh.Status != "restart_pending" {
+		return errStaleConfigurationReview
+	}
+	if err = configurationRestoredFilesUnder(root, fresh); err != nil {
+		return err
+	}
+	*journal = *fresh
 	journal.Status = "rolled_back"
+	journal.RestartError = ""
 	if err = atomicJSON(path, journal); err != nil {
 		return err
 	}
 	clearConfigurationPointer(path, journal.ReviewID)
-	_, err = commands.Run(context.Background(), "systemctl", "restart", "seg-agent.service")
-	return err
+	return nil
+}
+
+func restartRestoredConfigurationUnder(root, path string, journal *configurationJournal, commands CommandRunner) error {
+	if _, err := commands.Run(context.Background(), "systemctl", "restart", "seg-agent.service"); err != nil {
+		journal.RestartError = err.Error()
+		if len(journal.RestartError) > 1024 {
+			journal.RestartError = journal.RestartError[:1024]
+		}
+		if saveErr := atomicJSON(path, journal); saveErr != nil {
+			return fmt.Errorf("configuration restart failed (%v), and retry state could not be saved: %w", err, saveErr)
+		}
+		return err
+	}
+	return completeConfigurationRollbackUnder(root, path, journal)
 }
 func clearConfigurationPointer(path, reviewID string) {
 	pointer := filepath.Join(filepath.Dir(path), "active")
@@ -500,13 +577,13 @@ func rollbackEndpointConfigurationUnder(root, path string, commands CommandRunne
 	if err != nil {
 		return err
 	}
-	if journal.Status != "armed" {
+	if journal.Status != "armed" && journal.Status != "restart_pending" {
 		if configurationTerminal(journal.Status) {
 			return nil
 		}
 		return errors.New("configuration rollback journal has an invalid status")
 	}
-	if !configurationDeadlinePassed(journal) {
+	if journal.Status == "armed" && !configurationDeadlinePassed(journal) {
 		return errors.New("configuration rollback deadline has not arrived")
 	}
 	active, activeErr := configurationActiveReview(root)
@@ -538,7 +615,9 @@ func configurationCoordinatorAlive(journal *configurationJournal) bool {
 
 type configurationNoRestart struct{}
 
-func (configurationNoRestart) Run(context.Context, string, ...string) (string, error) { return "", nil }
+func (configurationNoRestart) Run(context.Context, string, ...string) (string, error) {
+	return "", errConfigurationRestartRequired
+}
 
 // Startup recovery covers a reboot/lost transient timer or a dead coordinator.
 // Files are restored without recursively restarting this ExecStart process;
@@ -578,23 +657,58 @@ func recoverConfigurationUnder(root string, alive func(*configurationJournal) bo
 	if err != nil {
 		return err
 	}
+	if journal.Status == "restart_pending" {
+		if err = configurationRestoredFilesUnder(root, journal); err != nil {
+			return err
+		}
+		current, activeErr := configurationActiveReview(root)
+		if activeErr != nil || current != journal.ReviewID {
+			return errStaleConfigurationReview
+		}
+		lease, lockErr := configurationLeaseUnder(root, 0)
+		if errors.Is(lockErr, errConfigurationBusy) {
+			// The external restart helper holds the lease while systemd waits
+			// for this ExecStart. Load only the restored files; leave the fence
+			// active for that helper to complete after systemd returns.
+			return nil
+		}
+		if lockErr != nil {
+			return lockErr
+		}
+		defer lease.Close()
+		return completeConfigurationRollbackUnder(root, root+path, journal)
+	}
 	if journal.Status != "armed" {
 		if !configurationTerminal(journal.Status) {
 			return errors.New("configuration recovery journal has an invalid status")
 		}
 		lease, lockErr := configurationLeaseUnder(root, 0)
-		if lockErr != nil {
+		if errors.Is(lockErr, errConfigurationBusy) {
 			return nil
+		}
+		if lockErr != nil {
+			return lockErr
 		}
 		defer lease.Close()
 		current, currentErr := configurationActiveReview(root)
+		if currentErr != nil {
+			if os.IsNotExist(currentErr) {
+				return nil // The same terminal generation was already cleared.
+			}
+			return errStaleConfigurationReview
+		}
 		if currentErr == nil && current != journal.ReviewID {
 			return errStaleConfigurationReview
 		}
 		if currentErr == nil && current == journal.ReviewID {
 			fresh, freshErr := configurationJournalReadUnder(root, path)
-			if freshErr == nil && fresh.Status != "armed" {
+			if freshErr != nil {
+				return freshErr
+			}
+			if configurationTerminal(fresh.Status) {
 				clearConfigurationPointer(root+path, journal.ReviewID)
+			} else {
+				return errStaleConfigurationReview
 			}
 		}
 		return nil
@@ -792,7 +906,7 @@ func ApplyEndpointConfiguration(ctx context.Context, path, configPath string, co
 	}
 	failed := func(cause error) error {
 		if restoreErr := restoreConfigurationLockedUnder("", journalPath, journal, commands, lock); restoreErr != nil {
-			return fmt.Errorf("configuration failed and independent rollback remains armed: %w", cause)
+			return fmt.Errorf("configuration failed (%v); rollback is incomplete and requires recovery: %w", cause, restoreErr)
 		}
 		return cause
 	}

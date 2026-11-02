@@ -99,7 +99,9 @@ class EntraHTTPSAcceptanceTests(unittest.TestCase):
             self.api('POST', path, {}, read_headers, 403)
         policy = self.api('POST', 'policies', {'name': 'Named admin policy', 'selector': {}, 'mode': 'monitor',
                          'services': [{'port': 80, 'protocol': 'tcp', 'sources': ['10.90.0.0/24']}]}, admin_headers, 201)
-        self.api('DELETE', 'policies/' + policy['id'], headers=admin_headers, expected=204)
+        removed = self.api('DELETE', 'policies/' + policy['id'], headers=admin_headers, expected=200)
+        self.assertTrue(removed['deleted'])
+        self.assertIn('deployment', removed)
         self.assertEqual(len(self.api('GET', 'access/users', headers=super_headers)['items']), 3)
         audits = self.api('GET', 'audit', headers=super_headers)['items']
         self.assertTrue(any(row['action'] == 'policy.created' and row['actor'] == 'entra:' + admin['id'] for row in audits))

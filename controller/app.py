@@ -952,8 +952,7 @@ def handler_for(app):
                 elif method == "DELETE":
                     value=self.body() if self.headers.get("Content-Length") not in (None,"","0") else {}
                     if set(value)-{"expected_revision"}:raise ValueError("Delete requires only the exact policy revision")
-                    app.store.delete_policy(parts[1], actor, expected_revision=value.get("expected_revision"))
-                    self.response(204)
+                    self.response(200, app.store.delete_policy(parts[1], actor, expected_revision=value.get("expected_revision"), principal=principal))
                 else:
                     self.response(405, {"error": "Method not allowed"})
             elif parts == ["learning-policies"] and method == "GET":

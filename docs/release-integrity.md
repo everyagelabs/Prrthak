@@ -15,13 +15,13 @@ Checks reject modified bytes, unknown signers, unsafe paths and inappropriate wr
 
 ## Candidate signing authority
 
-The 0.10 pilot candidate continues using development public key ID `98ba67b3670c9d3514867d645be89b81`. Its private seed is outside the source tree and Documents; it is never committed, packaged, sent to image builders or stored on deployed controllers. Signing tools reject source-local and known synchronized-folder key locations.
+The 0.14 pilot candidate continues using development public key ID `98ba67b3670c9d3514867d645be89b81`. Its private seed is outside the source tree and Documents; it is never committed, packaged, sent to image builders or stored on deployed controllers. Signing tools reject source-local and known synchronized-folder key locations.
 
 This development authority is **not an organizational offline or hardware signer**. Before production distribution, the release owner must choose and independently approve that authority, protect its private key outside controller hosts, and distribute the public pin through trusted operational tooling. Existing installations must not silently replace their release pin. Online per-deployment policy signing is a separate authority and remains part of the controller's security boundary.
 
 ## Traceable publication
 
-The repository CI runs controller, dashboard, Go race/static checks, installer/integration fixtures, source credential checks, dependency audits and tagged image assessment. Tagged build candidates are labelled unsigned and are gated on regression, source-security and image-assessment jobs. No signing seed is kept in CI.
+The repository CI runs a public-key-only committed-runtime consistency check on every branch/PR run, controller, dashboard, Go race/static checks, installer/integration fixtures, source credential checks, dependency audits and tagged image assessment. The consistency check includes runtime, bootstrap, privileged manager and version metadata so a branding edit cannot silently break signed startup. Tagged build candidates are labelled unsigned and are gated on regression, source-security and image-assessment jobs. No signing seed is kept in CI.
 
 The image report retains advisories without vendor fixes. Its automated gate rejects available high/critical fixes; a passing gate does not mean the images have no advisories. Native OS, live Entra, actual firewall rollback and DC/quorum/fencing acceptance remain separate gates.
 

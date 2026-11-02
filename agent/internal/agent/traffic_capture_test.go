@@ -360,6 +360,97 @@ func TestTrafficCaptureSidecarsAreLogOnlyPrivateAndCleanupVerified(t *testing.T)
 	}
 }
 
+func TestTrafficCaptureVerifiedLearningAllowRulesPreserveDeniedObservation(t *testing.T) {
+	for _, useSets := range []bool{false, true} {
+		name := "rich_sources"
+		if useSets {
+			name = "source_ipset"
+		}
+		t.Run(name, func(t *testing.T) {
+			a, f, protection := scaleManagedAgent(t)
+			p := managedTestPolicy(protection, 1, "198.51.100.0/24")
+			if err := a.applyManaged(context.Background(), p, protection); err != nil {
+				t.Fatal(err)
+			}
+			a.Commands = &hostDenyFake{CommandRunner: f, nft: hostDenyKernelFixture()}
+			now := time.Now().UTC()
+			scopes := []capturePortScope{{Port: Port{18080, "tcp"}, Kind: captureDenied, StartsAt: now.Add(-time.Second), ExpiresAt: now.Add(time.Minute)}}
+			expectedFamilies := 2
+			if raw, err := os.ReadFile("/proc/sys/net/ipv6/conf/all/disable_ipv6"); err == nil && strings.TrimSpace(string(raw)) == "1" {
+				expectedFamilies = 1
+			}
+			before, _, err := a.plannedCaptureSidecars(context.Background(), scopes, now)
+			if err != nil || len(before) != expectedFamilies {
+				t.Fatal("baseline denied classification unavailable", before, err)
+			}
+			sources := []string{"203.0.113.9/32"}
+			if useSets {
+				sources = largeSources(0, 65)
+			}
+			learned, sets, err := a.learningRulePlan(&LearningAllow{Services: []Service{{Port: 18080, Protocol: "tcp", Sources: sources}}}, "public", strings.Repeat("a", 32), false)
+			if err != nil || (len(sets) > 0) != useSets {
+				t.Fatal("unexpected learning fixture plan", sets, err)
+			}
+			a.State.LearningAllowBundle = &LearningAllowBundle{Rules: learned, IPSets: sets}
+			for _, scope := range []string{"runtime", "permanent"} {
+				for _, rule := range learned {
+					f.set(scope, "rich_rule", rule.Rule, true)
+				}
+				for _, set := range sets {
+					f.sets[scope+"|"+set.Name] = append([]string{}, set.Entries...)
+				}
+			}
+			mutations := f.mutations
+			after, _, err := a.plannedCaptureSidecars(context.Background(), scopes, now)
+			if err != nil || len(after) != len(before) || f.mutations != mutations {
+				t.Fatal("exact committed learned allowances disabled denied observation or mutated access", after, err)
+			}
+			if useSets {
+				a.State.LearningAllowBundle.IPSets = nil
+				if _, _, err = a.plannedCaptureSidecars(context.Background(), scopes, now); err == nil || !strings.Contains(err.Error(), "source-set ownership") {
+					t.Fatal("source-ipset rule without its exact owned source ledger was adopted", err)
+				}
+				a.State.LearningAllowBundle.IPSets = sets
+				f.sets["permanent|"+sets[0].Name] = []string{"0.0.0.0/0"}
+			} else {
+				f.set("permanent", "rich_rule", learned[0].Rule, false)
+			}
+			if _, _, err = a.plannedCaptureSidecars(context.Background(), scopes, now); err == nil || !strings.Contains(err.Error(), "drift") {
+				t.Fatal("learned-rule/source-set drift was ignored", err)
+			}
+		})
+	}
+}
+
+func TestTrafficCaptureLearningPrefixDoesNotAdoptForeignAllowRules(t *testing.T) {
+	a, f, protection := managedTestAgent(t)
+	if err := a.applyManaged(context.Background(), managedTestPolicy(protection, 1, "198.51.100.0/24"), protection); err != nil {
+		t.Fatal(err)
+	}
+	a.Commands = &hostDenyFake{CommandRunner: f, nft: hostDenyKernelFixture()}
+	now := time.Now().UTC()
+	scopes := []capturePortScope{{Port: Port{18080, "tcp"}, Kind: captureDenied, StartsAt: now.Add(-time.Second), ExpiresAt: now.Add(time.Minute)}}
+	foreign := learningAllowRules(&LearningAllow{Services: []Service{{Port: 18080, Protocol: "tcp", Sources: []string{"203.0.113.9/32"}}}}, "public", strings.Repeat("a", 32), false)
+	for _, rule := range foreign {
+		f.set("runtime", "rich_rule", rule.Rule, true)
+		f.set("permanent", "rich_rule", rule.Rule, true)
+	}
+	if _, _, err := a.plannedCaptureSidecars(context.Background(), scopes, now); err == nil || !strings.Contains(err.Error(), "unmanaged rule ordering") {
+		t.Fatal("foreign PRTL-looking rule was adopted", err)
+	}
+	// An unrelated local learned grant must not confer ownership on a foreign
+	// rule with the same prefix, priority and port but a different source.
+	owned := learningAllowRules(&LearningAllow{Services: []Service{{Port: 18080, Protocol: "tcp", Sources: []string{"203.0.113.10/32"}}}}, "public", strings.Repeat("a", 32), false)
+	a.State.LearningAllowBundle = &LearningAllowBundle{Rules: owned}
+	for _, rule := range owned {
+		f.set("runtime", "rich_rule", rule.Rule, true)
+		f.set("permanent", "rich_rule", rule.Rule, true)
+	}
+	if _, _, err := a.plannedCaptureSidecars(context.Background(), scopes, now); err == nil || !strings.Contains(err.Error(), "unmanaged rule ordering") {
+		t.Fatal("owned grant adopted a different-source foreign rule", err)
+	}
+}
+
 type trafficCaptureFixture struct {
 	flows  []capturedFlow
 	closed bool

@@ -150,6 +150,8 @@ class Store:
             initialize_learning_policies(db)
             from .maintenance import initialize as initialize_maintenance
             initialize_maintenance(db)
+            from .learning_targets import initialize as initialize_learning_targets
+            initialize_learning_targets(self, db)
             from .agent_settings import initialize as initialize_agent_settings
             initialize_agent_settings(db)
             from .endpoint_configuration import initialize as initialize_endpoint_configuration
@@ -280,6 +282,14 @@ class Store:
                 encoded_size(value)
             encoded=json.dumps(value,separators=(",",":"))
         db.execute(f"INSERT INTO {table}(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data", (value["id"], encoded))
+        if table == "policies":
+            from .managed import policy_intent
+            header = json.dumps({"id": value["id"], "digest": digest(policy_intent(value))}, separators=(",", ":"))
+            db.execute("INSERT INTO policy_intent_headers(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data", (value["id"], header))
+        if table == "sessions":
+            from .learning_targets import sync, checkpoint
+            sync(db, value)
+            checkpoint(db)
 
     def all(self, table):
         with self.read_meta() as db:
@@ -633,7 +643,7 @@ class Store:
             self.audit("policy.updated" if old else "policy.created", actor, {"policy_id": policy["id"], "name": policy["name"], "mode": policy["mode"]}, db)
         return {**policy, "deployment": deployment} if deployment else policy
 
-    def delete_policy(self, identifier, actor, expected_revision=None):
+    def delete_policy(self, identifier, actor, expected_revision=None, *, principal=None):
         with self.lock, self.meta() as db:
             if getattr(db,"dialect","sqlite")=="sqlite":
                 db.execute("BEGIN IMMEDIATE")
@@ -646,10 +656,20 @@ class Store:
                 if expected_revision!=old.get("revision"):
                     from .firewall import WorkflowConflict
                     raise WorkflowConflict("Policy changed; fetch exact detail before deleting",{})
+            if principal is not None:
+                from . import approvals
+                plan = {"id": str(uuid.uuid4()), "plan_digest": digest({"action": "delete_policy", "id": identifier, "revision": old["revision"]})}
+                approvals.request(self, db, plan, actor, principal, scope_kind="managed_policy_delete")
+                approvals.decide(self, db, plan, actor, principal)
             from .managed import record_revision
             record_revision(db, self._get(db, "policies", identifier), actor, "Policy removed from active configuration")
             db.execute("DELETE FROM policies WHERE id=?", (identifier,))
+            db.execute("DELETE FROM policy_intent_headers WHERE id=?", (identifier,))
             publications = self.compile_all(db, track_automatic=False)
+            if principal is not None:
+                from .managed import authorize_cleanup
+                for ref in publications:
+                    authorize_cleanup(self, db, self._get(db, "servers", ref["server_id"]), actor, principal)
             from .policy_deployments import create as create_deployment
             deployment = create_deployment(self, db, publications, actor, old["name"] + " · removed", policy_id=identifier, origin="policy_deleted")
             self.audit("policy.deleted", actor, {"policy_id": identifier}, db)
@@ -834,7 +854,8 @@ class Store:
                 server["security_monitor"] = monitor(value["security_monitor"])
             security_ack = ingest_events(self, db, server, value.get("security_events", []))
             firewall_ack = ingest_results(self, db, identifier, value.get("firewall_change_results", []))
-            self._collector_state(server, self._all(db, "sessions"))
+            from .learning_targets import for_endpoint as endpoint_sessions
+            self._collector_state(server, endpoint_sessions(db, identifier))
             from .learning_policies import refresh_host as refresh_learning_host, report_outcome as report_learning_outcome
             if "learning_allow_outcome" in value:
                 report_learning_outcome(self, db, server, value["learning_allow_outcome"])
@@ -874,8 +895,8 @@ class Store:
             if persist_result:
                 self._put(db, "servers", result)
             from .approvals import activate_learning
-            for active_session in self._all(db, "sessions"):
-                if identifier in active_session["server_ids"]:activate_learning(self, db, active_session)
+            for active_session in endpoint_sessions(db, identifier):
+                activate_learning(self, db, active_session)
             return {"server_id": identifier, "desired_version": result["desired_version"], "ack_security_event_ids": security_ack, "ack_firewall_change_ids": firewall_ack}
 
     def create_session(self, value, actor, *, principal=None):
@@ -892,11 +913,11 @@ class Store:
                 session.update({"status": "stopped" if cutoff < parse_time(session["expires_at"]) else "expired", "stopped_at": stamp(cutoff)})
                 self._put(db, "sessions", session)
                 self.audit("learning.stopped", actor, {"session_id": identifier}, db)
-            all_sessions = self._all(db, "sessions")
             for server_id in session["server_ids"]:
                 server = self._get(db, "servers", server_id)
                 if server:
-                    self._collector_state(server, all_sessions)
+                    from .learning_targets import for_endpoint
+                    self._collector_state(server, for_endpoint(db, server_id))
                     self._put(db, "servers", server)
             return session
 
@@ -907,7 +928,8 @@ class Store:
             raise KeyError(identifier)
         result = dict(server.get("_compiled", {"server_id": identifier, "version": 0, "digest": digest({}), "mode": "monitor", "services": [], "generated_at": "1970-01-01T00:00:00Z"}))
         current = now()
-        sessions = [session for session in self._all(db, "sessions") if identifier in session["server_ids"] and (session.get("selection_mode") != "discovered" or CAPABILITY in server.get("capabilities", []))]
+        from .learning_targets import for_endpoint as endpoint_sessions
+        sessions = [session for session in endpoint_sessions(db, identifier, at=current, recent=True) if session.get("selection_mode") != "discovered" or CAPABILITY in server.get("capabilities", [])]
         result["learning_sessions"] = sorted((learning_assignment(session, identifier) for session in sessions if session["status"] == "active" and parse_time(session["starts_at"]) <= current < parse_time(session["expires_at"])), key=lambda item: item["id"])
         tombstones = []
         for session in sessions:
@@ -955,6 +977,8 @@ class Store:
         with self.lock, self.meta() as db:
             if getattr(db, "dialect", "sqlite") != "postgresql":
                 db.execute("BEGIN IMMEDIATE")
+            from .managed import retire_invalid_direct_approvals
+            retire_invalid_direct_approvals(self, db, self._get(db, "servers", identifier))
             result = self._assignment_value(identifier, db)
             content = digest(result)
             guard = self._get(db, "maintenance_settings", key)
@@ -1079,13 +1103,16 @@ class Store:
                 db.execute("BEGIN IMMEDIATE")
             from .firewall import refresh_plans
             refresh_plans(self, db)
-            for session in self._all(db, "sessions"):
+            from .approval_views import _expression
+            active_where = _expression(db, ("status",)) + "='active'"
+            for row in db.execute("SELECT data FROM sessions WHERE " + active_where + " AND " + _expression(db, ("expires_at",)) + "<=?", (stamp(at),)).fetchall():
+                session = json.loads(row[0])
                 if session["status"] == "active" and parse_time(session["expires_at"]) <= at:
                     session["status"] = "expired"
                     session["stopped_at"] = session["expires_at"]
                     self._put(db, "sessions", session)
                     self.audit("learning.expired", "system", {"session_id": session["id"]}, db)
-            all_sessions = self._all(db, "sessions")
+            all_sessions = [json.loads(row[0]) for row in db.execute("SELECT data FROM sessions WHERE " + active_where + " AND " + _expression(db, ("expires_at",)) + ">?", (stamp(at),))]
             from . import risky_ports
             risk_catalog = risky_ports.configuration(self, db)
             for server in self._all(db, "servers"):
@@ -1207,7 +1234,8 @@ class Store:
             record.update({"used": True, "csr_digest": csr_digest, "hostname": hostname, "response": response})
             self._put(db, "tokens", record)
             server = self._new_enrollment_server(identifier, hostname)
-            self._collector_state(server, self._all(db, "sessions"))
+            from .learning_targets import for_endpoint
+            self._collector_state(server, for_endpoint(db, identifier))
             from .endpoint_certificates import record_issued
             record_issued(self, db, server, certificate)
             self._put(db, "servers", server)
@@ -1308,10 +1336,22 @@ class Store:
             if not server:
                 raise PermissionError("Endpoint is not enrolled")
             approved = authorization(self, db, server)
-            if not approved["authorized"] or value.get("approval_id") != approved["approval_id"] or value.get("version") != approved["approved_version"] or value.get("digest") != approved["approved_digest"] or value.get("protection_digest") != approved["protection_digest"] or value.get("binding_digest") != approved["binding_digest"]:
+            if approved["authorized"] and (value.get("approval_id") != approved["approval_id"] or value.get("version") != approved["approved_version"] or value.get("digest") != approved["approved_digest"] or value.get("protection_digest") != approved["protection_digest"] or value.get("binding_digest") != approved["binding_digest"]):
                 raise PermissionError("Current exact policy, protected configuration and target IPs are not authorized")
-            protection = server["protection"]
-            return {"server_id": identifier, "hostname": server["hostname"], "ips": approved["approved_ips"], "ssh_ports": protection["ssh_ports"], "management_sources": protection["management_sources"], "controller_origin": protection["controller_url"], "controller_addresses": protection.get("controller_addresses", []), "approval_id": approved["approval_id"], "version": approved["approved_version"], "digest": approved["approved_digest"], "protection_digest": approved["protection_digest"], "binding_digest": approved["binding_digest"], "expires_at": approved["expires_at"], "intent": approved.get("intent", "enforce"), "approval_proof": approved.get("approval_proof"), **{key: approved[key] for key in ("host_default_deny_ack", "host_default_deny_revision", "host_default_deny_configuration_digest") if key in approved}}
+            if approved["authorized"]:
+                protection = server["protection"]
+                return {"server_id": identifier, "hostname": server["hostname"], "ips": approved["approved_ips"], "ssh_ports": protection["ssh_ports"], "management_sources": protection["management_sources"], "controller_origin": protection["controller_url"], "controller_addresses": protection.get("controller_addresses", []), "approval_id": approved["approval_id"], "version": approved["approved_version"], "digest": approved["approved_digest"], "protection_digest": approved["protection_digest"], "binding_digest": approved["binding_digest"], "expires_at": approved["expires_at"], "intent": approved.get("intent", "enforce"), "approval_proof": approved.get("approval_proof"), **{key: approved[key] for key in ("host_default_deny_ack", "host_default_deny_revision", "host_default_deny_configuration_digest") if key in approved}}
+        # A refused check is infrequent; successful health checks stay read-only.
+        # Retire invalid automatically merged authority durably after re-reading
+        # under the normal writer serialization, never inside a read transaction.
+        from .managed import retire_invalid_direct_approvals
+        with self.lock, self.meta() as db:
+            if getattr(db, "dialect", "sqlite") != "postgresql":
+                db.execute("BEGIN IMMEDIATE")
+            current = self._get(db, "servers", identifier)
+            if current:
+                retire_invalid_direct_approvals(self, db, current)
+        raise PermissionError("Current exact policy, protected configuration and target IPs are not authorized")
 
     def locations(self):
         from .locations import listing

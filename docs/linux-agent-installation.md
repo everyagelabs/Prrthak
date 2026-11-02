@@ -33,13 +33,13 @@ An administration-workstation verification example, using approved Python 3.10+ 
 ```sh
 python3 /approved/tools/verify-release.py \
   --public-trust-file /approved/trust/prthak-release-public-trust.json \
-  --signature prthak-agent-0.11.0-linux-amd64.tar.gz.signature.json \
-  prthak-agent-0.11.0-linux-amd64.tar.gz
+  --signature prthak-agent-0.14.0-linux-amd64.tar.gz.signature.json \
+  prthak-agent-0.14.0-linux-amd64.tar.gz
 sudo install -d -o root -g root -m 0755 /opt/prthak/agent-releases
 sudo tar --no-same-owner --no-same-permissions \
-  -xzf /protected/releases/prthak-agent-0.11.0-linux-amd64.tar.gz \
+  -xzf /protected/releases/prthak-agent-0.14.0-linux-amd64.tar.gz \
   -C /opt/prthak/agent-releases
-cd /opt/prthak/agent-releases/prthak-agent-0.11.0-linux-amd64
+cd /opt/prthak/agent-releases/prthak-agent-0.14.0-linux-amd64
 ```
 
 Use the ARM64 filenames on ARM64. Transfer the already verified archive through your protected release path before extraction; execute privileged installers from protected root-owned release files. Obtain the verifier and public pin through the approved independent channel. RHEL 8's default Python 3.6 cannot run this verifier.

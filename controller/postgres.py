@@ -297,6 +297,8 @@ class PostgresStore(Store):
             initialize_learning_policies(db)
             from .maintenance import initialize as initialize_maintenance
             initialize_maintenance(db)
+            from .learning_targets import initialize as initialize_learning_targets
+            initialize_learning_targets(self, db)
             from .agent_settings import initialize as initialize_agent_settings
             initialize_agent_settings(db)
             from .endpoint_configuration import initialize as initialize_endpoint_configuration
