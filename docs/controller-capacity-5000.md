@@ -1,6 +1,39 @@
 # 5,000-server controller capacity
 
-## Current 0.12 acceptance · 2 November 2026
+## Current 0.13 acceptance · 2 November 2026
+
+The bulk-verification build passed with 5,000 current verification-capable
+virtual mTLS identities. Every cycle checked each signed policy's exact
+per-host authorization and observation lease, including the bulk-run ID,
+endpoint/IP/protection/version/digest and complete port scope. Certificate and
+inventory preparation are outside the phase timers.
+
+| Phase | Verified identities | Elapsed |
+| --- | ---: | ---: |
+| Initial signed delivery and receipts | 5,000 | 18.971 s |
+| Actual Admin policy PUT, publication and full 30 s polling window | 5,000 | **33.743 s** |
+| Warm polling, 100 discovery reports and 10,000 typed observations | 5,000 | 13.780 s |
+
+Publication took 3.731 seconds, included in the total. There were zero final
+failures, four transient policy retries and two report retries. Exactly 5,000
+connection and 5,000 denied-packet observations were retained separately, with
+no pending batch after drain. Policy/report/ingest p95 was
+109.581/180.261/4014.072 ms. Runtime source hashes remained unchanged; both fresh
+owned fixture databases were removed.
+
+Profile: two workers × 32 threads, 64 clients, metadata/traffic pools 8/2,
+30-second control / 900-second full discovery, private PostgreSQL 16.15 on the
+shared ARM64 development host. Add `--verification-capable` to the reproduction
+command below. The [public result](../output/capacity/controller-5000-0.13-result.json)
+records exact hashes, settings, observation-lease accounting and cleanup.
+
+This profile delivers real signed leases without fabricating native readback
+or traffic-witness success. It does not measure 5,000 native agents enforcing
+rules, 5,000 concurrent kernel collectors/witness uploads, largest policy
+matrices, large-history endurance, registration storms, live Entra, DC/WAN/HA
+or actual endpoint installation. Native acceptance remains separate.
+
+## Historical 0.12 acceptance · 2 November 2026
 
 The complete-history/GUI source-set build passed the same isolated delivery
 profile with 5,000 fresh virtual mTLS identities. Certificate/inventory

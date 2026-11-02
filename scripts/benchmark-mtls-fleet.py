@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from controller.app import App
 from controller.pki import Signer, init_ca
-from controller.store import Store, digest, now, stamp
+from controller.store import Store, digest, now, parse_time, stamp
 from controller.endpoint_certificates import record_issued
 from controller.policy_signing import verify
 
@@ -76,6 +76,27 @@ def verify_direct_authority(policy, identity, fingerprint, epoch=""):
         raise RuntimeError("Current exact per-host single_admin authorization was not delivered")
 
 
+def verify_observation_lease(policy, identity, addresses, expected_deployment_id=None):
+    """Check delivery of a passive lease without inventing native witnesses."""
+    lease = policy.get("policy_verification") or {}
+    required = {"schema_version", "id", "deployment_id", "server_id", "version", "digest", "approval_id", "protection_digest", "target_ips_digest", "ports", "starts_at", "expires_at", "window_seconds"}
+    enforcement = policy.get("enforcement") or {}
+    ports = sorted((service["protocol"], service["port"]) for service in policy.get("services", []) if service.get("mode", policy.get("mode")) == "enforce")
+    if (set(lease) != required or lease["schema_version"] != 1 or lease["server_id"] != identity
+            or any(lease[key] != policy[key] for key in ("version", "digest"))
+            or lease["approval_id"] != enforcement.get("approval_id")
+            or lease["protection_digest"] != enforcement.get("protection_digest")
+            or lease["target_ips_digest"] != digest(sorted(set(addresses)))
+            or expected_deployment_id is not None and lease["deployment_id"] != expected_deployment_id
+            or lease["window_seconds"] != 600
+            or any(not isinstance(lease[key], str) or not 1 <= len(lease[key]) <= 128 for key in ("id", "deployment_id"))
+            or not isinstance(lease["ports"], list) or not 1 <= len(lease["ports"]) <= 64
+            or sorted((port.get("protocol"), port.get("port")) for port in lease["ports"]) != ports
+            or parse_time(lease["expires_at"]) - parse_time(lease["starts_at"]) != timedelta(seconds=600)
+            or parse_time(lease["expires_at"]) <= now()):
+        raise RuntimeError("Exact endpoint-bound passive verification lease was not delivered")
+
+
 def seeded_person(store, config, oid, role):
     """Trusted private session fixture, never a real Microsoft sign-in."""
     from controller.auth import EntraAuth, SESSION_COOKIE
@@ -105,6 +126,8 @@ def run(args):
               "http_workers": args.workers, "http_threads_per_worker": args.threads,
               "cadence": args.cadence, "policy_services": 2, "approved_sources_per_service": args.policy_sources,
               "authorization_mode":args.authorization_mode,
+              "verification_lease_delivery": args.verification_capable,
+              "native_verification_witnesses_generated": False,
               "administrative_identity_fixture":"Persisted private Entra-shaped Admin session; no live Microsoft sign-in/token exchange" if args.authorization_mode=="single-admin" else "Legacy private token monitor fixture",
               "actual_midrun_policy_edit": args.change_policy, "configured_control_interval_seconds": args.control_interval_seconds,
               "changed_policy_poll_window_seconds": args.poll_window_seconds,
@@ -170,6 +193,8 @@ def run(args):
         identities = [str(uuid.uuid5(namespace, str(index))) for index in range(args.agents)]
         reports = {}
         capabilities = ["learning_discovery_v1", "learning_auto_allow_v1", "agent_polling_config_v1", "managed_ipsets_v1", "learning_ipsets_v1", "signed_assignments_v1", "approval_mode_proof_v1", "traffic_capture_v1"]
+        if args.verification_capable:
+            capabilities.append("policy_verification_v1")
         started = time.monotonic()
         with store.lock, store.meta() as db:
             if store._all(db, "servers") or store._all(db, "policies"):
@@ -284,6 +309,7 @@ def run(args):
                 changed_phase=args.change_policy and cycle==1
                 verified_changes=0
                 verified_authorities=0
+                verified_observation_leases=0
                 publication_seconds=0.0
                 if changed_phase:
                     # Exercise the actual administrative mutation route, including
@@ -298,7 +324,7 @@ def run(args):
                     publication_seconds=time.monotonic()-phase_started
                 discovery=set(identities[:min(args.discovery_agents,args.agents)]) if cycle==args.cycles-1 else set()
                 def one(identity):
-                    nonlocal verified_changes,verified_authorities
+                    nonlocal verified_changes,verified_authorities,verified_observation_leases
                     connection=connect(identity)
                     try:
                         report=dict(reports[identity])
@@ -317,6 +343,12 @@ def run(args):
                             if args.authorization_mode=="single-admin":
                                 verify_direct_authority(policy,identity,config.fingerprint,epoch)
                                 authority_receipts[identity]={key:policy[key] for key in ("version","digest","enforcement")}
+                                if args.verification_capable:
+                                    verify_observation_lease(policy, identity, report["ips"], fixture_policy["deployment"]["id"])
+                                    authority_receipts[identity]["services"] = policy["services"]
+                                    authority_receipts[identity]["mode"] = policy["mode"]
+                                    authority_receipts[identity]["policy_verification"] = policy["policy_verification"]
+                                    with stats_lock:verified_observation_leases+=1
                                 with stats_lock:verified_authorities+=1
                             if changed_phase:
                                 verify_changed_policy(policy,receipt_keys.get(identity),changed_services)
@@ -337,6 +369,9 @@ def run(args):
                                 report["discovery_interval_seconds"]=polling["discovery_interval_seconds"]
                         if status==304 and args.authorization_mode=="single-admin":
                             verify_direct_authority(authority_receipts.get(identity,{}),identity,config.fingerprint,epoch)
+                            if args.verification_capable:
+                                verify_observation_lease(authority_receipts[identity], identity, report["ips"], fixture_policy["deployment"]["id"])
+                                with stats_lock:verified_observation_leases+=1
                             with stats_lock:verified_authorities+=1
                         if session and identity in learners:
                             at=stamp();events=[]
@@ -373,6 +408,10 @@ def run(args):
                 if args.authorization_mode=="single-admin":
                     phase["verified_current_direct_authorities"]=verified_authorities
                     if verified_authorities!=args.agents:failures.append({"operation":"direct_authority_delivery","error":"Not every identity received its current compact direct Admin authority"})
+                if args.verification_capable:
+                    phase["verified_passive_observation_leases"] = verified_observation_leases
+                    if verified_observation_leases != args.agents:
+                        failures.append({"operation": "observation_lease_delivery", "error": "Not every identity received its exact passive observation lease"})
                 if changed_phase:
                     phase.update(actual_policy_edit=True,publication_seconds=round(publication_seconds,3),poll_window_seconds=args.poll_window_seconds,verified_updated_identities=verified_changes,exact_source_matrices_verified=verified_changes==args.agents)
                     if verified_changes!=args.agents:
@@ -435,6 +474,7 @@ def main():
     parser.add_argument("--cadence",choices=("adaptive","strict"),default="adaptive",help="adaptive mirrors the native agent; strict always sends a second report for comparison")
     parser.add_argument("--authorization-mode",choices=("monitor","single-admin"),default="monitor",help="single-admin seeds a current local Entra session, saves symbolic enforce intent and measures its real signed per-host authority; never contacts Microsoft")
     parser.add_argument("--change-policy",action="store_true",help="Edit the real source policy before cycle2; include compile/publication and verify all new versions/digests/sources")
+    parser.add_argument("--verification-capable",action="store_true",help="Advertise current verification-capable agents and verify their signed passive leases; no kernel witnesses or firewall enforcement are simulated")
     parser.add_argument("--poll-window-seconds",type=float,default=0,help="Spread cycle2 polls across this window AFTER the edit is published; timer also includes publication")
     parser.add_argument("--control-interval-seconds",type=int,default=60,help="Set and verify the actual controller polling profile; 30 leaves processing headroom inside a60s delivery budget")
     parser.add_argument("--require-target",action="store_true",help="Fail if any complete cycle misses60seconds, even when HTTP calls succeed")
@@ -450,6 +490,8 @@ def main():
     parser.add_argument("--traffic-dsn-env",default="PRTHAK_HTTP_TEST_TRAFFIC_DSN")
     parser.add_argument("--output",type=Path,required=True)
     args=parser.parse_args()
+    if args.verification_capable and args.authorization_mode != "single-admin":
+        parser.error("Observation-lease delivery requires the exact single-admin publication fixture")
     if not 1<=args.agents<=20000 or not 1<=args.cycles<=10 or not 1<=args.concurrency<=256 or not 1<=args.workers<=8 or not 2<=args.threads<=128 or not 1<=args.timeout<=120 or not 1<=args.policy_sources<=1000 or not 0<=args.learning_agents<=1000 or not 0<=args.flow_events<=2000 or not 0<=args.discovery_agents<=args.agents:
         parser.error("Benchmark arguments exceed bounded fixture limits")
     if args.change_policy and args.cycles<2 or not math.isfinite(args.poll_window_seconds) or not 0<=args.poll_window_seconds<=60 or not 5<=args.control_interval_seconds<=3600:

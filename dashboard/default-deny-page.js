@@ -131,8 +131,8 @@ async function defaultDenySubmit(event){
    if(defaultDenyState.submitting||plan.id!==form.dataset.id||plan.digest!==form.dataset.digest||String(plan.revision)!==form.dataset.revision||ack?.checked!==true||values.get('acknowledge_downtime')!=='on')throw new Error('Use the current exact review and manually check its downtime acknowledgement before each push.');
    const body={digest:plan.digest,expected_revision:plan.revision,confirmation_nonce:plan.confirmation_nonce,acknowledge_downtime:true};
    defaultDenyState.submitting=true;defaultDenyState.review=null;defaultDenyState.reviewSequence++;defaultDenyResetAcknowledgement('Push requested. Verify endpoint receipts; this review cannot be reused.');
-   await api('/host-default-deny/'+encodeURIComponent(plan.id)+'/confirm',{method:'POST',body});
-   if(defaultDenyModalActive('Review whole-server default deny'))closeModal();toast('Ingress push queued. Verify each endpoint outcome; queued does not mean applied.');await loadDefaultDeny({force:true});
+   const result=await api('/host-default-deny/'+encodeURIComponent(plan.id)+'/confirm',{method:'POST',body});
+   if(defaultDenyModalActive('Review whole-server default deny'))closeModal();if(typeof policyDeploymentsPublished==='function')policyDeploymentsPublished(result);toast('Ingress push queued. Verify each endpoint outcome; queued does not mean applied.');await loadDefaultDeny({force:true});
   }
  }catch(error){if(defaultDenyModalActive(form.id==='default-deny-review-form'?'Review whole-server default deny':'Whole-server default deny'))formError(error);else toast(error.message,true);if(form.id==='default-deny-review-form')defaultDenyResetAcknowledgement(defaultDenyState.review?error.message:'Push outcome is unverified. Refresh status and create a fresh review before retrying.');}
  finally{defaultDenyState.submitting=false;if(button&&form.id==='default-deny-selection-form'&&defaultDenyModalActive('Whole-server default deny'))button.disabled=false;}

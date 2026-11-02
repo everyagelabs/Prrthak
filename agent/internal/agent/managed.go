@@ -69,6 +69,7 @@ func (a *Agent) managedMutation(ctx context.Context, path string, journal *manag
 	if before == after {
 		return nil
 	}
+	a.invalidatePolicyVerificationAccess()
 	journal.Mutations = append(journal.Mutations, managedMutation{Scope: scope, Zone: rule.Zone, Rule: rule.Rule, Before: before, After: after})
 	if e = saveManagedJournal(path, journal); e != nil {
 		return e
@@ -153,7 +154,13 @@ func (a *Agent) applyManaged(ctx context.Context, p *Policy, protection Protecti
 		}
 		a.State.AppliedVersion = p.Version
 		committed := a.State.ManagedBundle
-		a.State.ManagedEnforcement = &ManagedEnforcement{Status: "enforced", Version: committed.Version, Digest: committed.Digest, ApprovalID: committed.ApprovalID, UpdatedAt: time.Now().UTC()}
+		approvalID := committed.ApprovalID
+		if p.Enforcement != nil && p.Enforcement.ApprovalID != committed.ApprovalID && validateEnforcement(p, protection, time.Now().UTC()) == nil {
+			// An exact already-installed bundle can satisfy a new valid rollout
+			// authority through fresh readback; its historical commit is unchanged.
+			approvalID = p.Enforcement.ApprovalID
+		}
+		a.State.ManagedEnforcement = &ManagedEnforcement{AlreadyPresent: true, Status: "enforced", Version: committed.Version, Digest: committed.Digest, ApprovalID: approvalID, UpdatedAt: time.Now().UTC()}
 		return nil
 	}
 	if e = checkNewEnforcementJournalBudget(a.Config.StateDir, "managed"); e != nil {
@@ -435,6 +442,8 @@ func (a *Agent) applyManaged(ctx context.Context, p *Policy, protection Protecti
 	if time.Now().After(journal.Deadline.Add(-5 * time.Second)) {
 		return fail(errors.New("health completed too near rollback deadline"))
 	}
+	committedAt := time.Now().UTC()
+	journal.Next.CommittedAt = &committedAt
 	journal.Phase = "committed"
 	if e = saveManagedJournal(path, journal); e != nil {
 		return fail(e)
@@ -510,9 +519,19 @@ func (a *Agent) enrichManagedStatus() {
 	}
 	a.State.ManagedEnforcement.LastGoodVersion = 0
 	a.State.ManagedEnforcement.LastGoodDigest = ""
+	a.State.ManagedEnforcement.Generation = ""
+	a.State.ManagedEnforcement.CommittedAt = nil
+	a.State.ManagedEnforcement.VerificationID = ""
+	a.State.ManagedEnforcement.VerificationReadbackAt = nil
 	if a.State.ManagedBundle != nil {
 		a.State.ManagedEnforcement.LastGoodVersion = a.State.ManagedBundle.Version
 		a.State.ManagedEnforcement.LastGoodDigest = a.State.ManagedBundle.Digest
+		a.State.ManagedEnforcement.Generation = a.State.ManagedBundle.Generation
+		a.State.ManagedEnforcement.CommittedAt = a.State.ManagedBundle.CommittedAt
+		if verification := a.State.PolicyVerification; verification != nil && verification.ReadbackAt != nil && verification.Report.AppliedGeneration == a.State.ManagedBundle.Generation && verification.Assignment.Version == a.State.ManagedBundle.Version && verification.Assignment.Digest == a.State.ManagedBundle.Digest && verification.Assignment.ApprovalID == a.State.ManagedEnforcement.ApprovalID {
+			a.State.ManagedEnforcement.VerificationID = verification.Assignment.ID
+			a.State.ManagedEnforcement.VerificationReadbackAt = verification.ReadbackAt
+		}
 	}
 	a.State.ManagedEnforcement.HostDefaultDenyActive = a.State.ManagedBundle != nil && a.State.ManagedBundle.HostDefaultDeny
 	present := a.State.ManagedBundle != nil && len(a.State.ManagedBundle.Rules) > 0

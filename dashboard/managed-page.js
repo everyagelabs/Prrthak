@@ -124,7 +124,7 @@ async function managedRestoreReview(id,revision) {
 function managedNewRollout() {
   if(!['admin','super_admin'].includes(state.role))return;
   const servers=filteredServers();
-  showModal('Prepare a managed rollout',`<form id="managed-rollout-form"><div class="modal-body">${errorSlot}<div class="inline-notice">This creates a review only. It freezes each selected endpoint’s complete desired bundle and protection digest. No endpoint is selected automatically.</div><div class="field"><label for="managed-rollout-name">Rollout name</label><input id="managed-rollout-name" name="name" required maxlength="120" placeholder="Lab · billing access revision"></div><div class="field"><div class="field-label">Current filtered scope · ${format(servers.length)} endpoint${servers.length===1?'':'s'}</div><div class="host-checklist">${servers.map(server=>{const protection=M.protection(server);return `<label class="host-check"><input type="checkbox" name="server_ids" value="${h(server.id)}">${h(server.hostname)}<span>Desired v${num(server.desired_version)} · ${protection.ready===true?'Protection reported ready':'Protection requires review'}</span></label>`;}).join('') || '<p class="help-text" style="padding:13px">No endpoints match the current scope. Broaden the filters.</p>'}</div><small>Port filters select endpoints; authorization covers every service in their compiled bundle. A future tag or IP change requires a new exact-bundle authorization.</small></div>${managedLabHTML()}</div>${modalFooter('Create review plan')}</form>`,'NO LIVE CHANGE AUTHORIZED');
+  showModal('Apply managed policies',`<form id="managed-rollout-form"><div class="modal-body">${errorSlot}<div class="inline-notice">Submitting applies each selected server’s complete current policy bundle and can change its live firewall rules. One current Admin performs this action; the agent checks SSH/controller protection and rollback readiness. No endpoint is selected automatically. Use the dedicated downtime acknowledgement for whole-server default deny.</div><div class="field"><label for="managed-rollout-name">Rollout name</label><input id="managed-rollout-name" name="name" required maxlength="120" placeholder="Lab · billing access revision"></div><div class="field"><div class="field-label">Current filtered scope · ${format(servers.length)} endpoint${servers.length===1?'':'s'}</div><div class="host-checklist">${servers.map(server=>{const protection=M.protection(server);return `<label class="host-check"><input type="checkbox" name="server_ids" value="${h(server.id)}">${h(server.hostname)}<span>Desired v${num(server.desired_version)} · ${protection.ready===true?'Protection reported ready':'Protection requires review'}</span></label>`;}).join('') || '<p class="help-text" style="padding:13px">No endpoints match the current scope. Broaden the filters.</p>'}</div><small>Port filters select endpoints; authorization covers every service in their compiled bundle. Ordinary tag and address changes resolve through the saved policy intent and safety checks. Whole-server default-deny changes require a fresh acknowledged push.</small></div>${managedLabHTML()}</div>${modalFooter('Apply selected policies')}</form>`,'ADMIN ACTION · LIVE FIREWALL CHANGE');
 }
 function managedStageHTML(status) {
   const stages=[['pending_approval','Review'],['staging','Runtime staging'],['runtime_healthchecking','Health check'],['committing','Permanent commit'],['enforced','Agent verified']];
@@ -206,7 +206,7 @@ async function managedAction(button) {
       if(state.activeManagedRollout!==plan)throw new Error('The active review changed while refreshing. Review it again.');
       if(fresh.plan_digest!==plan.plan_digest||fresh.confirmation_nonce!==plan.confirmation_nonce||fresh.status!==plan.status||!managedCanConfirm(fresh)){managedShowRollout(fresh);throw new Error('The exact review changed. Review the current bindings and confirmation step again.');}
       const body=M.confirmationBody(fresh,typed);
-      const result=await api(`/policy-rollouts/${encodeURIComponent(plan.id)}/confirm`,{method:'POST',body});managedShowRollout(result.plan || result);await refreshManagedRollouts();
+      const result=await api(`/policy-rollouts/${encodeURIComponent(plan.id)}/confirm`,{method:'POST',body});managedShowRollout(result.plan || result);if(typeof policyDeploymentsPublished==='function')policyDeploymentsPublished(result);await refreshManagedRollouts();
     }
   }catch(error){if(error.payload?.plan)managedShowRollout(error.payload.plan);formError(error);}
   finally{button.disabled=false;}
@@ -217,7 +217,7 @@ async function managedSubmit(event) {
     if(form.id==='managed-rollout-form'){
       if(!['admin','super_admin'].includes(state.role))throw new Error('Administrator access is required.');
       const server_ids=data.getAll('server_ids');if(!server_ids.length)throw new Error('Select the exact endpoints to apply.');
-      const plan=await api('/policy-rollouts',{method:'POST',body:{name:String(data.get('name')).trim(),server_ids}});managedShowRollout(plan.plan || plan);await refreshManagedRollouts();return;
+      const plan=await api('/policy-rollouts',{method:'POST',body:{name:String(data.get('name')).trim(),server_ids}});managedShowRollout(plan.plan || plan);if(typeof policyDeploymentsPublished==='function')policyDeploymentsPublished(plan);await refreshManagedRollouts();return;
     }
     if(form.id==='managed-restore-form'){
       if(!['admin','super_admin'].includes(state.role))throw new Error('Administrator access is required to restore a historical revision.');
@@ -225,7 +225,7 @@ async function managedSubmit(event) {
       M.exactPolicy(reviewed.record,reviewed.id,reviewed.revision);M.exactPolicy(reviewed.before,reviewed.id);
       const reason=String(data.get('reason') || '').trim();if(reason.length<3)throw new Error('Enter a reason for restoring this revision.');
       const result=await api(`/policies/${encodeURIComponent(form.dataset.id)}/rollback`,{method:'POST',body:{revision:num(form.dataset.revision),reason}});
-      state.activeManagedRestore=null;toast(`Restored as new revision ${num((result.policy || result).revision)}. Eligible endpoints receive the saved intent; verify their actual results.`);await load();await managedPolicyHistory(form.dataset.id);
+      state.activeManagedRestore=null;if(typeof policyDeploymentsPublished==='function')policyDeploymentsPublished(result.policy || result);toast(`Restored as new revision ${num((result.policy || result).revision)}. Eligible endpoints receive the saved intent; verify their actual results.`);await load();await managedPolicyHistory(form.dataset.id);
     }
   }catch(error){formError(error);}
   finally{submit.disabled=false;}

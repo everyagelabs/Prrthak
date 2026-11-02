@@ -63,5 +63,8 @@ function collectPolicyServices(form) {
     else {rule.port=Number($('[name="rule_port"]',row).value);rule.protocol=$('[name="rule_protocol"]',row).value;}
     return rule;
   });
-  const seen=new Set();for(const service of services){const key=service.service_group_id?'group:'+service.service_group_id:`${service.port}/${service.protocol}`;if(seen.has(key))throw new Error('Duplicate service selection. Combine its allowed sources in one rule.');seen.add(key);}return services;
+  const seen=new Set();return services.filter(service=>{
+    const key=JSON.stringify([service.service_group_id||null,service.port||null,service.protocol||null,[...new Set(service.sources)].sort(),Object.entries(service.source_selector).sort(([a],[b])=>a.localeCompare(b)),[...new Set(service.source_group_ids)].sort()]);
+    if(seen.has(key))return false;seen.add(key);return true;
+  });
 }

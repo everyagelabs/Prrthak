@@ -97,6 +97,22 @@ class ServiceGroupTests(unittest.TestCase):
         self.report("source-a", ["10.2.0.3"])
         self.assertIn("10.2.0.3/32", self.bundle()["services"][0]["sources"])
 
+    def test_duplicate_rows_groups_and_policies_do_not_duplicate_effective_rules(self):
+        web = self.catalogue(ports=(443, 443))
+        saved = self.policy(web, services=[
+            {"port": 443, "sources": ["10.90.0.1", "10.90.0.1/32"]},
+            {"port": 443, "sources": ["10.90.0.1/32"]},
+            {"service_group_id": web["id"], "sources": ["10.90.0.1/32"]},
+        ])
+        self.assertEqual(len(saved["services"]), 2)
+        before = self.bundle()
+        self.assertEqual(before["services"], [{"port": 443, "protocol": "tcp", "mode": "enforce", "sources": ["10.90.0.1/32"]}])
+        self.policy(web, name="Same permissions", services=[{"port": 443, "sources": ["10.90.0.1"]}])
+        after = self.bundle()
+        self.assertEqual(after["services"], before["services"])
+        self.assertEqual((after["version"], after["digest"]), (before["version"], before["digest"]))
+        self.assertEqual(self.bundle("other")["services"], [])
+
     def test_overlapping_enforce_unions_only_its_sources_and_monitor_never_widens(self):
         web = self.catalogue()
         self.policy(web)

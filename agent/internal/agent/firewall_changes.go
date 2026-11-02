@@ -584,6 +584,7 @@ func (a *Agent) executeFirewallMutation(ctx context.Context, journal *firewallJo
 	if mutation.Operation == "remove" && !present {
 		return errors.New("old rule disappeared before removal")
 	}
+	a.invalidatePolicyVerificationAccess()
 	journal.Mutations = append(journal.Mutations, mutation)
 	journal.Status = "applying"
 	if e = a.saveFirewallJournal(journal); e != nil {

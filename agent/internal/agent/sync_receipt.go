@@ -11,6 +11,7 @@ import (
 // UpdatedAt refreshes and locally persisted acknowledgement bits do not require
 // another HTTP write. This is deliberately not a hash of the whole agent state.
 type syncReceipt struct {
+	PolicyVerificationSequence             int
 	DesiredVersion, AppliedVersion         int
 	DesiredDigest, DesiredMode             string
 	ApplyError, CollectorError, SpoolError string
@@ -34,6 +35,9 @@ func (a *Agent) syncReceipt() syncReceipt {
 	a.enrichManagedStatus()
 	a.enrichLearningOutcome()
 	r := syncReceipt{AppliedVersion: a.State.AppliedVersion, ApplyError: a.applyError, CollectorError: a.collectorError, SpoolError: a.State.SpoolError, Polling: a.pollingSettingsReport()}
+	if a.State.PolicyVerification != nil {
+		r.PolicyVerificationSequence = a.State.PolicyVerification.Report.Sequence
+	}
 	if p := a.State.Policy; p != nil {
 		r.DesiredVersion, r.DesiredDigest, r.DesiredMode = p.Version, p.Digest, p.Mode
 	}

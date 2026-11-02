@@ -242,7 +242,7 @@ def report_outcome(store, db, server, value):
     if status not in allowed or isinstance(version, bool) or not isinstance(version, int) or version < 0:
         raise ValueError("Invalid managed enforcement outcome")
     result = {"status": status, "version": version}
-    for field in ("managed_rules_present", "host_default_deny_active"):
+    for field in ("managed_rules_present", "host_default_deny_active", "already_present"):
         if field in value:
             if not isinstance(value[field],bool):raise ValueError("Managed ownership receipt flags must be booleans")
             result[field]=value[field]
@@ -263,7 +263,28 @@ def report_outcome(store, db, server, value):
     timestamp = parse_time(value["updated_at"]) if value.get("updated_at") else now()
     if timestamp > now() + timedelta(seconds=60):
         raise ValueError("Managed outcome timestamp is in the future")
-    result["updated_at"] = stamp(timestamp)
+    result["updated_at"] = value.get("updated_at") or stamp(timestamp)
+    if value.get("generation") is not None:
+        generation = value["generation"]
+        if not isinstance(generation, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", generation):
+            raise ValueError("Invalid managed transaction generation")
+        result["generation"] = generation
+    if value.get("committed_at") is not None:
+        committed = parse_time(value["committed_at"])
+        if committed > timestamp or not result.get("generation"):
+            raise ValueError("Managed commit boundary requires its generation and a valid timestamp")
+        # Keep the validated fractional boundary. The ordinary second-precision
+        # report timestamp cannot replace native traffic provenance.
+        result["committed_at"] = value["committed_at"]
+    verification_fields = ("verification_id", "verification_readback_at")
+    if any(key in value for key in verification_fields):
+        verification_id = value.get("verification_id")
+        if not isinstance(verification_id, str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", verification_id) or "verification_readback_at" not in value:
+            raise ValueError("Verification readback requires its paired observation identity")
+        verified_at = parse_time(value["verification_readback_at"])
+        if verified_at > timestamp or not result.get("generation"):
+            raise ValueError("Verification readback must belong to the reported applied generation and precede its update")
+        result.update(verification_id=verification_id, verification_readback_at=value["verification_readback_at"])
     if _recovery_missing_receipt(db, server, result):
         return
     approval = None
@@ -316,6 +337,8 @@ def report_outcome(store, db, server, value):
     from .host_default_deny import outcome as host_default_deny_outcome
     host_default_deny_outcome(store, db, server, result, approval)
     server["managed_enforcement"] = result
+    from .policy_deployments import outcome as deployment_outcome
+    deployment_outcome(store, db, server, result)
     return True
 
 
@@ -505,6 +528,8 @@ def rollout(store, value, actor, *, principal=None):
                 db.execute("UPDATE managed_approvals SET active=0 WHERE server_id=? AND active=1", (server_id,))
                 normalized={"authorized":True,"approval_id":identifier,"approved_digest":target["digest"],"approved_version":target["version"],"protection_digest":target["protection_digest"],"binding_digest":target["binding_digest"],"digest":target["binding_digest"],"approved_ips":target["ips"],"target_digest":target["target_digest"],"intent":target["intent"],"confirmation_count":1,"expires_at":plan["expires_at"],"approval_proof":decision}
                 db.execute("INSERT INTO managed_approvals(id,server_id,version,digest,protection_digest,approval_id,expires_at,active,data) VALUES(?,?,?,?,?,?,?,?,?)", (identifier+":"+server_id,server_id,target["version"],target["digest"],target["protection_digest"],identifier,plan["expires_at"],1,json.dumps(normalized)))
+            from .policy_deployments import create as create_deployment
+            plan["deployment"] = create_deployment(store, db, [{"server_id": server_id, "version": target["version"], "digest": target["digest"]} for server_id, target in bindings.items()], actor, plan["name"], origin="managed_rollout")
         _review_size(plan, MAX_ROLLOUT_BYTES)
         store._put(db, "managed_rollouts", plan)
         store.audit("managed_rollout.drafted", actor, {"approval_id": identifier, "bindings": bindings}, db)
@@ -576,6 +601,8 @@ def confirm(store, identifier, value, actor, *, principal=None):
                     db.execute("UPDATE managed_approvals SET active=0 WHERE server_id=? AND active=1", (server_id,))
                     approval = {"authorized": True, "approval_id": identifier, "approved_digest": binding["digest"], "approved_version": binding["version"], "protection_digest": binding["protection_digest"], "binding_digest": binding["binding_digest"], "digest": binding["binding_digest"], "approved_ips": binding["ips"], "target_digest": binding["target_digest"], "intent": binding["intent"], "confirmation_count": 2, "expires_at": plan["expires_at"], "approval_proof": approvals.proof(plan)}
                     db.execute("INSERT INTO managed_approvals(id,server_id,version,digest,protection_digest,approval_id,expires_at,active,data) VALUES(?,?,?,?,?,?,?,?,?)", (identifier + ":" + server_id, server_id, binding["version"], binding["digest"], binding["protection_digest"], identifier, plan["expires_at"], 1, json.dumps(approval)))
+                from .policy_deployments import create as create_deployment
+                plan["deployment"] = create_deployment(store, db, [{"server_id": server_id, "version": binding["version"], "digest": binding["digest"]} for server_id, binding in bindings.items()], actor, plan.get("name", "Managed policy rollout"), origin="managed_rollout")
             store._put(db, "managed_rollouts", plan)
             store.audit("managed_rollout.confirmed", actor, {"approval_id": identifier, "step": plan["confirmation_count"], "bindings": bindings}, db)
     if problem:

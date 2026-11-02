@@ -1,5 +1,7 @@
 """Capacity settings cannot bypass appliance validation or protected reinstall."""
 import importlib.util
+import copy
+from datetime import timedelta
 import json
 from pathlib import Path
 import tempfile
@@ -77,6 +79,31 @@ class ChangedPolicyFixtureAssertions(unittest.TestCase):
                          [self.services[0], self.services[0]]):
             with self.subTest(services=services), self.assertRaises(RuntimeError):
                 fixture.verify_changed_policy({**self.policy, 'services': services}, self.before, self.services)
+
+
+class PassiveLeaseFixtureAssertions(unittest.TestCase):
+    def setUp(self):
+        start = fixture.now()
+        self.policy = {"server_id": "host-1", "version": 7, "digest": "a" * 64, "mode": "enforce", "services": [{"port": 443, "protocol": "tcp", "mode": "enforce", "sources": ["192.0.2.1/32"]}],
+                       "enforcement": {"approval_id": "approval-1", "protection_digest": "b" * 64},
+                       "policy_verification": {"schema_version": 1, "id": "lease-1", "deployment_id": "run-1", "server_id": "host-1", "version": 7, "digest": "a" * 64, "approval_id": "approval-1", "protection_digest": "b" * 64, "target_ips_digest": fixture.digest(["198.51.100.2"]), "ports": [{"port": 443, "protocol": "tcp"}], "starts_at": fixture.stamp(start), "expires_at": fixture.stamp(start + timedelta(seconds=600)), "window_seconds": 600}}
+
+    def test_only_exact_current_endpoint_policy_and_ports_qualify_as_lease_delivery(self):
+        fixture.verify_observation_lease(self.policy, "host-1", ["198.51.100.2"])
+        fixture.verify_observation_lease(self.policy, "host-1", ["198.51.100.2"], "run-1")
+        with self.assertRaises(RuntimeError):
+            fixture.verify_observation_lease(self.policy, "host-1", ["198.51.100.2"], "previous-bulk-run")
+        for change in ({"server_id": "other"}, {"version": 6}, {"digest": "c" * 64}, {"approval_id": "old"}, {"target_ips_digest": "d" * 64}, {"ports": []}, {"ports": [{"port": 22, "protocol": "tcp"}]}, {"ports": [{"port": 443, "protocol": "tcp"}] * 2}, {"window_seconds": 3600}):
+            policy = copy.deepcopy(self.policy)
+            policy["policy_verification"].update(change)
+            with self.subTest(change=change), self.assertRaises(RuntimeError):
+                fixture.verify_observation_lease(policy, "host-1", ["198.51.100.2"])
+
+    def test_absent_or_extended_lease_is_not_counted_and_no_witness_is_fabricated(self):
+        for lease in ({}, {**self.policy["policy_verification"], "expires_at": fixture.stamp(fixture.now() + timedelta(hours=1))}):
+            with self.assertRaises(RuntimeError):
+                fixture.verify_observation_lease({**self.policy, "policy_verification": lease}, "host-1", ["198.51.100.2"])
+        self.assertNotIn("evidence", self.policy["policy_verification"])
 
 
 class DirectAuthorityFixtureAssertions(unittest.TestCase):

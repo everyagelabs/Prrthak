@@ -28,6 +28,7 @@ for arch in ('amd64', 'arm64'):
              (root / 'docs' / 'fleet-enrollment.md', 'docs/fleet-enrollment.md'),
              (root / 'docs' / 'endpoint-discovery-and-preparation.md', 'docs/endpoint-discovery-and-preparation.md'),
              (root / 'docs' / 'source-bank-preparation.md', 'docs/source-bank-preparation.md'),
+             (root / 'docs' / 'policy-rollout-verification.md', 'docs/policy-rollout-verification.md'),
              (root / 'docs' / 'linux-validation.md', 'docs/linux-validation.md'),
              (root / 'docs' / 'scale-validation.md', 'docs/scale-validation.md'),
              (root / 'docs' / 'ipset-enforcement.md', 'docs/ipset-enforcement.md'),

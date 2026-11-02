@@ -131,7 +131,7 @@ def _snapshot(store, db, value):
 
 
 def _public(plan):
-    return {key:copy.deepcopy(plan[key]) for key in ('id','revision','digest','plan_digest','confirmation_nonce','action','server_ids','group_ids','preview','can_apply','blockers','status','created_at','expires_at','approval') if key in plan}
+    return {key:copy.deepcopy(plan[key]) for key in ('id','revision','digest','plan_digest','confirmation_nonce','action','server_ids','group_ids','preview','can_apply','blockers','status','created_at','expires_at','approval','deployment') if key in plan}
 
 
 def preview(store, value, actor, principal):
@@ -196,7 +196,7 @@ def confirm(store, identifier, value, actor, principal):
                     imported.update(status='invalidated',confirmation_nonce='',invalidation_reason='Whole-server inbound deny requires dedicated acknowledged policy pushes')
                     store._put(db,'firewall_changes',imported)
                     store.audit('firewall_change.invalidated',actor,{'change_id':imported['id'],'host_default_deny_rollout_id':identifier},db)
-        store.compile_all(db)
+        store.compile_all(db,track_automatic=False)
         for server_id,binding in snapshot['bindings'].items():
             from .managed import baseline
             server=store._get(db,'servers',server_id)
@@ -210,6 +210,8 @@ def confirm(store, identifier, value, actor, principal):
             db.execute('UPDATE managed_approvals SET active=0 WHERE server_id=? AND active=1',(server_id,))
             db.execute('INSERT INTO managed_approvals(id,server_id,version,digest,protection_digest,approval_id,expires_at,active,data) VALUES(?,?,?,?,?,?,?,?,?)',
                 (identifier+':'+server_id,server_id,current['version'],current['digest'],current['protection_digest'],identifier,FOREVER,1,json.dumps(normalized)))
+        from .policy_deployments import create as create_deployment
+        plan['deployment']=create_deployment(store,db,[{'server_id':server_id,'version':binding['desired']['version'],'digest':binding['desired']['digest']} for server_id,binding in snapshot['bindings'].items()],actor,'Whole-server inbound deny · '+plan['action'],origin='host_default_deny')
         plan.update(status='queued',revision=plan['revision']+1,confirmation_count=1,confirmation_nonce='',confirmed_at=stamp(),confirmed_request_digest=request_digest,expires_at=FOREVER)
         store._put(db,'managed_rollouts',plan)
         store.audit('host_default_deny.pushed',actor,{'rollout_id':identifier,'action':plan['action'],'digest':plan['digest'],'acknowledge_downtime':True,'server_ids':plan['server_ids']},db)

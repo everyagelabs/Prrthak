@@ -375,7 +375,7 @@ class AgentFamilyPackageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='prthak-private-package-') as temp:
             target=Path(temp)
             inputs=['scripts/package-agent.py','agent/internal/agent/types.go','agent/config.example.json','agent/README.md',
-                    'docs/managed-enforcement.md','docs/whole-server-default-deny.md','docs/traffic-capture.md','docs/fleet-enrollment.md','docs/endpoint-discovery-and-preparation.md','docs/source-bank-preparation.md','docs/linux-validation.md','docs/scale-validation.md','docs/ipset-enforcement.md',
+                    'docs/managed-enforcement.md','docs/whole-server-default-deny.md','docs/traffic-capture.md','docs/fleet-enrollment.md','docs/endpoint-discovery-and-preparation.md','docs/source-bank-preparation.md','docs/policy-rollout-verification.md','docs/linux-validation.md','docs/scale-validation.md','docs/ipset-enforcement.md',
                     'docs/policy-signing.md','docs/linux-agent-installation.md','docs/pilot-gui-installation.md','docs/authentication.md','deploy/systemd/seg-agent.service',
                     'scripts/install-agent.sh','scripts/install-agent-linux.sh','scripts/install-agent-rhel.sh','scripts/install-agent-ubuntu.sh',
                     'scripts/prepare-managed-ipsets.py','scripts/verify-release.py']
@@ -391,9 +391,9 @@ class AgentFamilyPackageTests(unittest.TestCase):
             for archive in archives:
                 with tarfile.open(archive) as bundle:
                     names={'/'.join(Path(item.name).parts[1:]) for item in bundle.getmembers()}
-                    self.assertEqual(len(names),24)
+                    self.assertEqual(len(names),25)
                     self.assertIn('docs/authentication.md',names)
-                    for name in ['scripts/install-agent-linux.sh','scripts/install-agent-rhel.sh','scripts/install-agent-ubuntu.sh','docs/linux-agent-installation.md','docs/whole-server-default-deny.md','docs/traffic-capture.md','docs/fleet-enrollment.md','docs/endpoint-discovery-and-preparation.md','docs/source-bank-preparation.md']:
+                    for name in ['scripts/install-agent-linux.sh','scripts/install-agent-rhel.sh','scripts/install-agent-ubuntu.sh','docs/linux-agent-installation.md','docs/whole-server-default-deny.md','docs/traffic-capture.md','docs/fleet-enrollment.md','docs/endpoint-discovery-and-preparation.md','docs/source-bank-preparation.md','docs/policy-rollout-verification.md']:
                         self.assertIn(name,names)
                         item=next(item for item in bundle.getmembers() if item.name.endswith('/'+name))
                         self.assertEqual(bundle.extractfile(item).read(),(PROJECT/name).read_bytes())

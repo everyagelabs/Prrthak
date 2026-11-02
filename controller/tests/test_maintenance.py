@@ -123,6 +123,7 @@ class MaintenanceTests(unittest.TestCase):
         group = self.store.save_group({"name": "Manual custom group", "type": "static", "server_ids": ["real-node"]}, "super_admin")
         stored_group = self.store.get("groups", group["id"])
         policy = self.store.save_policy({"name": "Real policy", "selector": {"owner": "ops"}, "mode": "monitor", "services": [{"port": 1234, "sources": ["10.99.0.0/24"]}]}, "super_admin")
+        stored_policy = self.store.get("policies", policy["id"])
         before = self.store.assignment("real-node")[0]
         plan = maintenance.clear_preview(self.store, "super_admin")
         self.assertTrue(plan["can_clear"], plan["blockers"])
@@ -132,7 +133,7 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual([server["id"] for server in self.store.servers()], ["real-node"])
         self.assertEqual(self.store.get("groups", group["id"]), stored_group)
         self.assertEqual(self.store.get("locations", location["id"]), location)
-        self.assertEqual(self.store.get("policies", policy["id"]), policy)
+        self.assertEqual(self.store.get("policies", policy["id"]), stored_policy)
         self.assertEqual(self.store.get("servers", "real-node")["tags"]["owner"], "ops")
         self.assertEqual(self.store.assignment("real-node")[0]["digest"], before["digest"])
 
@@ -162,13 +163,14 @@ class MaintenanceTests(unittest.TestCase):
         plan = maintenance.clear_preview(self.store, "super_admin")
         policy = self.store.all("policies")[0]
         edited = self.store.save_policy({**policy, "name": "My explicitly customized policy"}, "super_admin", policy["id"])
+        stored_edited = self.store.get("policies", edited["id"])
         with self.assertRaises(WorkflowConflict):
             self.confirm(plan)
         self.assertEqual(len(self.store.servers()), 14)
         fresh = maintenance.clear_preview(self.store, "super_admin")
         self.assertTrue(fresh["can_clear"])
         self.confirm(fresh)
-        self.assertEqual(self.store.get("policies", policy["id"]), edited)
+        self.assertEqual(self.store.get("policies", policy["id"]), stored_edited)
 
     def test_known_id_without_synthetic_flag_is_not_a_default_fixture(self):
         self.report("srv-web-01")

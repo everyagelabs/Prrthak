@@ -21,6 +21,7 @@ class PolicyCatalogueHTTPS(unittest.TestCase):
         self.store.update_server("host-one",{"tags":{"application":"billing"}},"fixture")
         self.group=service_groups.save(self.store,{"name":"Web group","ports":[{"port":443,"protocol":"tcp"},{"port":8443,"protocol":"tcp"}]},"fixture")
         self.policy=self.store.save_policy({"name":"Billing grouped API","selector":{"application":"billing"},"services":[{"service_group_id":self.group["id"],"sources":["10.23.45.67/32","10.23.45.68/32"]}]},"fixture")
+        self.policy=self.store.get("policies",self.policy["id"])
         self.learned={"id":"learned-one","name":"Exact billing","server_id":"host-one","hostname":"host-one","session_id":"session-one","status":"pending","revision":1,"created_at":stamp(),"origin":"reviewed","auto_updates":False,"services":[{"port":8443,"protocol":"tcp","sources":["10.23.45.67/32","10.23.45.68/32"]}]}
         with self.store.meta() as db:_put_policy(self.store,db,self.learned)
 
@@ -72,6 +73,7 @@ class PolicyCatalogueHTTPS(unittest.TestCase):
         self.assertEqual(self.request(path,"PUT",False,summary,extra_headers=admin)[0],400)
         self.assertEqual(self.request(path,"DELETE",False,summary,extra_headers=admin)[0],400)
         current=self.store.save_policy({**self.policy,"name":"A newer exact edit"},"fixture",self.policy["id"])
+        current=self.store.get("policies",current["id"])
         self.assertEqual(self.request(path,"PUT",False,{**self.policy,"expected_revision":1},extra_headers=admin)[0],409)
         self.assertEqual(self.request(path,"DELETE",False,{"expected_revision":1},extra_headers=admin)[0],409)
         self.assertEqual(self.store.get("policies",self.policy["id"]),current)

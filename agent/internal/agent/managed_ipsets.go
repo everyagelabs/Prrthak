@@ -410,6 +410,7 @@ func (a *Agent) managedSetMutation(ctx context.Context, path string, journal *ma
 	if sameManagedEntries(before, set.Entries) {
 		return nil
 	}
+	a.invalidatePolicyVerificationAccess()
 	journal.SetMutations = append(journal.SetMutations, managedIPSetMutation{Scope: scope, Set: set, Before: before})
 	if e = saveManagedJournal(path, journal); e != nil {
 		return e

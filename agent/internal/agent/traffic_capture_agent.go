@@ -12,7 +12,7 @@ import (
 )
 
 func (a *Agent) nativeCaptureScopes(at time.Time) []capturePortScope {
-	scopes := []capturePortScope{}
+	scopes := a.policyVerificationScopes(at)
 	appendScope := func(scope capturePortScope) {
 		if len(scopes) <= 2048 {
 			scopes = append(scopes, scope)
@@ -47,6 +47,9 @@ func (a *Agent) tickTrafficCapture(ctx context.Context, now time.Time) error {
 	}
 	scopes := a.nativeCaptureScopes(now)
 	if len(scopes) == 0 && a.trafficCapture == nil {
+		if a.updatePolicyVerification(now, nil) {
+			return a.save()
+		}
 		return nil
 	}
 	if a.trafficCapture == nil {
@@ -82,8 +85,15 @@ func (a *Agent) tickTrafficCapture(ctx context.Context, now time.Time) error {
 		coverage.Gaps = coverage.Gaps[:16]
 	}
 	a.captureCoverage = coverage
+	verificationChanged := a.observePolicyVerification(flows)
+	verificationChanged = a.updatePolicyVerification(now, &coverage) || verificationChanged
 	if err := a.storeCapturedFlows(flows); err != nil && first == nil {
 		first = err
+	}
+	if verificationChanged {
+		if err := a.save(); err != nil && first == nil {
+			first = err
+		}
 	}
 	a.updateCaptureReceipts(now, first)
 	if len(scopes) == 0 {
@@ -165,6 +175,18 @@ func (a *Agent) reconcileCaptureSidecars(ctx context.Context, scopes []capturePo
 	return nil
 }
 func (a *Agent) storeCapturedFlows(flows []capturedFlow) error {
+	for _, flow := range flows {
+		if flow.VerificationOnly {
+			normal := make([]capturedFlow, 0, len(flows))
+			for _, item := range flows {
+				if !item.VerificationOnly {
+					normal = append(normal, item)
+				}
+			}
+			flows = normal
+			break
+		}
+	}
 	if len(flows) == 0 {
 		return nil
 	}

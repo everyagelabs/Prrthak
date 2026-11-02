@@ -427,3 +427,52 @@ current authority are revalidated before/after probing. Admission is durably
 recorded before endpoint writes. Unresolved admitted operations cannot be
 erased by expiry/reassessment or bypassed by endpoint retirement. Recovery
 invalidates pending jobs and reviews. [GUI sequence and safety](source-bank-preparation.md).
+
+## Policy deployment readback and passive witnesses (0.13)
+
+Policy saves return an additional public `deployment` summary without adding
+that operational field to persisted policy intent. Explicit managed/default-deny
+pushes also return a tracker. Authorized tag/group/service-group/address
+resolution creates automatic tracking for changed existing enforced contexts.
+The policy form and allowed-source/port schema remain OS-neutral.
+
+Read Only can use `GET /api/v1/policy-deployments?limit=10&offset=0`,
+`GET /policy-deployments/{id}`, `GET /policy-deployments/{id}/targets?limit=50&offset=0`
+and `GET /policy-deployments/{id}/targets/{server_id}`. Counts cover complete
+frozen scopes; source matrices are not duplicated into notification summaries.
+Current Admins may `POST /policy-deployments/{id}/targets/{server_id}/recheck`
+with exactly `{}` to start a new passive window against unchanged, currently
+authorized bindings. It grants no access or policy authority.
+
+Capability `policy_verification_v1` receives optional signed policy auxiliary
+`policy_verification`: schema 1, observation `id`, bulk-run `deployment_id`,
+`server_id`, `version`, `digest`, `approval_id`, `protection_digest`,
+`target_ips_digest`, up to 64 exact `ports`, `starts_at`, `expires_at` and
+`window_seconds` (default 600). The bulk-run ID is separate from the signing
+controller's deployment identity. Ordinary policy digest/signature and local
+firewall prerequisites remain independently checked.
+
+The authenticated report echoes these bindings and adds monotonic `sequence`,
+`state`, `applied_generation`, `armed_at`, nullable true `committed_at`,
+`checked_at`, optional bounded `error`, and per-port independent `allow`/`deny`
+cases. Verified cases carry one complete native witness: event/source/destination,
+port/protocol/family, typed capture kind/backend/unit, expected decision,
+observation/receive times and capture epoch. Allowed witnesses require a kernel
+connection birth after arming. Denied witnesses require the fresh generation-
+and observation-bound NFLOG prefix. Generic historical flows cannot qualify.
+
+Managed enforcement reports preserve generation and true commit time, optional
+boolean `already_present`, and paired `verification_id` /
+`verification_readback_at` from the actual fresh pre-arm readback. Fractional
+boundaries are preserved. Later normal readback timestamps may advance without
+replacing that observation's immutable anchor. Lost initial reports do not
+require invented timestamps or a new commit.
+
+Positive evidence requires exact current authority, addresses, protection,
+generation and fresh accepted readback; every applicable case on every port
+must be covered. Replay, cross-port/source/generation evidence and old
+connections fail admission. Conservative invalidation cannot upgrade history
+and remains bounded even after upload grace, so an old restart receipt does
+not block a healthy heartbeat. Recovery makes retained observations historical.
+Historical witnesses remain inspectable and are not displayed as a current
+green pass. See [workflow and limitations](policy-rollout-verification.md).

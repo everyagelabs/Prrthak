@@ -104,8 +104,9 @@ class PlatformHTTPSAcceptanceTests(unittest.TestCase):
         self.store.report("real-platform-host", {"hostname": "real-platform-host", "ips": ["10.249.10.11"],
             "listeners": [{"port": 8443, "protocol": "tcp", "process": "custom-api"}], "firewalld_state": "running"})
         self.store.update_server("real-platform-host", {"tags": {"application": "custom-real-app", "owner": "platform-test"}}, "fixture")
-        return self.store.save_policy({"name": "Manual retained policy", "mode": "monitor", "selector": {"owner": "platform-test"},
+        saved = self.store.save_policy({"name": "Manual retained policy", "mode": "monitor", "selector": {"owner": "platform-test"},
             "services": [{"port": 8443, "protocol": "tcp", "sources": ["10.249.20.0/24"]}]}, "fixture")
+        return self.store.get("policies", saved["id"])
 
     def test_https_backup_download_inspection_and_staged_validation_preserve_live_state(self):
         policy = self.real_fixture()

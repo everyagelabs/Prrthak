@@ -40,7 +40,7 @@ ID = re.compile(r"[a-f0-9]{32}")
 SHA = re.compile(r"[a-f0-9]{64}")
 TERMINAL = frozenset(("completed", "cancelled"))
 IMMUTABLE = ("audit", "bundle_history", "policy_revisions", "service_group_revisions", "managed_outcomes", "learning_allow_history")
-CURRENT = ("auth_users", "maintenance_backups", "managed_rollouts", "learning_allow_hosts", "learning_allow_policies", "notification_settings", "notification_revisions", "notification_deliveries", "endpoint_configuration_reviews", "hit_monitors", "hit_monitor_targets")
+CURRENT = ("auth_users", "maintenance_backups", "managed_rollouts", "learning_allow_hosts", "learning_allow_policies", "notification_settings", "notification_revisions", "notification_deliveries", "endpoint_configuration_reviews", "hit_monitors", "hit_monitor_targets", "policy_deployments", "policy_deployment_targets")
 SAFETY_TABLES = (*IMMUTABLE, *CURRENT, "managed_approvals", "servers", "retired_endpoints", "maintenance_settings", "tokens", "firewall_changes")
 _OWNER = secrets.token_hex(16)
 _ADMITTED = set()
@@ -363,6 +363,8 @@ def _overlay_safety(db, safety, recovery_id):
         _merge_immutable(db, table, safety[table])
     for table in CURRENT:
         _replace(db, table, safety[table])
+    from .policy_deployments import invalidate_after_recovery
+    invalidate_after_recovery(None, db)
     # Current monitor identities win over an older archive, but capture never
     # resumes merely because a database was recovered. A fresh reviewed enable
     # creates a new frozen scope and fresh signed short leases.

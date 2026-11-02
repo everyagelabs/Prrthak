@@ -44,14 +44,21 @@ type TrafficCaptureCoverage struct {
 }
 type capturedFlow struct {
 	Flow
-	DestinationIP string
+	DestinationIP       string
+	ConnectionStartedAt time.Time
+	ReceivedAt          time.Time
+	CaptureEpoch        string
+	RulePrefix          string
+	VerificationOnly    bool
 }
 type capturePortScope struct {
-	Port      Port
-	Kind      string
-	StartsAt  time.Time
-	ExpiresAt time.Time
-	Deadline  time.Time
+	Port            Port
+	Kind            string
+	StartsAt        time.Time
+	ExpiresAt       time.Time
+	Deadline        time.Time
+	RequireBirth    bool
+	BusinessSources *verificationSourceMatcher
 }
 
 func captureScopeLive(scope capturePortScope, at time.Time) bool {

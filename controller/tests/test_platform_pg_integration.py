@@ -126,6 +126,7 @@ class PlatformPostgresAcceptance(unittest.TestCase):
                     values = {"id": key, "data": payload, "server_id": "preserve-endpoint", "session_id": "preserve-session", "version": 17, "revision": 11, "digest": "d" * 64, "protection_digest": "p" * 64, "created_at": at, "expires_at": expiry, "approval_id": "preserve-approval", "active": 1, "policy_id": "preserve-policy", "service_group_id": "preserve-service", "source_ip": "10.40.0.8", "event_time": at, "received_at": at, "batch_key": "preserve-batch", "processed": 0, "evidence_processed": 0, "event_index": 0, "port": 443, "protocol": "tcp", "verdict": "observed", "count": 9, "first_seen": at, "last_seen": at, "event_id": "preserve-event", "channel_id": "preserve-channel", "status": "pending", "next_attempt_at": at, "lease_until": None}
                     values.update(monitor_id="8e6b8d7b-7cb5-484f-8200-83a1f3f9a166", enabled=1,
                                   event_digest="e" * 64,capture_kind="legacy_log",capture_backend="journal",count_unit="log_records",address_family="ipv4",capture_processed=1,capture_expires_at=expiry)
+                    values.update(deadline_at=expiry, deployment_id="preserve-deployment", apply_status="pending", traffic_status="awaiting_apply")
                     db.execute(f'INSERT INTO "{table}" ({",".join(columns)}) VALUES ({",".join("?" for _ in columns)})', tuple(values[column] for column in columns))
         result = self._migrate(source)
         target = self._bound()

@@ -22,6 +22,7 @@ func TestRealTrafficCapturePrivateKernelIPv4IPv6(t *testing.T) {
 		t.Fatal("missing isolated namespace marker")
 	}
 	ctx := context.Background()
+	verifyPolicy := os.Getenv("PRTHAK_POLICY_VERIFICATION_PRIVATE_KERNEL") == "1"
 	commands := ExecRunner{}
 	run := func(name string, args ...string) {
 		t.Helper()
@@ -71,6 +72,9 @@ func TestRealTrafficCapturePrivateKernelIPv4IPv6(t *testing.T) {
 					return
 				}
 				_, _ = conn.Write([]byte("SSH-2.0-PrthakCaptureFixture\r\n"))
+				if verifyPolicy {
+					time.Sleep(500 * time.Millisecond) // Keep the test connection established for exact GET.
+				}
 				_ = conn.Close()
 			}
 		}()
@@ -125,6 +129,39 @@ func TestRealTrafficCapturePrivateKernelIPv4IPv6(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &Agent{Config: Config{StateDir: t.TempDir(), Zone: "public"}, State: State{ManagedBundle: bundle}, Commands: commands, trafficCapture: capture}
+	if verifyPolicy {
+		// Native provenance + verification classifier test only. Durable signed
+		// arm/readback/management-health behavior has separate adversarial tests.
+		// The harness may enable timestamps only in this disposable netns.
+		if !a.verificationTimestampAvailable() {
+			t.Fatal("isolated verification fixture requires per-netns conntrack timestamp capability; the agent must not enable it")
+		}
+		ips := []string{"10.253.0.1"}
+		allowedSources := []string{"10.253.0.2/32"}
+		if v6 {
+			ips = append(ips, "fd00:253::1")
+			allowedSources = append(allowedSources, "fd00:253::2/128")
+		}
+		protection := &Protection{Digest: shaText("explicit-private-verification-protection")}
+		policy := &Policy{ServerID: "private-native-verification", Version: 1, Mode: "enforce"}
+		for _, port := range ports {
+			policy.Services = append(policy.Services, Service{Port: port.Port, Protocol: port.Protocol, Mode: "enforce", Sources: allowedSources})
+		}
+		policy.Digest, _ = compiledPolicyDigest(policy)
+		assignment := PolicyVerificationAssignment{SchemaVersion: 1, ID: "private-native-verification", ServerID: policy.ServerID, Version: 1, Digest: policy.Digest, ProtectionDigest: protection.Digest, TargetIPsDigest: targetIPsDigest(ips), Ports: ports, StartsAt: now, ExpiresAt: now.Add(10 * time.Minute), WindowSeconds: 600}
+		policy.PolicyVerification = &assignment
+		bundle.Version, bundle.Digest, bundle.ProtectionDigest = 1, policy.Digest, protection.Digest
+		rows, sources := verificationCases(policy, *protection, ports, ips)
+		receipt := verificationReceipt(assignment, now)
+		receipt.State, receipt.ArmedAt, receipt.AppliedGeneration, receipt.Ports = "observing", &now, bundle.Generation, rows
+		a.State.PolicyVerification = &policyVerificationState{Assignment: assignment, Report: receipt, ArmEpoch: shaText("private-native-arm-epoch"), Deadline: time.Now().Add(10 * time.Minute), Matchers: verificationBuildMatchers(sources), Confirmed: true}
+		a.State.Policy, a.State.ManagedEnforcement = policy, &ManagedEnforcement{Status: "enforced"}
+		a.inventory, a.protection = &Report{IPs: ips}, protection
+		scopes = a.policyVerificationScopes(now)
+		if err := capture.Configure(scopes); err != nil {
+			t.Fatal("real verification birth-provenance scope", err)
+		}
+	}
 	if err := a.reconcileCaptureSidecars(ctx, scopes, now); err != nil {
 		t.Fatal("real NFLOG instrumentation", err)
 	}
@@ -137,6 +174,13 @@ func TestRealTrafficCapturePrivateKernelIPv4IPv6(t *testing.T) {
 	}()
 	// Let the baseline table dump finish before creating the measured flows.
 	time.Sleep(300 * time.Millisecond)
+	packetProbe := hostDenyPacketProbe
+	if verifyPolicy {
+		// The ordinary firewall fixture resets immediately. This provenance
+		// fixture intentionally keeps its own test flow established for the
+		// read-only GET, without weakening production lifecycle validation.
+		packetProbe = strings.ReplaceAll(packetProbe, "allowed=True;send(4,serverseq+1);break", "allowed=True;time.sleep(.25);send(4,serverseq+1);break")
+	}
 	for _, suffix := range []string{"2", "3"} {
 		for _, family := range []string{"4", "6"} {
 			if family == "6" && !v6 {
@@ -151,7 +195,7 @@ func TestRealTrafficCapturePrivateKernelIPv4IPv6(t *testing.T) {
 				if port.Protocol == "udp" {
 					kind = "udp"
 				}
-				out, err := exec.CommandContext(ctx, "python3", "-c", hostDenyPacketProbe, family, source, target, fmt.Sprint(port.Port), kind).CombinedOutput()
+				out, err := exec.CommandContext(ctx, "python3", "-c", packetProbe, family, source, target, fmt.Sprint(port.Port), kind).CombinedOutput()
 				if err != nil || (strings.TrimSpace(string(out)) == "ALLOW") != (suffix == "2") {
 					t.Fatalf("probe source=%s family=%s %s error=%v", source, family, out, err)
 				}
@@ -182,6 +226,15 @@ func TestRealTrafficCapturePrivateKernelIPv4IPv6(t *testing.T) {
 		if ids[event.EventID] {
 			t.Fatal("native event duplicate")
 		}
+		if event.ReceivedAt.IsZero() || event.CaptureEpoch == "" || event.DestinationIP == "" {
+			t.Fatal("real capture lost native observer provenance", event)
+		}
+		if event.CaptureKind == captureDenied && event.RulePrefix == "" {
+			t.Fatal("real NFLOG observation lost its exact rule prefix")
+		}
+		if verifyPolicy && event.CaptureKind == captureAccepted && !event.ConnectionStartedAt.After(now) {
+			t.Fatal("real connection lacks a strictly post-arm kernel lifecycle start", event)
+		}
 		ids[event.EventID] = true
 		wantedSource := ".2"
 		if event.CaptureKind == captureDenied {
@@ -194,6 +247,16 @@ func TestRealTrafficCapturePrivateKernelIPv4IPv6(t *testing.T) {
 			t.Fatalf("wrong source/verdict classification %+v", event)
 		}
 		seen[event.CaptureKind+"/"+event.AddressFamily+"/"+event.Protocol] = true
+	}
+	if verifyPolicy {
+		if !a.observePolicyVerification(events) {
+			t.Fatal("real native observations failed to qualify for exact version verification")
+		}
+		a.updatePolicyVerification(time.Now().UTC(), nil)
+		if a.State.PolicyVerification.Report.State != "verified" {
+			t.Fatal("both real per-port allow/deny samples were not independently verified", a.State.PolicyVerification.Report)
+		}
+		t.Log("PASS real conntrack birth metadata, scoped PRTV NFLOG prefixes and independent per-port policy witness classification")
 	}
 	for _, kind := range []string{captureAccepted, captureDenied} {
 		for _, family := range []string{"ipv4", "ipv6"} {

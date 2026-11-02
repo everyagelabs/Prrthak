@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from controller.firewall import WorkflowConflict
 from controller.managed import binding_digest, difference
-from controller.store import Store, digest, parse_time, stamp
+from controller.store import Store, digest, now, parse_time, stamp
 
 
 class ManagedPolicyTests(unittest.TestCase):
@@ -52,6 +52,27 @@ class ManagedPolicyTests(unittest.TestCase):
         payload = {"mode": "enforce", "services": [{"mode": "enforce", "port": 2022, "protocol": "tcp", "sources": ["10.20.0.0/24"]}]}
         self.assertEqual(digest(payload), "50dc53b2113dd1efea4171fd1aede923aee1125fa5bde70d92a4e7a221d9b229")
         self.assertEqual(binding_digest("srv-1", 7, digest(payload), "a" * 64), "a22253beac3394755aad68a4c84ea523b3dbb84b0180787b5071ec2e612cea0f")
+
+    def test_native_readback_metadata_preserves_precision_and_rejects_unpaired_boundaries(self):
+        self.approve()
+        at = now()
+        precise = at.isoformat(timespec="microseconds").replace("+00:00", "789Z")
+        result = self.outcome(generation="a" * 32, committed_at=stamp(at - timedelta(seconds=1)),
+                              updated_at=precise, already_present=True, verification_id="observation-1", verification_readback_at=precise)
+        self.report("target", "10.0.0.1", managed_enforcement=result)
+        saved = self.store.get("servers", "target")["managed_enforcement"]
+        self.assertEqual(saved["updated_at"], precise)
+        self.assertEqual(saved["verification_readback_at"], precise)
+        self.assertIs(saved["already_present"], True)
+        for changes in ({"already_present": "true"}, {"generation": "<invalid>"}, {"committed_at": stamp(at + timedelta(seconds=5))}, {"verification_readback_at": None}):
+            before = self.store.get("servers", "target")
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.report("target", "10.0.0.1", managed_enforcement={**result, **changes})
+            self.assertEqual(self.store.get("servers", "target"), before)
+        missing = dict(result)
+        missing.pop("verification_id")
+        with self.assertRaises(ValueError):
+            self.report("target", "10.0.0.1", managed_enforcement=missing)
 
     def test_policy_revision_and_bundle_history_are_immutable_and_restore_is_new(self):
         original = self.store.policy_revisions(self.policy["id"], 1)

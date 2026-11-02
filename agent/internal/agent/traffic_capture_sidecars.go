@@ -35,7 +35,7 @@ func (rule captureSidecar) text() string {
 	return fmt.Sprintf(`rule priority="%d" family="%s" port port="%d" protocol="%s" nflog group="%d" prefix="%s" queue-size="1" limit value="200/s"`, rule.Priority, rule.Family, rule.Port.Port, rule.Port.Protocol, rule.Group, rule.Prefix)
 }
 func validCaptureSidecar(rule captureSidecar) bool {
-	return firewallName.MatchString(rule.Zone) && (rule.Family == "ipv4" || rule.Family == "ipv6") && rule.Port.Port >= 1 && rule.Port.Port <= 65535 && (rule.Port.Protocol == "tcp" || rule.Port.Protocol == "udp") && (rule.Priority == managedCaptureReject || rule.Priority == 32767) && rule.Group >= 48000 && rule.Group < 58000 && len(rule.Prefix) == 21 && strings.HasPrefix(rule.Prefix, "PRTN") && strings.HasSuffix(rule.Prefix, ":") && validDigest(strings.Repeat(rule.Prefix[4:20], 4))
+	return firewallName.MatchString(rule.Zone) && (rule.Family == "ipv4" || rule.Family == "ipv6") && rule.Port.Port >= 1 && rule.Port.Port <= 65535 && (rule.Port.Protocol == "tcp" || rule.Port.Protocol == "udp") && (rule.Priority == managedCaptureReject || rule.Priority == 32767) && rule.Group >= 48000 && rule.Group < 58000 && len(rule.Prefix) == 21 && (strings.HasPrefix(rule.Prefix, "PRTN") || strings.HasPrefix(rule.Prefix, "PRTV")) && strings.HasSuffix(rule.Prefix, ":") && validDigest(strings.Repeat(rule.Prefix[4:20], 4))
 }
 func captureSidecarPath(stateDir string) string {
 	return filepath.Join(stateDir, "traffic-capture", "sidecars.json")
@@ -254,6 +254,15 @@ func (a *Agent) plannedCaptureSidecars(ctx context.Context, scopes []capturePort
 				expiry = limit
 			}
 			prefix := "PRTN" + shaText(zone + "/" + family + "/" + capturePortKey(port) + "/" + strconv.Itoa(priority))[:16] + ":"
+			if verificationPrefix := a.policyVerificationPrefix(port, family); verificationPrefix != "" {
+				// Verification requires an exact owned terminal reject. A generic
+				// zone fallback cannot prove that the selected managed policy denied.
+				if priority != managedCaptureReject {
+					gaps = append(gaps, "Verification has no exact owned terminal reject for this port/family.")
+					continue
+				}
+				prefix = verificationPrefix
+			}
 			result = append(result, captureSidecar{Zone: zone, Family: family, Port: port, Priority: priority, Group: captureGroup(a.Config.StateDir), Prefix: prefix, ExpiresAt: expiry})
 		}
 	}

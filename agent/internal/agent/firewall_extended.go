@@ -263,6 +263,7 @@ func (a *Agent) executeFirewallTarget(ctx context.Context, journal *firewallJour
 	if current != mutation.PreviousValue {
 		return errors.New("zone target changed before replacement")
 	}
+	a.invalidatePolicyVerificationAccess()
 	journal.Mutations = append(journal.Mutations, mutation)
 	journal.Status = "applying"
 	if err = a.saveFirewallJournal(journal); err != nil {

@@ -13,6 +13,103 @@ import (
 	"time"
 )
 
+func TestTrafficCaptureLifecycleMetadataDoesNotRecountNotificationsAndDumps(t *testing.T) {
+	record, _ := decodeConntrackRecord(captureTestConntrack(false, 6, 3, 10), false)
+	cache, dedup := conntrackLifecycles{limit: 2}, conntrackDedup{limit: 8}
+	now := time.Now().UTC()
+	record.started = 100
+	baseline, birth, ok := cache.normalize(record)
+	if !ok || birth != 100 {
+		t.Fatal("baseline birth lost")
+	}
+	if count, _ := dedup.observe(baseline, true, now); count {
+		t.Fatal("baseline fabricated an event")
+	}
+	record.started = 0
+	update, birth, ok := cache.normalize(record)
+	if !ok || birth != 100 || update.identity() != baseline.identity() {
+		t.Fatal("timestamp-less UPDATE lost baseline identity")
+	}
+	if count, _ := dedup.observe(update, false, now); count {
+		t.Fatal("old baseline was recounted")
+	}
+	record.id++
+	first, _, ok := cache.normalize(record)
+	if !ok {
+		t.Fatal("new lifecycle refused")
+	}
+	if count, _ := dedup.observe(first, false, now); !count {
+		t.Fatal("new notification absent")
+	}
+	record.started = 200
+	enriched, birth, ok := cache.normalize(record)
+	if !ok || birth != 200 || enriched.identity() != first.identity() {
+		t.Fatal("late metadata changed event identity")
+	}
+	if count, _ := dedup.observe(enriched, false, now); count {
+		t.Fatal("late GET/dump enrichment was double-counted")
+	}
+	record.started = 300
+	reused, birth, ok := cache.normalize(record)
+	if !ok || birth != 300 || reused.identity() == enriched.identity() {
+		t.Fatal("authoritative newer lifecycle reuse was lost")
+	}
+	if count, _ := dedup.observe(reused, false, now); !count {
+		t.Fatal("newer kernel lifecycle not counted")
+	}
+	record.started = 200
+	if _, _, ok := cache.normalize(record); ok {
+		t.Fatal("old lifecycle rebound to the reused ID")
+	}
+	record.id++
+	if _, _, ok := cache.normalize(record); ok || len(cache.entries) != 2 {
+		t.Fatal("metadata cache exceeded its hard bound")
+	}
+}
+
+func TestTrafficCaptureVerificationOnlyEnrichmentNeverBecomesLearningEvidence(t *testing.T) {
+	now := time.Now().UTC()
+	session := Session{ID: "no-proof-to-learning", StartsAt: now.Add(-time.Second), ExpiresAt: now.Add(time.Minute), Ports: []Port{{8443, "tcp"}}, ObservationKinds: []string{captureAccepted}}
+	a := &Agent{Config: Config{StateDir: t.TempDir(), MaxSpoolBatches: 8}, State: State{Policy: &Policy{LearningSessions: []Session{session}}}}
+	flow := capturedFlow{Flow: Flow{EventID: strings.Repeat("a", 64), SourceIP: "198.51.100.8", Port: 8443, Protocol: "tcp", CaptureKind: captureAccepted, CaptureBackend: "conntrack", CountUnit: "connections", AddressFamily: "ipv4", Verdict: "allowed", Count: 1, FirstSeen: now, LastSeen: now}, DestinationIP: "192.0.2.10", VerificationOnly: true}
+	if err := a.storeCapturedFlows([]capturedFlow{flow}); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.State.Coverage) != 0 || len(a.State.LearningEvidence) != 0 {
+		t.Fatal("read-only proof enrichment acquired learning authority")
+	}
+	files, err := filepath.Glob(filepath.Join(a.Config.StateDir, "spool", "*.json"))
+	if err != nil || len(files) != 0 {
+		t.Fatal("proof enrichment was recounted as normal traffic", files, err)
+	}
+}
+
+func TestTrafficCaptureUnestablishedBirthCannotBorrowAnAcceptedNotification(t *testing.T) {
+	record, _ := decodeConntrackRecord(captureTestConntrack(false, 6, 1, 10), false)
+	record.started = 100
+	cache := conntrackLifecycles{limit: 8}
+	cache.normalize(record)
+	key := conntrackBaseIdentity(record)
+	if cache.entries[key].acceptedBirth {
+		t.Fatal("SYN birth was treated as an accepted connection")
+	}
+	record.started, record.tcpState = 0, 3
+	cache.normalize(record)
+	if cache.entries[key].acceptedBirth {
+		t.Fatal("undated event borrowed another lifecycle's birth")
+	}
+	record.started = 100
+	cache.normalize(record)
+	if !cache.entries[key].acceptedBirth {
+		t.Fatal("authoritative accepted snapshot did not bind its own birth")
+	}
+	record.started, record.tcpState = 200, 1
+	cache.normalize(record)
+	if cache.entries[key].acceptedBirth {
+		t.Fatal("ID reuse attached a prior accepted state to new unestablished birth")
+	}
+}
+
 func captureTestNLA(kind uint16, data []byte) []byte {
 	raw := make([]byte, (len(data)+7)&^3)
 	binary.NativeEndian.PutUint16(raw, uint16(len(data)+4))

@@ -173,6 +173,52 @@ type conntrackDedup struct {
 	limit   int
 }
 
+type conntrackLifecycle struct {
+	identityStart, knownStart uint64
+	acceptedBirth             bool
+	lastLookup                time.Time
+}
+type conntrackLifecycles struct {
+	entries map[string]conntrackLifecycle
+	limit   int
+}
+
+func conntrackBaseIdentity(record conntrackRecord) string {
+	record.started = 0
+	return record.identity()
+}
+
+// Multicast NEW/UPDATE omits birth timestamps while GET/dump includes them.
+// Preserve the identity chosen on first sight, keep authoritative birth private,
+// and never recount the same object merely because later metadata is richer.
+func (cache *conntrackLifecycles) normalize(record conntrackRecord) (conntrackRecord, uint64, bool) {
+	if cache.entries == nil {
+		cache.entries = map[string]conntrackLifecycle{}
+	}
+	key := conntrackBaseIdentity(record)
+	entry, exists := cache.entries[key]
+	if !exists {
+		if len(cache.entries) >= cache.limit {
+			return record, 0, false
+		}
+		entry.identityStart, entry.knownStart = record.started, record.started
+		entry.acceptedBirth = record.started > 0 && record.accepted()
+	} else if record.started > 0 {
+		if entry.knownStart > 0 && record.started < entry.knownStart {
+			return record, 0, false // Old lifecycle update after kernel ID reuse.
+		}
+		if entry.knownStart > 0 && record.started > entry.knownStart {
+			entry.identityStart = record.started
+			entry.acceptedBirth = false
+		}
+		entry.knownStart = record.started
+		entry.acceptedBirth = entry.acceptedBirth || record.accepted()
+	}
+	cache.entries[key] = entry
+	record.started = entry.identityStart
+	return record, entry.knownStart, true
+}
+
 func (d *conntrackDedup) observe(record conntrackRecord, baseline bool, now time.Time) (bool, bool) {
 	if d.entries == nil {
 		d.entries = map[string]time.Time{}

@@ -2,7 +2,7 @@ package agent
 
 import "time"
 
-const Version = "0.12.0"
+const Version = "0.13.0"
 
 const LearningDiscoveryCapability = "learning_discovery_v1"
 const HostDefaultDenyCapability = "host_default_deny_v1"
@@ -31,6 +31,7 @@ type Session struct {
 	StoppedAt        *time.Time `json:"stopped_at,omitempty"`
 }
 type Policy struct {
+	PolicyVerification    *PolicyVerificationAssignment    `json:"policy_verification,omitempty"`
 	SourceBankPreparation *SourceBankPreparationAssignment `json:"source_bank_preparation,omitempty"`
 	AssignmentGeneration  int                              `json:"assignment_generation,omitempty"`
 	AssignmentDigest      string                           `json:"assignment_digest,omitempty"`
@@ -71,6 +72,7 @@ type Coverage struct {
 	Error         string     `json:"error,omitempty"`
 }
 type Report struct {
+	PolicyVerification          *PolicyVerificationReport    `json:"policy_verification,omitempty"`
 	SourceBankPreparation       *SourceBankPreparationReport `json:"source_bank_preparation,omitempty"`
 	PreparationStatus           *HostPreparationStatus       `json:"preparation_status,omitempty"`
 	FastDiscovery               *FastDiscoveryReport         `json:"fast_discovery,omitempty"`
@@ -136,6 +138,7 @@ type OwnedRule struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 type State struct {
+	PolicyVerification          *policyVerificationState               `json:"policy_verification,omitempty"`
 	AssignmentGeneration        int                                    `json:"assignment_generation,omitempty"`
 	AssignmentDigest            string                                 `json:"assignment_digest,omitempty"`
 	SessionCutoffs              map[string]time.Time                   `json:"session_cutoffs,omitempty"`

@@ -1,4 +1,4 @@
-# GUI-configured 20-server pilot (0.12.0)
+# GUI-configured 20-server pilot (0.13.0)
 
 Configure Prṛthak in the GUI. The installer and fixed local manager generate
 protected files; no manual `.env`, agent JSON, token or CA editing is required.
@@ -51,7 +51,7 @@ flowchart LR
 
 ## 2. Stage the verified release and run one controller installer
 
-Obtain `prthak-controller-0.12.0.tar.gz` and its detached `.signature.json`.
+Obtain `prthak-controller-0.13.0.tar.gz` and its detached `.signature.json`.
 Verify exact archive bytes **before extraction/execution**, using an independently
 approved public release-signing pin and verifier. A public key downloaded beside
 an unknown archive does not establish trust. The project signing authority is
@@ -129,8 +129,8 @@ disables UFW or migrates existing rules. Unsupported administrator overrides or
 uncertain package state block automatic preparation; native acceptance is pending.
 See [endpoint preparation](endpoint-discovery-and-preparation.md).
 
-Stage and independently verify `prthak-agent-0.12.0-linux-amd64.tar.gz` or
-`prthak-agent-0.12.0-linux-arm64.tar.gz`, then extract to a protected root-owned
+Stage and independently verify `prthak-agent-0.13.0-linux-amd64.tar.gz` or
+`prthak-agent-0.13.0-linux-arm64.tar.gz`, then extract to a protected root-owned
 release directory. Use its signed runtime manifest and independently approved
 public trust. The static Go endpoint needs no Git, Python or Go compiler/runtime.
 

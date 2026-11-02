@@ -4,7 +4,7 @@
 
 Prṛthak discovers servers and their real listening services, shows permitted source-to-service access, learns observed source/port relationships, and lets administrators review and apply firewalld changes centrally. The selected server is the destination: an access policy specifies **service/port + allowed sources**, without a separate destination field.
 
-**Pilot candidate: [v0.12.0-pilot.1](https://github.com/everyagelabs/Prrthak/tree/v0.12.0-pilot.1).** Download one reusable fleet setup and install the same matching agent package across your servers. Each server automatically creates its own key, certificate and inventory identity; no per-host kit generation or hostname CSV is required. Fleet enrollment has GUI expiry/revocation and no fixed server-count limit. See [fleet enrollment](docs/fleet-enrollment.md) and [release validation](docs/release-0.12.0-pilot.1.md). Native RHEL/Ubuntu, live Entra and DC/WAN acceptance remain deployment gates. This version adds complete scoped Traffic/Audit navigation and export, corrected Read Only alert navigation and [GUI source-set preparation](docs/source-bank-preparation.md); see [endpoint discovery and health](docs/endpoint-discovery-and-preparation.md).
+**Pilot candidate: [v0.13.0-pilot.1](https://github.com/everyagelabs/Prrthak/tree/v0.13.0-pilot.1).** Download one reusable fleet setup and install the same matching agent package across your servers. Each server automatically creates its own key, certificate and inventory identity; no per-host kit generation or hostname CSV is required. Fleet enrollment has GUI expiry/revocation and no fixed server-count limit. See [fleet enrollment](docs/fleet-enrollment.md) and [release validation](docs/release-0.13.0-pilot.1.md). Native RHEL/Ubuntu, live Entra and DC/WAN acceptance remain deployment gates. This version adds [live bulk rollout and per-port verification](docs/policy-rollout-verification.md), exact duplicate bypass and tracking of automatic tag/group resolution. Complete Traffic/Audit navigation, Read Only alert navigation and [GUI source-set preparation](docs/source-bank-preparation.md) remain available.
 
 Private repository: [everyagelabs/Prrthak](https://github.com/everyagelabs/Prrthak). Product owner: **EveryAge Labs Private Limited**.
 
@@ -65,6 +65,8 @@ The numbered register retains the original requirements and later explicit reque
 | R40 | Risk & compliance findings with reasons and recommendations | A customizable catalogue starts with **29 source-backed risky-port rules**. Passive evaluation uses the latest agent-reported listeners and shows reasons/recommendations. CERT-In/RBI mappings identify operational evidence gaps; findings do not automatically block traffic or certify compliance. |
 | R41 | Whole-server default deny for selected servers/groups with manual downtime acknowledgement | A dedicated GUI review freezes exact endpoints and enforce-only grants. An Admin must manually tick the initially unchecked downtime acknowledgement before each push; no second person is required. Capability and local opt-in are mandatory. Disable removes the owned global fallback while retaining the last applied grant matrix. [Workflow](docs/whole-server-default-deny.md). |
 | R42 | Install the same agent/setup on any number of servers | Reuse the matching CPU package and one fleet setup file; no per-host generation or CSV. Separate local keys and unique enrolled identities, atomic retries and GUI profile expiry/revocation preserve endpoint identity. No fixed enrollment-count limit is imposed. |
+| R43 | OS-neutral policy form and live bulk application/traffic results | Backend resolves exact endpoint intent; the top-right Rollouts panel separates agent readback from per-port native allow/deny witnesses. No traffic remains Awaiting/Unverified; unsupported provenance remains Unavailable. See [verification](docs/policy-rollout-verification.md). |
+| R44 | Duplicate rules automatically bypassed for each server | Canonical duplicate rows/sources and overlapping permissions are merged. Existing identical owned rules use fresh readback without access-rule writes; an actual agent receipt identifies Already present. Conflicts and uncertain ownership remain distinct. |
 
 ## Architecture and communication
 
@@ -228,7 +230,7 @@ These choices support the requirements above. They are not substitutes for the r
 
 ## Documentation, evidence and development
 
-The illustrated PDFs describe earlier snapshots and remain historical guides. Current 0.12 behavior and acceptance limits are recorded in the [Markdown requirements map](docs/requirements-delivery-map.md), current operational documents and [0.11 release evidence](docs/release-0.12.0-pilot.1.md).
+The illustrated PDFs describe earlier snapshots and remain historical guides. Current 0.13 behavior and acceptance limits are recorded in the [Markdown requirements map](docs/requirements-delivery-map.md), current operational documents and [0.13 release evidence](docs/release-0.13.0-pilot.1.md).
 
 - [User requirements and delivery map](output/pdf/prthak-user-requirements-and-delivery-map.pdf)
 - [Architecture and operations handbook](output/pdf/prthak-architecture-operations-guide.pdf)

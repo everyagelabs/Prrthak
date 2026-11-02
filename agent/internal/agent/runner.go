@@ -14,55 +14,56 @@ import (
 )
 
 type Agent struct {
-	checkSourceBankHealth        func(context.Context, *Policy, *SourceBankPreparationAssignment, Protection) error
-	sourceBankConfigDigest       func() (string, error)
-	sourceBankConfigurationLease func() (*os.File, error)
-	sourceBankHeartbeatAt        time.Time
-	sourceBankSkipInventory      bool
-	sourceBankOwnedRulesOverride []ManagedRule
-	fastDiscoveryEnabled         bool
-	nextFastDiscovery            time.Time
-	fastListenerFingerprint      string
-	fastDiscoveryReport          FastDiscoveryReport
-	listenerSnapshot             func(context.Context) (listenerSnapshot, error)
-	trafficCapture               nativeCapture
-	nextCaptureCheck             time.Time
-	captureCoverage              TrafficCaptureCoverage
-	captureScopeKey              string
-	timingMu                     sync.RWMutex
-	remotePolling                *PollingSettings
-	pollingError                 string
-	checkLearningHealth          func(context.Context, *LearningAllow, Protection, string) error
-	protection                   *Protection
-	protectionDiscoverySequence  uint64
-	armManaged                   func(context.Context, string, *managedJournal) error
-	checkManagedHealth           func(context.Context, *Policy, Protection, string) error
-	Config                       Config
-	Client                       *Client
-	checkFirewallAuthorization   func(context.Context, FirewallChange, string) error
-	Commands                     CommandRunner
-	State                        State
-	Simulate                     bool
-	SimulateHostname             string
-	Generation                   string
-	confirmed                    bool
-	applyError                   string
-	collectorError               string
-	nextRuleCheck                time.Time
-	inventory                    *Report
-	lastDiscoveryAttempt         time.Time
-	lastFullDiscoveryAttempt     time.Time
-	lastDiscoverySuccess         time.Time
-	forceDiscovery               bool
-	discoveryPending             bool
-	discoverySequence            uint64
-	learningDiscoveryAttempts    map[string]time.Time
-	clock                        func() time.Time
-	firewallRecoveryError        string
-	AdditionalObservationRules   func() []OwnedRule
-	probe                        *ProbeMonitor
-	hitMonitor                   *HitMonitor
-	lastProbeError               string
+	policyVerificationTimestampAvailable func() bool
+	checkSourceBankHealth                func(context.Context, *Policy, *SourceBankPreparationAssignment, Protection) error
+	sourceBankConfigDigest               func() (string, error)
+	sourceBankConfigurationLease         func() (*os.File, error)
+	sourceBankHeartbeatAt                time.Time
+	sourceBankSkipInventory              bool
+	sourceBankOwnedRulesOverride         []ManagedRule
+	fastDiscoveryEnabled                 bool
+	nextFastDiscovery                    time.Time
+	fastListenerFingerprint              string
+	fastDiscoveryReport                  FastDiscoveryReport
+	listenerSnapshot                     func(context.Context) (listenerSnapshot, error)
+	trafficCapture                       nativeCapture
+	nextCaptureCheck                     time.Time
+	captureCoverage                      TrafficCaptureCoverage
+	captureScopeKey                      string
+	timingMu                             sync.RWMutex
+	remotePolling                        *PollingSettings
+	pollingError                         string
+	checkLearningHealth                  func(context.Context, *LearningAllow, Protection, string) error
+	protection                           *Protection
+	protectionDiscoverySequence          uint64
+	armManaged                           func(context.Context, string, *managedJournal) error
+	checkManagedHealth                   func(context.Context, *Policy, Protection, string) error
+	Config                               Config
+	Client                               *Client
+	checkFirewallAuthorization           func(context.Context, FirewallChange, string) error
+	Commands                             CommandRunner
+	State                                State
+	Simulate                             bool
+	SimulateHostname                     string
+	Generation                           string
+	confirmed                            bool
+	applyError                           string
+	collectorError                       string
+	nextRuleCheck                        time.Time
+	inventory                            *Report
+	lastDiscoveryAttempt                 time.Time
+	lastFullDiscoveryAttempt             time.Time
+	lastDiscoverySuccess                 time.Time
+	forceDiscovery                       bool
+	discoveryPending                     bool
+	discoverySequence                    uint64
+	learningDiscoveryAttempts            map[string]time.Time
+	clock                                func() time.Time
+	firewallRecoveryError                string
+	AdditionalObservationRules           func() []OwnedRule
+	probe                                *ProbeMonitor
+	hitMonitor                           *HitMonitor
+	lastProbeError                       string
 }
 
 func New(c Config, simulate bool, hostname string) (*Agent, error) {
@@ -99,6 +100,9 @@ func New(c Config, simulate bool, hostname string) (*Agent, error) {
 		}
 	} else if !os.IsNotExist(e) {
 		return nil, e
+	}
+	if state := a.State.PolicyVerification; state != nil && state.Report.ArmedAt != nil {
+		a.invalidatePolicyVerification("The agent restarted; previous traffic evidence is historical. Request a fresh observation lease.")
 	}
 	a.loadPollingSettings()
 	if a.State.Coverage == nil {
@@ -152,6 +156,9 @@ func (a *Agent) ensureProbe() error {
 	return nil
 }
 func (a *Agent) Shutdown(ctx context.Context) error {
+	if state := a.State.PolicyVerification; state != nil && state.Report.ArmedAt != nil {
+		a.invalidatePolicyVerification("The observer stopped; previous traffic evidence is historical. Request a fresh observation lease.")
+	}
 	var first error
 	if a.trafficCapture != nil {
 		lock, err := managedLock(a.Config.StateDir, true)
@@ -305,6 +312,9 @@ func (a *Agent) Sync(ctx context.Context) error {
 		if e := a.processApprovedChanges(ctx, a.State.Policy.FirewallChanges); e != nil {
 			_ = a.report(ctx)
 			return e
+		}
+		if e := a.preparePolicyVerification(ctx, a.State.Policy); e != nil {
+			log.Printf("policy verification unavailable: %v", e)
 		}
 	}
 	// A newly received automatic-learning request forces actual discovery here.
@@ -729,12 +739,21 @@ func (a *Agent) Run(ctx context.Context, once bool) error {
 			}
 		}
 		beforeRules := len(a.State.Rules)
+		beforeVerification := 0
+		if a.State.PolicyVerification != nil {
+			beforeVerification = a.State.PolicyVerification.Report.Sequence
+		}
 		if e := a.LearningTick(ctx, now); e != nil {
 			log.Printf("learning: %v", e)
 		}
 		if beforeRules != len(a.State.Rules) {
 			if e := a.report(ctx); e != nil {
 				log.Printf("collector status acknowledgement: %v", e)
+			}
+		}
+		if a.State.PolicyVerification != nil && a.State.PolicyVerification.Report.Sequence != beforeVerification {
+			if e := a.report(ctx); e != nil {
+				log.Printf("policy verification outcome report: %v", e)
 			}
 		}
 		if !now.Before(nextFlush) {

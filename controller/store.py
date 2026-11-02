@@ -75,7 +75,7 @@ def validate_policy(value):
     services = value.get("services", [])
     if not isinstance(services, list) or not services or len(services) > 100:
         raise ValueError("Provide between 1 and 100 services")
-    normalized = []
+    normalized, seen_services = [], set()
     for service in services:
         if not isinstance(service, dict):
             raise ValueError("Service must be an object")
@@ -103,7 +103,10 @@ def validate_policy(value):
         if not isinstance(source_group_ids, list) or len(source_group_ids) > 100 or any(not isinstance(identifier, str) or not identifier or len(identifier) > 100 for identifier in source_group_ids):
             raise ValueError("source_group_ids must be a list of up to 100 saved server group IDs")
         item["source_group_ids"] = sorted(set(source_group_ids))
-        normalized.append(item)
+        identity = digest(item)
+        if identity not in seen_services:
+            normalized.append(item)
+            seen_services.add(identity)
     selector = validate_tags(value.get("selector", {}))
     group_ids = value.get("group_ids", [])
     if not isinstance(group_ids, list) or len(group_ids) > 100 or any(not isinstance(identifier, str) or not identifier or len(identifier) > 100 for identifier in group_ids):
@@ -161,6 +164,8 @@ class Store:
             initialize_server_management(db)
             from .managed import initialize as initialize_managed, backfill
             initialize_managed(db)
+            from .policy_deployments import initialize as initialize_policy_deployments
+            initialize_policy_deployments(db)
             backfill(self, db)
             from .metadata import initialize as initialize_metadata, reconcile_all
             initialize_metadata(db)
@@ -505,7 +510,7 @@ class Store:
             self.compile_all(db)
             self.audit("group.deleted", actor, {"group_id": identifier}, db)
 
-    def compile_all(self, db):
+    def compile_all(self, db, *, publication_policy_id=None, track_automatic=True):
         from .managed import record_bundle
         servers = self._all(db, "servers")
         from .application_groups import sync as sync_application_groups
@@ -514,7 +519,7 @@ class Store:
         compiled = effective_bundles(self, db, servers=servers)
         matched = compiled["matched"]
         maximums = {row[0]: row[1] for row in db.execute("SELECT server_id,MAX(version) FROM bundle_history GROUP BY server_id").fetchall()}
-        writes, histories = [], []
+        writes, histories, publications, automatic = [], [], [], []
         direct_policies = {policy["id"]:policy for policy in self._all(db,"policies")}
         direct_validity = {}
         for server in servers:
@@ -544,6 +549,15 @@ class Store:
             server["matched_policy_ids"] = matched.get(server["id"], [])
             from .managed import reconcile_direct
             authority_changed = reconcile_direct(self, db, server, direct_policies, direct_validity)
+            if changed or authority_changed or publication_policy_id in server["matched_policy_ids"]:
+                current = server["_compiled"]
+                publications.append({"server_id": server["id"], "version": current["version"], "digest": current["digest"],
+                                     "ports": [{"port": service["port"], "protocol": service["protocol"]} for service in current.get("services", []) if service.get("mode", current.get("mode")) == "enforce"],
+                                     "unchanged_intent": not changed})
+                if track_automatic and publication_policy_id is None and old and current["mode"] == "enforce" and not server.get("recovery_reconciliation_required"):
+                    from .managed import authorization
+                    if authorization(self, db, server).get("authorized"):
+                        automatic.append(publications[-1])
             if changed or matches_changed or health_changed or authority_changed:
                 writes.append((server["id"], json.dumps(server, separators=(",", ":"))))
         if histories:
@@ -560,6 +574,10 @@ class Store:
             else:
                 for values in writes:
                     db.execute(sql, values)
+        if automatic:
+            from .policy_deployments import create as create_deployment
+            create_deployment(self, db, automatic, "compiler", "Automatic policy resolution", origin="resolved_membership")
+        return publications
 
     def save_policy(self, value, actor, identifier=None, reason="Policy configuration changed", allow_restore=False, *, principal=None):
         policy = validate_policy(value)
@@ -609,9 +627,11 @@ class Store:
             from .managed import record_revision
             record_revision(db, policy, actor, reason)
             self._put(db, "policies", policy)
-            self.compile_all(db)
+            publications = self.compile_all(db, publication_policy_id=policy["id"])
+            from .policy_deployments import create as create_deployment
+            deployment = create_deployment(self, db, publications, actor, policy["name"], policy_id=policy["id"], origin="policy")
             self.audit("policy.updated" if old else "policy.created", actor, {"policy_id": policy["id"], "name": policy["name"], "mode": policy["mode"]}, db)
-        return policy
+        return {**policy, "deployment": deployment} if deployment else policy
 
     def delete_policy(self, identifier, actor, expected_revision=None):
         with self.lock, self.meta() as db:
@@ -629,8 +649,11 @@ class Store:
             from .managed import record_revision
             record_revision(db, self._get(db, "policies", identifier), actor, "Policy removed from active configuration")
             db.execute("DELETE FROM policies WHERE id=?", (identifier,))
-            self.compile_all(db)
+            publications = self.compile_all(db, track_automatic=False)
+            from .policy_deployments import create as create_deployment
+            deployment = create_deployment(self, db, publications, actor, old["name"] + " · removed", policy_id=identifier, origin="policy_deleted")
             self.audit("policy.deleted", actor, {"policy_id": identifier}, db)
+            return {"deleted": True, "deployment": deployment}
 
     def update_server(self, identifier, value, actor):
         with self.lock, self.meta() as db:
@@ -845,6 +868,9 @@ class Store:
                 persist_result = True
             from .managed import reconcile_direct
             if reconcile_direct(self, db, result):persist_result = True
+            if "policy_verification" in value:
+                from .policy_deployments import report as report_policy_verification
+                report_policy_verification(self, db, result, value["policy_verification"])
             if persist_result:
                 self._put(db, "servers", result)
             from .approvals import activate_learning
@@ -905,6 +931,10 @@ class Store:
         preparation = source_bank_assignment(self, db, server)
         if preparation is not None:
             result["source_bank_preparation"] = preparation
+        from .policy_deployments import assignment as verification_assignment
+        verification = verification_assignment(self, db, server)
+        if verification is not None:
+            result["policy_verification"] = verification
         return result
 
     def assignment(self, identifier):

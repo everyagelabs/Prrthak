@@ -291,6 +291,8 @@ class PostgresStore(Store):
             initialize(db)
             from .service_groups import initialize as initialize_service_groups
             initialize_service_groups(db)
+            from .policy_deployments import initialize as initialize_policy_deployments
+            initialize_policy_deployments(db)
             from .learning_policies import initialize as initialize_learning_policies
             initialize_learning_policies(db)
             from .maintenance import initialize as initialize_maintenance
@@ -354,6 +356,8 @@ class PostgresStore(Store):
                     for required in ("hit_monitors", "hit_monitor_targets", "hit_monitor_reviews"):
                         connection.execute(f"SELECT 1 FROM {required} LIMIT 0")
                     for required in ("maintenance_backups", "maintenance_plans", "maintenance_settings"):
+                        connection.execute(f"SELECT 1 FROM {required} LIMIT 0")
+                    for required in ("policy_deployments", "policy_deployment_targets"):
                         connection.execute(f"SELECT 1 FROM {required} LIMIT 0")
                     for required in ("learning_evidence", "learning_evidence_receipts", "learning_allow_policies", "learning_allow_hosts", "learning_allow_history", "learning_policy_previews"):
                         connection.execute(f"SELECT 1 FROM {required} LIMIT 0")

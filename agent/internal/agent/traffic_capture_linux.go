@@ -39,11 +39,12 @@ type netfilterCapture struct {
 	lost                map[string]int
 	unknownLoss         map[string]bool
 	deadlines           map[string]time.Time
+	birthProofs         map[string]bool
 }
 
 func newNativeCapture() nativeCapture {
 	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
-	m := &netfilterCapture{gaps: map[string]bool{}, prefixes: map[string]bool{}, deadlines: map[string]time.Time{}, lost: map[string]int{}, unknownLoss: map[string]bool{}, boot: strings.TrimSpace(string(boot))}
+	m := &netfilterCapture{gaps: map[string]bool{}, prefixes: map[string]bool{}, deadlines: map[string]time.Time{}, birthProofs: map[string]bool{}, lost: map[string]int{}, unknownLoss: map[string]bool{}, boot: strings.TrimSpace(string(boot))}
 	if err != nil || len(m.boot) != 36 {
 		m.boot = "unknown-" + batchID()
 		m.gaps["Conntrack boot identity unavailable; cross-restart deduplication is uncertain."] = true
@@ -102,16 +103,29 @@ func (m *netfilterCapture) Configure(scopes []capturePortScope) error {
 	}
 	m.mu.Lock()
 	retained := map[string]time.Time{}
+	proofs := map[string]bool{}
 	for index := range scopes {
 		key := canonicalCaptureScope([]capturePortScope{scopes[index]})
 		deadline := time.Now().Add(scopes[index].ExpiresAt.Sub(time.Now().UTC()))
+		if !scopes[index].Deadline.IsZero() && scopes[index].Deadline.Before(deadline) {
+			deadline = scopes[index].Deadline
+		}
 		if old, ok := m.deadlines[key]; ok && old.Before(deadline) {
 			deadline = old
 		}
 		scopes[index].Deadline = deadline
 		retained[key] = deadline
+		if scopes[index].RequireBirth {
+			for _, family := range []string{"ipv4", "ipv6"} {
+				proof := key + "\x00" + family
+				if m.birthProofs[proof] {
+					proofs[proof] = true
+				}
+			}
+		}
 	}
 	m.deadlines = retained
+	m.birthProofs = proofs
 	m.scopes = append([]capturePortScope{}, scopes...)
 	m.local = locals
 	current := m.ct
@@ -163,11 +177,11 @@ func (m *netfilterCapture) addGap(message string, unknown bool) {
 		m.unknownLoss[backend] = true
 	}
 }
-func (m *netfilterCapture) publish(flow capturedFlow) {
+func (m *netfilterCapture) publish(flow capturedFlow) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !m.local[netip.MustParseAddr(flow.DestinationIP).Unmap()] {
-		return
+		return false
 	}
 	selected := false
 	for _, scope := range m.scopes {
@@ -177,14 +191,38 @@ func (m *netfilterCapture) publish(flow capturedFlow) {
 		}
 	}
 	if !selected {
-		return
+		return false
 	}
 	if len(m.queue) >= captureQueueLimit {
 		m.lost[flow.CaptureBackend]++
 		m.gaps["Native capture queue reached its bound; exact dropped-event count is reported."] = true
-		return
+		return false
 	}
 	m.queue = append(m.queue, flow)
+	return true
+}
+
+func (m *netfilterCapture) requiredBirthProof(record conntrackRecord, now time.Time) (string, time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	source, target := record.original.source.Unmap(), record.reply.source.Unmap()
+	if !m.local[target] || m.local[source] || source.IsLoopback() || source.IsUnspecified() || source.Is4() != target.Is4() {
+		return "", time.Time{}
+	}
+	protocol := "tcp"
+	if record.original.protocol == 17 {
+		protocol = "udp"
+	}
+	for _, scope := range m.scopes {
+		if !scope.RequireBirth || scope.Kind != captureAccepted || scope.Port.Port != int(record.reply.sourcePort) || scope.Port.Protocol != protocol || !captureScopeLive(scope, now) || !scope.BusinessSources.contains(source) {
+			continue
+		}
+		key := canonicalCaptureScope([]capturePortScope{scope}) + "\x00" + captureFamily(record.original.source)
+		if !m.birthProofs[key] {
+			return key, scope.StartsAt
+		}
+	}
+	return "", time.Time{}
 }
 func (m *netfilterCapture) eligible(record conntrackRecord, now time.Time) bool {
 	m.mu.Lock()
@@ -233,6 +271,15 @@ func captureReceive(socket *captureSocket, buffer []byte) ([]byte, error) {
 func (m *netfilterCapture) readConntrack(socket *captureSocket) {
 	defer close(socket.done)
 	dedup := conntrackDedup{limit: captureSeenLimit}
+	lifecycles := conntrackLifecycles{limit: captureSeenLimit}
+	var querySocket *captureSocket
+	defer func() {
+		if querySocket != nil {
+			_ = syscall.Close(querySocket.fd)
+		}
+	}()
+	querySequence := uint32(0)
+	lookupWindow, lookups := time.Now(), 0
 	seq := uint32(1)
 	dumpSeq := seq
 	baseline := true
@@ -313,11 +360,57 @@ func (m *netfilterCapture) readConntrack(socket *captureSocket) {
 			if !m.eligible(record, now) {
 				continue
 			}
+			normalized, birth, tracked := lifecycles.normalize(record)
+			if !tracked {
+				m.addGap("Conntrack lifecycle identity bound reached; uncertain/out-of-order objects are skipped.", true)
+				continue
+			}
+			proof, starts := m.requiredBirthProof(record, now)
+			if !baseline && !record.deleted && record.accepted() && proof != "" && !lifecycles.entries[conntrackBaseIdentity(record)].acceptedBirth {
+				monotonic := time.Now()
+				if monotonic.Sub(lookupWindow) >= time.Second {
+					lookupWindow, lookups = monotonic, 0
+				}
+				key := conntrackBaseIdentity(record)
+				entry := lifecycles.entries[key]
+				if lookups < 8 && (entry.lastLookup.IsZero() || monotonic.Sub(entry.lastLookup) >= time.Second) {
+					lookups++
+					entry.lastLookup = monotonic
+					lifecycles.entries[key] = entry
+					if querySocket == nil {
+						querySocket, err = captureSocketOpen(0)
+					}
+					if err == nil {
+						querySequence++
+						var enriched conntrackRecord
+						enriched, err = captureLookupBirth(querySocket, record, querySequence)
+						if err == nil {
+							normalized, birth, tracked = lifecycles.normalize(enriched)
+						}
+					}
+					if err != nil {
+						m.addGap("Conntrack exact birth lookup unavailable; no observer-time substitute: "+err.Error(), false)
+						if querySocket != nil {
+							_ = syscall.Close(querySocket.fd)
+							querySocket = nil // Never accept a timed-out request's late reply.
+						}
+					}
+				} else {
+					m.addGap("Conntrack verification metadata lookup budget reached; unmatched cases remain unverified.", false)
+				}
+			}
+			if !tracked {
+				continue
+			}
+			record = normalized
+			now = time.Now().UTC()
 			count, limited := dedup.observe(record, baseline, now)
 			if limited {
 				m.addGap("Conntrack identity bound reached; new connections are skipped rather than double-counted.", true)
 			}
-			if !count {
+			birthBound := lifecycles.entries[conntrackBaseIdentity(record)].acceptedBirth
+			proofReady := !baseline && !record.deleted && record.accepted() && birthBound && proof != "" && birth > 0 && birth <= uint64(1<<63-1) && time.Unix(0, int64(birth)).After(starts)
+			if limited || !count && !proofReady {
 				continue
 			}
 			protocol := "tcp"
@@ -329,11 +422,23 @@ func (m *netfilterCapture) readConntrack(socket *captureSocket) {
 			// fail the local-address check in publish.
 			local := record.reply.source.Unmap()
 			source := record.original.source.Unmap()
-			if record.started == 0 {
+			if birth == 0 {
 				m.addGap("Conntrack start timestamps are unavailable; kernel ID reuse/deduplication cannot establish an exact ledger.", false)
 			}
 			id := conntrackFlowID(m.boot, record)
-			m.publish(capturedFlow{Flow: Flow{EventID: id, CaptureKind: captureAccepted, CaptureBackend: "conntrack", CountUnit: "connections", AddressFamily: captureFamily(source), SourceIP: source.String(), Port: int(record.reply.sourcePort), Protocol: protocol, Verdict: "allowed", Count: 1, FirstSeen: now, LastSeen: now}, DestinationIP: local.String()})
+			born := time.Time{}
+			if birthBound && birth > 0 && birth <= uint64(1<<63-1) {
+				born = time.Unix(0, int64(birth)).UTC()
+			}
+			published := m.publish(capturedFlow{Flow: Flow{EventID: id, CaptureKind: captureAccepted, CaptureBackend: "conntrack", CountUnit: "connections", AddressFamily: captureFamily(source), SourceIP: source.String(), Port: int(record.reply.sourcePort), Protocol: protocol, Verdict: "allowed", Count: 1, FirstSeen: now, LastSeen: now}, DestinationIP: local.String(), ConnectionStartedAt: born, ReceivedAt: now, CaptureEpoch: socket.epoch, VerificationOnly: !count})
+			if published && proofReady {
+				m.mu.Lock()
+				if m.birthProofs == nil {
+					m.birthProofs = map[string]bool{}
+				}
+				m.birthProofs[proof] = true
+				m.mu.Unlock()
+			}
 		}
 	}
 }
@@ -538,7 +643,7 @@ func (m *netfilterCapture) readNFLog(socket *captureSocket) {
 			if !record.hasSequence {
 				id = shaText(id + "/" + batchID())
 			}
-			m.publish(capturedFlow{Flow: Flow{EventID: id, CaptureKind: captureDenied, CaptureBackend: "nflog", CountUnit: "packets", AddressFamily: captureFamily(record.source), SourceIP: record.source.String(), Port: int(record.port), Protocol: protocol, Verdict: "denied", Count: 1, FirstSeen: now, LastSeen: now}, DestinationIP: record.destination.String()})
+			m.publish(capturedFlow{Flow: Flow{EventID: id, CaptureKind: captureDenied, CaptureBackend: "nflog", CountUnit: "packets", AddressFamily: captureFamily(record.source), SourceIP: record.source.String(), Port: int(record.port), Protocol: protocol, Verdict: "denied", Count: 1, FirstSeen: now, LastSeen: now}, DestinationIP: record.destination.String(), ReceivedAt: time.Now().UTC(), CaptureEpoch: socket.epoch, RulePrefix: record.prefix})
 		}
 	}
 }

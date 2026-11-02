@@ -35,23 +35,29 @@ type Protection struct {
 	Blockers                      []string `json:"blockers"`
 }
 type ManagedEnforcement struct {
-	ManagedRulesPresent   *bool     `json:"managed_rules_present,omitempty"`
-	HostDefaultDenyActive bool      `json:"host_default_deny_active"`
-	LastGoodVersion       int       `json:"last_good_version"`
-	LastGoodDigest        string    `json:"last_good_digest"`
-	Status                string    `json:"status"`
-	Version               int       `json:"version"`
-	Digest                string    `json:"digest"`
-	ApprovalID            string    `json:"approval_id,omitempty"`
-	RollbackReason        string    `json:"rollback_reason,omitempty"`
-	Error                 string    `json:"error,omitempty"`
-	UpdatedAt             time.Time `json:"updated_at"`
+	VerificationID         string     `json:"verification_id,omitempty"`
+	VerificationReadbackAt *time.Time `json:"verification_readback_at,omitempty"`
+	AlreadyPresent         bool       `json:"already_present,omitempty"`
+	Generation             string     `json:"generation,omitempty"`
+	CommittedAt            *time.Time `json:"committed_at,omitempty"`
+	ManagedRulesPresent    *bool      `json:"managed_rules_present,omitempty"`
+	HostDefaultDenyActive  bool       `json:"host_default_deny_active"`
+	LastGoodVersion        int        `json:"last_good_version"`
+	LastGoodDigest         string     `json:"last_good_digest"`
+	Status                 string     `json:"status"`
+	Version                int        `json:"version"`
+	Digest                 string     `json:"digest"`
+	ApprovalID             string     `json:"approval_id,omitempty"`
+	RollbackReason         string     `json:"rollback_reason,omitempty"`
+	Error                  string     `json:"error,omitempty"`
+	UpdatedAt              time.Time  `json:"updated_at"`
 }
 type ManagedRule struct {
 	Zone string `json:"zone"`
 	Rule string `json:"rule"`
 }
 type ManagedBundle struct {
+	CommittedAt             *time.Time           `json:"committed_at,omitempty"`
 	HostDefaultDeny         bool                 `json:"host_default_deny,omitempty"`
 	HostDefaultDenyServices []Service            `json:"host_default_deny_services,omitempty"`
 	HostDefaultDenyMode     string               `json:"host_default_deny_mode,omitempty"`

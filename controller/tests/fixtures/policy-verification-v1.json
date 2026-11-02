@@ -1,0 +1,157 @@
+{
+  "ips": [
+    "192.0.2.10",
+    "2001:db8::10"
+  ],
+  "managed_enforcement": {
+    "verification_id": "11111111-1111-4111-8111-111111111111",
+    "verification_readback_at": "2026-11-03T00:00:01Z",
+    "already_present": true,
+    "generation": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "committed_at": "2026-11-02T23:59:00Z",
+    "host_default_deny_active": false,
+    "last_good_version": 42,
+    "last_good_digest": "7fa61b37ea7c20503f97aee53d001b0b0c6d9984daae4c11f3238f29ed44baa1",
+    "status": "enforced",
+    "version": 42,
+    "digest": "7fa61b37ea7c20503f97aee53d001b0b0c6d9984daae4c11f3238f29ed44baa1",
+    "approval_id": "22222222-2222-4222-8222-222222222222",
+    "updated_at": "2026-11-03T00:00:01Z"
+  },
+  "policy": {
+    "policy_verification": {
+      "schema_version": 1,
+      "id": "11111111-1111-4111-8111-111111111111",
+      "deployment_id": "33333333-3333-4333-8333-333333333333",
+      "server_id": "golden-endpoint",
+      "version": 42,
+      "digest": "7fa61b37ea7c20503f97aee53d001b0b0c6d9984daae4c11f3238f29ed44baa1",
+      "approval_id": "22222222-2222-4222-8222-222222222222",
+      "protection_digest": "254935a2f376a880607711c51ddea5ae9bf3110d02ffae7edebf332641ec7007",
+      "target_ips_digest": "1f1dbec9e2c3e5a1070b1ecb21b7d4cec9089d74fe5df11e7890054e5afea793",
+      "ports": [
+        {
+          "port": 8443,
+          "protocol": "tcp"
+        }
+      ],
+      "starts_at": "2026-11-03T00:00:00Z",
+      "expires_at": "2026-11-03T00:10:00Z",
+      "window_seconds": 600
+    },
+    "assignment_generation": 1,
+    "assignment_digest": "7750ed528a45b68993bc4ada0f83973671c13493e2555fdb38eff7dca604d25b",
+    "signature": {
+      "algorithm": "Ed25519",
+      "key_id": "65b60673d6ed884bf01c2c222d82ada0",
+      "payload": "eyJkb21haW4iOiJwcnRoYWstcG9saWN5LWFzc2lnbm1lbnQtdjEiLCJkZXBsb3ltZW50X2lkIjoic2lnbmluZy10ZXN0LWRlcGxveW1lbnQiLCJpc3N1ZWRfYXQiOjE3OTM2NjM5OTksImV4cGlyZXNfYXQiOjE3OTM2NjU3MDAsInBvbGljeSI6eyJwb2xpY3lfdmVyaWZpY2F0aW9uIjp7InNjaGVtYV92ZXJzaW9uIjoxLCJpZCI6IjExMTExMTExLTExMTEtNDExMS04MTExLTExMTExMTExMTExMSIsImRlcGxveW1lbnRfaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJzZXJ2ZXJfaWQiOiJnb2xkZW4tZW5kcG9pbnQiLCJ2ZXJzaW9uIjo0MiwiZGlnZXN0IjoiN2ZhNjFiMzdlYTdjMjA1MDNmOTdhZWU1M2QwMDFiMGIwYzZkOTk4NGRhYWU0YzExZjMyMzhmMjllZDQ0YmFhMSIsImFwcHJvdmFsX2lkIjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwicHJvdGVjdGlvbl9kaWdlc3QiOiIyNTQ5MzVhMmYzNzZhODgwNjA3NzExYzUxZGRlYTVhZTliZjMxMTBkMDJmZmFlN2VkZWJmMzMyNjQxZWM3MDA3IiwidGFyZ2V0X2lwc19kaWdlc3QiOiIxZjFkYmVjOWUyYzNlNWExMDcwYjFlY2IyMWI3ZDRjZWM5MDg5ZDc0ZmU1ZGYxMWU3ODkwMDU0ZTVhZmVhNzkzIiwicG9ydHMiOlt7InBvcnQiOjg0NDMsInByb3RvY29sIjoidGNwIn1dLCJzdGFydHNfYXQiOiIyMDI2LTExLTAzVDAwOjAwOjAwWiIsImV4cGlyZXNfYXQiOiIyMDI2LTExLTAzVDAwOjEwOjAwWiIsIndpbmRvd19zZWNvbmRzIjo2MDB9LCJhc3NpZ25tZW50X2dlbmVyYXRpb24iOjEsImFzc2lnbm1lbnRfZGlnZXN0IjoiNzc1MGVkNTI4YTQ1YjY4OTkzYmM0YWRhMGY4Mzk3MzY3MWMxMzQ5M2UyNTU1ZmRiMzhlZmY3ZGNhNjA0ZDI1YiIsImVuZm9yY2VtZW50Ijp7ImF1dGhvcml6ZWQiOnRydWUsImFwcHJvdmFsX2lkIjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwiYXBwcm92ZWRfZGlnZXN0IjoiN2ZhNjFiMzdlYTdjMjA1MDNmOTdhZWU1M2QwMDFiMGIwYzZkOTk4NGRhYWU0YzExZjMyMzhmMjllZDQ0YmFhMSIsImFwcHJvdmVkX3ZlcnNpb24iOjQyLCJwcm90ZWN0aW9uX2RpZ2VzdCI6IjI1NDkzNWEyZjM3NmE4ODA2MDc3MTFjNTFkZGVhNWFlOWJmMzExMGQwMmZmYWU3ZWRlYmYzMzI2NDFlYzcwMDciLCJiaW5kaW5nX2RpZ2VzdCI6ImFmNjZkYzA5YWYzZjgzNGEwZGM4ZDNmOTQ2ODRkZGYxODY2YTVmY2U3ZmMzYTZiMGE5NzJiMmFiYmQ0ZmY4OGMiLCJjb25maXJtYXRpb25fY291bnQiOjIsImV4cGlyZXNfYXQiOiIyMDI2LTExLTAzVDAwOjE1OjAwWiJ9LCJzZXJ2ZXJfaWQiOiJnb2xkZW4tZW5kcG9pbnQiLCJ2ZXJzaW9uIjo0MiwiZGlnZXN0IjoiN2ZhNjFiMzdlYTdjMjA1MDNmOTdhZWU1M2QwMDFiMGIwYzZkOTk4NGRhYWU0YzExZjMyMzhmMjllZDQ0YmFhMSIsIm1vZGUiOiJlbmZvcmNlIiwic2VydmljZXMiOlt7InBvcnQiOjg0NDMsInByb3RvY29sIjoidGNwIiwic291cmNlcyI6WyIxOTguNTEuMTAwLjAvMjQiXSwibW9kZSI6ImVuZm9yY2UifV0sImxlYXJuaW5nX3Nlc3Npb25zIjpudWxsLCJnZW5lcmF0ZWRfYXQiOiIwMDAxLTAxLTAxVDAwOjAwOjAwWiJ9fQ==",
+      "signature": "oB/+SSwd1yhIMHO8xwbvzduE5EwSnrleDawPriq4u3XRyTyj1lt0IxCpCbwOETQVt1cBuo2BcUl7gRoM1swdBw=="
+    },
+    "enforcement": {
+      "authorized": true,
+      "approval_id": "22222222-2222-4222-8222-222222222222",
+      "approved_digest": "7fa61b37ea7c20503f97aee53d001b0b0c6d9984daae4c11f3238f29ed44baa1",
+      "approved_version": 42,
+      "protection_digest": "254935a2f376a880607711c51ddea5ae9bf3110d02ffae7edebf332641ec7007",
+      "binding_digest": "af66dc09af3f834a0dc8d3f94684ddf1866a5fce7fc3a6b0a972b2abbd4ff88c",
+      "confirmation_count": 2,
+      "expires_at": "2026-11-03T00:15:00Z"
+    },
+    "server_id": "golden-endpoint",
+    "version": 42,
+    "digest": "7fa61b37ea7c20503f97aee53d001b0b0c6d9984daae4c11f3238f29ed44baa1",
+    "mode": "enforce",
+    "services": [
+      {
+        "port": 8443,
+        "protocol": "tcp",
+        "sources": [
+          "198.51.100.0/24"
+        ],
+        "mode": "enforce"
+      }
+    ],
+    "learning_sessions": null,
+    "generated_at": "0001-01-01T00:00:00Z"
+  },
+  "protection": {
+    "digest": "254935a2f376a880607711c51ddea5ae9bf3110d02ffae7edebf332641ec7007",
+    "ready": true,
+    "management_sources": [
+      "203.0.113.8/32"
+    ],
+    "ssh_ports": [
+      22
+    ],
+    "controller_url": "https://controller.example.internal:8788",
+    "management_probe_url": "https://controller.example.internal:8788/api/v1/agent/enforcement/check",
+    "zone": "public",
+    "blockers": []
+  },
+  "receipt": {
+    "schema_version": 1,
+    "id": "11111111-1111-4111-8111-111111111111",
+    "deployment_id": "33333333-3333-4333-8333-333333333333",
+    "server_id": "golden-endpoint",
+    "version": 42,
+    "digest": "7fa61b37ea7c20503f97aee53d001b0b0c6d9984daae4c11f3238f29ed44baa1",
+    "approval_id": "22222222-2222-4222-8222-222222222222",
+    "protection_digest": "254935a2f376a880607711c51ddea5ae9bf3110d02ffae7edebf332641ec7007",
+    "target_ips_digest": "1f1dbec9e2c3e5a1070b1ecb21b7d4cec9089d74fe5df11e7890054e5afea793",
+    "starts_at": "2026-11-03T00:00:00Z",
+    "expires_at": "2026-11-03T00:10:00Z",
+    "window_seconds": 600,
+    "sequence": 3,
+    "state": "verified",
+    "applied_generation": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "armed_at": "2026-11-03T00:00:02Z",
+    "committed_at": "2026-11-02T23:59:00Z",
+    "checked_at": "2026-11-03T00:00:04Z",
+    "ports": [
+      {
+        "port": 8443,
+        "protocol": "tcp",
+        "allow": {
+          "status": "verified",
+          "reason": "One matching native post-arm sample.",
+          "evidence": {
+            "event_id": "cf45baec705c63db19c9e33bceb3f8d4a4acb0da766d25844f38faece6997677",
+            "source_ip": "198.51.100.9",
+            "destination_ip": "192.0.2.10",
+            "port": 8443,
+            "protocol": "tcp",
+            "address_family": "ipv4",
+            "capture_kind": "accepted_connection",
+            "capture_backend": "conntrack",
+            "count_unit": "connections",
+            "expected_action": "allowed",
+            "observed_at": "2026-11-03T00:00:03Z",
+            "received_at": "2026-11-03T00:00:03.001Z",
+            "capture_epoch": "b339948ef67db65090816477d208b1c5de4162ce89c49336c4e5eeeda126c3a0",
+            "connection_started_at": "2026-11-03T00:00:02.5Z"
+          }
+        },
+        "deny": {
+          "status": "verified",
+          "reason": "One matching native post-arm sample.",
+          "evidence": {
+            "event_id": "85aa8b7fe80073a0178cd5d80f2a0a4554f8050a529b1ba574a05eef7acb1738",
+            "source_ip": "203.0.113.9",
+            "destination_ip": "192.0.2.10",
+            "port": 8443,
+            "protocol": "tcp",
+            "address_family": "ipv4",
+            "capture_kind": "denied_packet",
+            "capture_backend": "nflog",
+            "count_unit": "packets",
+            "expected_action": "denied",
+            "observed_at": "2026-11-03T00:00:03Z",
+            "received_at": "2026-11-03T00:00:03.001Z",
+            "capture_epoch": "b339948ef67db65090816477d208b1c5de4162ce89c49336c4e5eeeda126c3a0",
+            "rule_prefix": "PRTV857975a6f6ffc78b:"
+          }
+        }
+      }
+    ]
+  }
+}

@@ -820,6 +820,23 @@ def handler_for(app):
                 elif len(parts)==3 and parts[2]=="confirm" and method=="POST":
                     self.response(200,host_default_deny.confirm(app.store,parts[1],self.body(),actor,principal))
                 else:self.response(405,{"error":"Method not allowed"})
+            elif parts == ["policy-deployments"] and method == "GET":
+                from .policy_deployments import listing
+                self.response(200, listing(app.store, limit=int(query.get("limit", [10])[0]), offset=int(query.get("offset", [0])[0])))
+            elif len(parts) == 2 and parts[0] == "policy-deployments" and method == "GET":
+                from .policy_deployments import summary
+                self.response(200, summary(app.store, parts[1]))
+            elif len(parts) == 3 and parts[0] == "policy-deployments" and parts[2] == "targets" and method == "GET":
+                from .policy_deployments import targets
+                self.response(200, targets(app.store, parts[1], limit=int(query.get("limit", [50])[0]), offset=int(query.get("offset", [0])[0])))
+            elif len(parts) == 4 and parts[0] == "policy-deployments" and parts[2] == "targets" and method == "GET":
+                from .policy_deployments import detail
+                self.response(200, detail(app.store, parts[1], parts[3]))
+            elif len(parts) == 5 and parts[0] == "policy-deployments" and parts[2] == "targets" and parts[4] == "recheck" and method == "POST":
+                from .policy_deployments import recheck
+                if self.body() != {}:
+                    raise ValueError("Observe again accepts only the exact existing target, without policy changes")
+                self.response(201, {"deployment": recheck(app.store, parts[1], parts[3], actor)})
             elif parts == ["policy-rollouts"]:
                 if method == "GET":
                     from .managed_views import rollouts
