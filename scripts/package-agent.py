@@ -25,6 +25,7 @@ for arch in ('amd64', 'arm64'):
              (root / 'docs' / 'managed-enforcement.md', 'docs/managed-enforcement.md'),
              (root / 'docs' / 'whole-server-default-deny.md', 'docs/whole-server-default-deny.md'),
              (root / 'docs' / 'traffic-capture.md', 'docs/traffic-capture.md'),
+             (root / 'docs' / 'fleet-enrollment.md', 'docs/fleet-enrollment.md'),
              (root / 'docs' / 'linux-validation.md', 'docs/linux-validation.md'),
              (root / 'docs' / 'scale-validation.md', 'docs/scale-validation.md'),
              (root / 'docs' / 'ipset-enforcement.md', 'docs/ipset-enforcement.md'),
@@ -49,10 +50,13 @@ for arch in ('amd64', 'arm64'):
    copy of scripts/verify-release.py. Adjacent downloaded public keys alone are
    not a trust decision. Unsigned packages are for isolated lab use only.
    Then extract and enter the {stem}/ directory.
-2. In the installed controller choose Install agent. Select Linux family/CPU,
-   controller origin, hostname and polling. Download a fresh private setup JSON
-   for each endpoint. Transfer it through approved private tooling as root-owned
-   mode0600 to /root/prthak-agent-setup.json. Each token is single-use/15minutes.
+2. In the installed controller choose Install agent > Fleet setup. Set common
+   origins/polling and enrollment expiry (default24hours). Download one private
+   setup JSON and reuse it across the fleet; no per-host package/kit is needed.
+   Transfer it privately as root-owned mode0600 to /root/prthak-agent-setup.json.
+   Each endpoint automatically creates its own private key and certificate.
+   The optional Individual setup remains single-use/15minutes. See
+   docs/fleet-enrollment.md for GUI profile revocation and identity boundaries.
 3. From this extracted release directory run exactly one matching installer:
 
    sudo ./scripts/install-agent-rhel.sh --setup-file /root/prthak-agent-setup.json

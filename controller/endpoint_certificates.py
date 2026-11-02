@@ -29,19 +29,36 @@ def _identity(value):
                    "server_id": names[0].value, "serial_number": format(value.serial_number, "x"), "not_before": stamp(value.not_valid_before_utc), "not_after": stamp(value.not_valid_after_utc)}
 
 
-def record_issued(store, db, server, pem):
+def _write_start(db):
+    from .fleet_enrollment import _transaction_start
+    _transaction_start(db)
+
+
+def record_issued(store, db, server, pem, *, csr=None):
     # Private Store test signers can return placeholders; they cannot produce a
     # usable TLS credential. Real certificates always enter the exact registry.
     if not isinstance(pem, str) or "BEGIN CERTIFICATE" not in pem:
         return
+    _write_start(db)
     _, value = certificate(pem)
     if value["server_id"] != server["id"]:
         raise ValueError("Issued endpoint identity does not match the enrolled server")
     existing = store._get(db, "maintenance_settings", value["id"])
     if existing and existing.get("status") == "revoked":
         raise PermissionError("A revoked endpoint certificate cannot be reactivated")
+    from .fleet_enrollment import register_issued_key, _csr_key, _certificate_key
+    key = _certificate_key(pem)
+    if csr is not None and _csr_key(csr) != key:
+        raise ValueError("The endpoint certificate does not match its requested key")
+    register_issued_key(store, db, server, pem)
+    value["public_key_sha256"] = key
     if not existing:
         store._put(db, "maintenance_settings", {**value, "status": "active", "issued_at": stamp()})
+    elif existing.get("public_key_sha256") != key:
+        if existing.get("public_key_sha256") is not None:
+            raise ValueError("Endpoint certificate public-key metadata changed unexpectedly")
+        existing["public_key_sha256"] = key
+        store._put(db, "maintenance_settings", existing)
     server["certificate_registry"] = True
     server["certificate_not_after"] = value["not_after"]
     server["certificate_fingerprint"] = value["fingerprint_sha256"]
@@ -69,10 +86,10 @@ def authorize(store, identity, der):
         if current is not None:
             if current.get("server_id") != identity or current.get("status") not in ("active", "retiring") or current.get("retire_at") and parse_time(current["retire_at"]) <= now():
                 raise PermissionError("Endpoint certificate is revoked or superseded")
-            return current
+            if current.get("public_key_sha256"):
+                return current
     with store.lock, store.meta() as db:
-        if getattr(db, "dialect", "sqlite") != "postgresql":
-            db.execute("BEGIN IMMEDIATE")
+        _write_start(db)
         server = store._get(db, "servers", identity)
         if not server:
             raise PermissionError("Endpoint certificate is not enrolled")
@@ -91,6 +108,14 @@ def authorize(store, identity, der):
             current = store._get(db, "maintenance_settings", value["id"])
         if current.get("status") not in ("active", "retiring") or current.get("retire_at") and parse_time(current["retire_at"]) <= now():
             raise PermissionError("Endpoint certificate is revoked or superseded")
+        if not current.get("public_key_sha256"):
+            # A verified live mTLS leaf can complete a pre-0.10 key census.
+            # Preserve server latest-certificate fields and retirement state.
+            from cryptography.hazmat.primitives import serialization
+            from .fleet_enrollment import register_issued_key
+            key = register_issued_key(store, db, server, leaf.public_bytes(serialization.Encoding.PEM).decode())
+            current["public_key_sha256"] = key
+            store._put(db, "maintenance_settings", current)
         return current
 
 
@@ -109,6 +134,7 @@ def renew(store, identity, der, body, signer):
     public_key = request.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
     request_id = "endpoint_renewal:" + digest([identity, current["fingerprint_sha256"], hashlib.sha256(public_key).hexdigest()])
     with store.lock, store.meta() as db:
+        _write_start(db)
         current = store._get(db, "maintenance_settings", current["id"])
         if not current or current.get("status") not in ("active", "retiring") or current.get("retire_at") and parse_time(current["retire_at"]) <= now():
             raise PermissionError("Endpoint identity changed before renewal")
@@ -121,10 +147,14 @@ def renew(store, identity, der, body, signer):
         if parse_time(current["not_after"]) - now() > timedelta(days=30):
             return {"renewed": False, "renew_after": stamp(parse_time(current["not_after"]) - timedelta(days=30)), "not_after": current["not_after"]}
         server = store._get(db, "servers", identity)
+        if not server:
+            raise PermissionError("The endpoint is no longer enrolled")
+        from .server_management import assert_report_allowed
+        assert_report_allowed(store, db, identity)
         # Signing occurs inside the serialized transaction; a revocation cannot
         # race a successful renewal and leave a credential outside the registry.
         issued_pem, ca = signer(identity, csr)
-        record_issued(store, db, server, issued_pem)
+        record_issued(store, db, server, issued_pem, csr=csr)
         _, issued = certificate(issued_pem)
         current.update(status="retiring", retire_at=stamp(min(parse_time(current["not_after"]), now() + timedelta(hours=24))))
         store._put(db, "maintenance_settings", current)
@@ -145,6 +175,7 @@ def listing(store):
 def revoke_preview(store, body, actor):
     identity = body.get("server_id")
     with store.lock, store.meta() as db:
+        _write_start(db)
         server = store._get(db, "servers", identity)
         if not server:
             raise ValueError("Select an enrolled server")
@@ -159,6 +190,7 @@ def revoke_preview(store, body, actor):
 
 def revoke_apply(store, body, actor):
     with store.lock, store.meta() as db:
+        _write_start(db)
         plan = store._get(db, "maintenance_settings", body.get("preview_id", ""))
         if not plan or plan.get("status") != "draft" or parse_time(plan["expires_at"]) <= now() or any(not isinstance(body.get(key), str) or not secrets.compare_digest(body[key], plan[key]) for key in ("digest", "confirmation_nonce", "confirmation_phrase")):
             raise WorkflowConflict("Certificate revocation review expired or changed", {})
@@ -183,6 +215,7 @@ def revoke_apply(store, body, actor):
 
 def recovery_token(store, identity, actor):
     with store.lock, store.meta() as db:
+        _write_start(db)
         server = store._get(db, "servers", identity)
         if not server:
             raise ValueError("Select an existing enrolled server")
@@ -199,6 +232,7 @@ def recover(store, body, signer):
     if not signer or not isinstance(token, str) or not 32 <= len(token) <= 256 or not isinstance(csr, str) or not 32 <= len(csr) <= 16384:
         raise PermissionError("A valid recovery token and CSR are required")
     with store.lock, store.meta() as db:
+        _write_start(db)
         value = store._get(db, "maintenance_settings", "endpoint_recovery:" + hashlib.sha256(token.encode()).hexdigest())
         if not value or parse_time(value["expires_at"]) <= now():
             raise PermissionError("Certificate recovery credentials expired or are invalid")
@@ -217,7 +251,7 @@ def recover(store, body, signer):
         if body.get("hostname") != server["hostname"]:
             raise PermissionError("This recovery token belongs to a different hostname")
         pem, ca = signer(server["id"], csr)
-        record_issued(store, db, server, pem)
+        record_issued(store, db, server, pem, csr=csr)
         _, issued = certificate(pem)
         for previous in store._all(db, "maintenance_settings"):
             if previous["id"].startswith(PREFIX) and previous["id"] != issued["id"] and previous["server_id"] == server["id"] and previous["status"] != "revoked":

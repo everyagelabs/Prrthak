@@ -24,6 +24,23 @@ Saving a policy resolves each referenced service group into a `service_group_sna
 
 Deletion is blocked while an active policy references a service group or uses a server group as a source/target. Unknown service/source-group references abort compilation and preserve previous bundles instead of silently removing enforced ports or broadening selectors. An authorized Admin save compiles and publishes changed exact ordinary per-port intent without a separate checker or rollout step. Current authority, local opt-ins and endpoint protection/health/rollback still gate application. On an existing whole-server default-deny host, a changed deny-bearing bundle instead stays pending until its fresh dedicated downtime acknowledgement; no catalogue or membership edit can bypass that boundary.
 
+## Reusable fleet bootstrap
+
+An Admin generates one fleet setup file, with common trusted URLs/polling and
+an expiring/revocable enrollment key. The matching CPU agent package and the
+same data-only setup can be distributed to any number of prepared hosts. Each
+host generates its own private key and CSR; the controller issues a unique
+certificate and inventory identity. No hostname list or per-host package is
+required. A shared bootstrap credential never becomes shared endpoint identity.
+
+Profile metadata, hashed credential lookup and canonical-public-key receipts
+use separate indexed namespaces. Transactions serialize concurrent enrollment,
+retry and revocation across processes/controllers. Active profile and current
+endpoint/certificate status are required even before idempotent bootstrap
+replay. Profile revocation blocks new enrollment while existing endpoint mTLS
+continues. Recovery discards bootstrap authority; used key claims survive.
+Individual one-use/15-minute kits remain compatible. See [fleet enrollment](fleet-enrollment.md).
+
 ## Fresh per-endpoint automatic learning
 
 The dashboard defaults to automatic discovered ports. An administrator selects explicit endpoint IDs and a bounded duration; the initial preview uses cached inventory and starts no collection. Session creation requires every selected agent to advertise `learning_discovery_v1` (0.3.0 or later), then sends each host a pending discovery assignment. Older agents remain usable with explicit manual ports; the previous dashboard's prefilled 22/80 list is no longer the automatic default.

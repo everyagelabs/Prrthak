@@ -1,6 +1,6 @@
 # Controller VM requirements and 5,000-server profile
 
-2 November 2026 · 0.9.0 pilot candidate. These allocations are engineering starting recommendations, not certified hardware minima or a WAN/site-failover guarantee. DC deployment and native OS acceptance are deferred. The installer runs the controller/router on every management node; an approved database voter additionally runs PostgreSQL/Patroni and etcd on that same VM.
+2 November 2026 · 0.10.0 pilot candidate. These allocations are engineering starting recommendations, not certified hardware minima or a WAN/site-failover guarantee. DC deployment and native OS acceptance are deferred. The installer runs the controller/router on every management node; an approved database voter additionally runs PostgreSQL/Patroni and etcd on that same VM.
 
 | VM use | vCPU | RAM | OS / Docker disk | Separate DATA_ROOT SSD |
 | --- | ---: | ---: | ---: | ---: |

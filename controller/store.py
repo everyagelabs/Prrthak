@@ -1132,7 +1132,12 @@ class Store:
             raise ValueError("Valid PEM CSR required")
         token_id = hashlib.sha256(token.encode()).hexdigest()
         with self.lock, self.meta() as db:
+            from .fleet_enrollment import _transaction_start
+            _transaction_start(db)
             record = self._get(db, "tokens", token_id)
+            if not record:
+                from .fleet_enrollment import enroll as enroll_fleet
+                return enroll_fleet(self, db, token_id, hostname, csr, signer)
             if not record or parse_time(record["expires_at"]) <= now():
                 raise PermissionError("Enrollment token is invalid, expired or already used")
             csr_digest = hashlib.sha256(csr.encode()).hexdigest()
@@ -1149,9 +1154,11 @@ class Store:
             identifier = reservation["id"] if reservation else str(uuid.uuid4())
             certificate, ca_certificate = signer(identifier, csr)
             response = {"server_id": identifier, "certificate": certificate, "ca_certificate": ca_certificate}
+            from .fleet_enrollment import register_legacy_key
+            register_legacy_key(self, db, token_id, hostname, csr, response)
             record.update({"used": True, "csr_digest": csr_digest, "hostname": hostname, "response": response})
             self._put(db, "tokens", record)
-            server = {"id": identifier, "hostname": hostname, "ips": [], "tags": {}, "_metadata_overrides": {"tags": {}}, "location_id": None, "location_source": {"type": "unassigned"}, "tag_sources": {}, "metadata_conflicts": [], "expected_services": [], "listeners": [], "os": "unknown", "os_version": "", "firewalld_version": "", "firewall_backend": "", "firewalld_state": "unknown", "ufw_active": False, "last_seen": stamp(), "status": "warning", "desired_version": 0, "applied_version": 0, "apply_status": "pending", "apply_error": "", "collector_status": "off", "created_at": stamp()}
+            server = self._new_enrollment_server(identifier, hostname)
             self._collector_state(server, self._all(db, "sessions"))
             from .endpoint_certificates import record_issued
             record_issued(self, db, server, certificate)
@@ -1161,6 +1168,10 @@ class Store:
             self.compile_all(db)
             self.audit("agent.enrolled", "enrollment", {"server_id": identifier, "hostname": hostname}, db)
         return response
+
+    @staticmethod
+    def _new_enrollment_server(identifier, hostname):
+        return {"id": identifier, "hostname": hostname, "ips": [], "tags": {}, "_metadata_overrides": {"tags": {}}, "location_id": None, "location_source": {"type": "unassigned"}, "tag_sources": {}, "metadata_conflicts": [], "expected_services": [], "listeners": [], "os": "unknown", "os_version": "", "firewalld_version": "", "firewall_backend": "", "firewalld_state": "unknown", "ufw_active": False, "last_seen": stamp(), "status": "warning", "desired_version": 0, "applied_version": 0, "apply_status": "pending", "apply_error": "", "collector_status": "off", "created_at": stamp()}
 
     def overview(self, demo=False):
         from .policy_views import listing as public_policies,service_groups as service_group_listing

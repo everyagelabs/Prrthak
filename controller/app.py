@@ -1063,6 +1063,21 @@ def handler_for(app):
                     self.response(200, lifecycle.kit(app, parts[2], actor), {"Content-Disposition": 'attachment; filename="prthak-endpoint-configuration.json"'})
                 else:
                     self.response(405, {"error": "Method not allowed"})
+            elif parts[:2] == ["agent-installation", "fleet-profiles"]:
+                if role not in ("admin", "super_admin") or not isinstance(self.connection, ssl.SSLSocket):
+                    raise PermissionError("Fleet enrollment settings require Admin access over HTTPS")
+                from . import fleet_enrollment
+                if len(parts) == 2 and method == "GET":
+                    self.response(200, fleet_enrollment.listing(app.store, limit=int(query.get("limit", [50])[0]), offset=int(query.get("offset", [0])[0])))
+                elif len(parts) == 2 and method == "POST":
+                    from .agent_installation import create_fleet_kit
+                    self.response(201, create_fleet_kit(app, self.body(), actor), {"Content-Disposition": 'attachment; filename="prthak-agent-setup.json"'})
+                elif len(parts) == 4 and parts[3] == "revoke" and method == "POST":
+                    if self.body() != {}:
+                        raise ValueError("Fleet profile revocation accepts an empty object only")
+                    self.response(200, fleet_enrollment.revoke(app.store, parts[2], actor))
+                else:
+                    self.response(405, {"error": "Method not allowed"})
             elif parts == ["agent-installation", "kit"] and method == "POST":
                 if role not in ("admin", "super_admin") or not isinstance(self.connection, ssl.SSLSocket):
                     raise PermissionError("Agent setup downloads require Admin access over HTTPS")

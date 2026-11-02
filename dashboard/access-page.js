@@ -6,16 +6,19 @@ function accessRoleLabel(value) { return ({read_only:'Read Only',admin:'Admin',s
 function canManageUsers() { return state.role==='super_admin'; }
 function clearDashboardIdentity() {
   if(typeof platformClearCertificateUpload==='function')platformClearCertificateUpload();
+  if(typeof clearAgentInstallation==='function')clearAgentInstallation();
   state.role='read_only';state.user=null;state.authType=null;state.csrfToken='';state.token='';
   state.accessUsers=[];state.accessLoaded=false;state.accessError='';state.serverDeletePlan=null;sessionStorage.removeItem('segment-token');
 }
 function applyDashboardIdentity(auth) {
   const previousIdentity=typeof platformCertificateUploadIdentity==='function'?platformCertificateUploadIdentity():null;
+  const previousAgentIdentity=typeof agentInstallationIdentity==='function'?agentInstallationIdentity():null;
   const demo=auth.demo===true&&state.authConfig?.mode==='demo';
   state.role=demo?'super_admin':accessRole(auth.role);
   state.user=auth.user || null;state.authType=demo?'demo':auth.auth_type || (state.token&&state.authConfig?.mode==='tokens'?'token':null);
   state.csrfToken=typeof auth.csrf_token==='string'?auth.csrf_token:'';state.authError='';
   if(previousIdentity!==null&&previousIdentity!==platformCertificateUploadIdentity())platformClearCertificateUpload();
+  if(previousAgentIdentity!==null&&previousAgentIdentity!==agentInstallationIdentity())clearAgentInstallation();
   if(!canManageUsers()){state.accessUsers=[];state.accessLoaded=false;state.accessError='';}
 }
 function microsoftMark() { return '<svg class="microsoft-mark" viewBox="0 0 20 20" aria-hidden="true"><path fill="#f25022" d="M1 1h8v8H1z"/><path fill="#7fba00" d="M11 1h8v8h-8z"/><path fill="#00a4ef" d="M1 11h8v8H1z"/><path fill="#ffb900" d="M11 11h8v8h-8z"/></svg>'; }

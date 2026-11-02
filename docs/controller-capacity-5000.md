@@ -1,6 +1,20 @@
 # 5,000-server controller capacity
 
-## Current 0.9 acceptance · 2 November 2026
+## Current 0.10 acceptance · 2 November 2026
+
+The reusable-enrollment build retains the 60-second ordinary policy-delivery target on the isolated profile below. This uses fresh current-runtime certificate registry/key claims and 5,000 virtual mTLS identities; certificate preparation is outside the phase timers. It does not measure a legacy-registry migration or an enrollment storm.
+
+| Phase | Verified identities | Elapsed |
+| --- | ---: | ---: |
+| Initial signed delivery and receipts | 5,000 | 20.085 s |
+| Actual Admin policy PUT, publication and full 30 s polling window | 5,000 | **32.097 s** |
+| Warm polling, 100 discovery reports and 10,000 typed observations | 5,000 | 24.571 s |
+
+Publication took 1.980 seconds, included in the total. All versions, exact source matrices and current single-Admin authorities were verified. There were zero final failures, two transient policy retries and eight transient report retries. Exactly 5,000 connection observations and 5,000 denied-packet observations were retained separately, with no pending batch after drain. Policy/report/ingest p95 was 128.102/326.131/5723.804 ms. Source hashes were unchanged and both owned fixture databases were removed.
+
+Profile: two workers × 32 threads, 64 clients, metadata/traffic pools 8/2, 30-second control / 900-second discovery, private PostgreSQL 16.15 on the shared ARM64 host. The [public current result](../output/capacity/controller-5000-0.10-result.json) records hashes, settings, workload and cleanup. This is policy delivery and synthetic ingestion, not native firewalld, 5,000 simultaneous registrations/collectors, live Entra, WAN/HA or endurance qualification.
+
+## Historical 0.9 acceptance · 2 November 2026
 
 The typed-capture build passed all three phases on real Gunicorn HTTPS/mTLS and two fresh private PostgreSQL databases. Each phase verified all 5,000 virtual certificate identities and their current single-Admin authority. The actual Admin policy edit changed the source matrix, version and digest; compilation/publication and the full 30-second polling window are included.
 

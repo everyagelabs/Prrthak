@@ -1,6 +1,6 @@
 # Microsegmentation API v1
 
-This is the current 0.9 source API contract. Dated release records and illustrated PDFs describe their own snapshots; published 0.8 evidence does not validate changed 0.9 code.
+This is the current 0.10 source API contract. Dated release records and illustrated PDFs describe their own snapshots; older release evidence does not validate changed code.
 
 ## GUI-first setup and endpoint kits
 
@@ -31,6 +31,30 @@ This is the current 0.9 source API contract. Dated release records and illustrat
   The no-store JSON attachment contains only schema version/timestamps, expected
   hostname, canonical monitor-only config, public CA PEM and enrollment token.
   No endpoint private key, controller signing key or executable code is included.
+- Admin/Super Admin GET `/api/v1/agent-installation/fleet-profiles` lists public
+  profile IDs, names, creators, expiry/status and enrollment counts, using
+  `limit` (1–200, default 50) and `offset`. No shared secret is returned.
+- POST the same route accepts common kit fields plus `name` and integer
+  `validity_hours` (1–720, default 24), without a hostname. It returns
+  `{profile,kit}` with no-store handling. The schema-2 kit adds
+  `enrollment_profile_id`, uses a 64-character URL-safe shared credential and
+  contains canonical monitor-only configuration/public trust. Reuse this exact
+  kit across hosts; each host creates its own CSR/key/certificate automatically.
+  Public trust must cover its selected lifetime. No fixed host-count limit applies.
+- POST `/api/v1/agent-installation/fleet-profiles/{id}/revoke` with `{}` disables
+  future enrollment and bootstrap replay. Existing enrolled mTLS identities
+  remain separate and active. Individual certificate revocation is a different
+  operation. Profile creation/revocation require current Admin authority and
+  existing same-origin/CSRF checks, with safe audit metadata.
+
+Fleet bootstrap uses the existing Discovery-channel `POST /api/v1/agent/enroll`
+wire shape `{token,hostname,csr}`. The current profile is checked before any
+new enrollment or retry. Separate durable canonical-public-key receipts bind
+profile, hostname, server identity and issued certificate; changing CSR bytes
+cannot mint another identity from the same key. Expiry, profile revocation,
+retirement and certificate-registry revocation are rechecked. The shared secret
+is stored hashed only, with no shared endpoint private key. Recovery discards
+fleet bootstrap authority while retaining consumed key receipts.
 
 The helper consumes the kit through the signed family installer's `--setup-file`
 option. Tags/DC remain controller-managed. Central polling can override kit

@@ -4,11 +4,11 @@
 
 Prṛthak discovers servers and their real listening services, shows permitted source-to-service access, learns observed source/port relationships, and lets administrators review and apply firewalld changes centrally. The selected server is the destination: an access policy specifies **service/port + allowed sources**, without a separate destination field.
 
-**Pilot candidate: [v0.9.0-pilot.1](https://github.com/everyagelabs/Prrthak/tree/v0.9.0-pilot.1).** New learning/monitor scopes use typed conntrack and verified NFLOG evidence, with separate counts and visible coverage gaps. Strict certificate preflight, durable helper fencing and native IPv6 validation are included. Whole-server deny remains disabled by default and requires a fresh manual downtime acknowledgement for each push. See [release behavior and validation](docs/release-0.9.0-pilot.1.md). Native RHEL/Ubuntu, live Entra and DC/WAN acceptance remain deployment gates.
+**Pilot candidate: [v0.10.0-pilot.1](https://github.com/everyagelabs/Prrthak/tree/v0.10.0-pilot.1).** Download one reusable fleet setup and install the same matching agent package across your servers. Each server automatically creates its own key, certificate and inventory identity; no per-host kit generation or hostname CSV is required. Fleet enrollment has GUI expiry/revocation and no fixed server-count limit. See [fleet enrollment](docs/fleet-enrollment.md) and [release validation](docs/release-0.10.0-pilot.1.md). Native RHEL/Ubuntu, live Entra and DC/WAN acceptance remain deployment gates.
 
 Private repository: [everyagelabs/Prrthak](https://github.com/everyagelabs/Prrthak). Product owner: **EveryAge Labs Private Limited**.
 
-[0.9 release behavior and validation](docs/release-0.9.0-pilot.1.md) · [Whole-server default-deny workflow](docs/whole-server-default-deny.md).
+[0.10 release behavior and validation](docs/release-0.10.0-pilot.1.md) · [0.9 capture/security release](docs/release-0.9.0-pilot.1.md) · [Whole-server default-deny workflow](docs/whole-server-default-deny.md).
 
 ## What was requested, and how it works
 
@@ -19,7 +19,7 @@ The numbered register retains the original requirements and later explicit reque
 | ID | Requested capability | How Prṛthak addresses it |
 |---|---|---|
 | R01 | A standalone project with Prṛthak branding and the requested red/white appearance | A separate controller, dashboard and endpoint-agent repository, with the bilingual product mark and a consistent interface. |
-| R02 | Automatic enrollment and central inventory | A private GUI-generated setup file supplies a one-use enrollment token and public trust material. The agent creates its key locally, enrolls and reports inventory. |
+| R02 | Automatic enrollment and central inventory | One reusable GUI-generated fleet setup supplies an expiring/revocable enrollment key and public trust. Each host creates its own local key/certificate and reports automatically. Optional individual one-use kits remain available. |
 | R03 | Discover actual services/ports and later changes | Socket, process and systemd discovery identifies services such as SSH on **2022**, rather than assuming port 22. New/changed listeners generate alerts. Fleet discovery defaults to **900 seconds**; an explicit 1–20-server pilot preset uses **60 seconds**. |
 | R04 | Allowed sources per service; destination implicit | Each target receives an effective inbound TCP/UDP source/port policy. Optional whole-server default deny adds an explicitly acknowledged host-ingress fallback; outbound and forwarded/container segmentation remain outside this adapter. |
 | R05 | One policy for a group or matching tags | Static groups, dynamic groups and tag selectors resolve the target endpoints. Membership changes produce new desired policy versions. Ordinary per-port hosts publish directly; existing whole-server default-deny hosts require a fresh review of a changed bundle. Future group members are not automatically enabled for whole-server default deny. |
@@ -64,6 +64,7 @@ The numbered register retains the original requirements and later explicit reque
 | R39 | Protect installed code and trace releases to Git | Compiled agents, restricted read-only containers, pinned image identities, detached Ed25519 signatures and startup integrity checks reject changed release bytes. Root/Git owners retain authority; this is not complete source encryption. See [release integrity](docs/release-integrity.md). |
 | R40 | Risk & compliance findings with reasons and recommendations | A customizable catalogue starts with **29 source-backed risky-port rules**. Passive evaluation uses the latest agent-reported listeners and shows reasons/recommendations. CERT-In/RBI mappings identify operational evidence gaps; findings do not automatically block traffic or certify compliance. |
 | R41 | Whole-server default deny for selected servers/groups with manual downtime acknowledgement | A dedicated GUI review freezes exact endpoints and enforce-only grants. An Admin must manually tick the initially unchecked downtime acknowledgement before each push; no second person is required. Capability and local opt-in are mandatory. Disable removes the owned global fallback while retaining the last applied grant matrix. [Workflow](docs/whole-server-default-deny.md). |
+| R42 | Install the same agent/setup on any number of servers | Reuse the matching CPU package and one fleet setup file; no per-host generation or CSV. Separate local keys and unique enrolled identities, atomic retries and GUI profile expiry/revocation preserve endpoint identity. No fixed enrollment-count limit is imposed. |
 
 ## Architecture and communication
 
@@ -148,7 +149,7 @@ In **Settings**, configure the approved hostname/certificate, initial site/origi
 
 ### RHEL or Ubuntu endpoint
 
-Use **Install agent** to select the OS family/architecture and download a fresh private setup file for that endpoint. Transfer it securely with the matching verified package, then run **one** matching command:
+Use **Install agent → Fleet setup** to choose common URLs/polling and download one private setup file. Transfer the same file with the matching verified CPU package to all intended servers, then run **one** matching command on each host:
 
 ```sh
 sudo ./scripts/install-agent-rhel.sh --setup-file /root/prthak-agent-setup.json
@@ -158,7 +159,7 @@ sudo ./scripts/install-agent-rhel.sh --setup-file /root/prthak-agent-setup.json
 sudo ./scripts/install-agent-ubuntu.sh --setup-file /root/prthak-agent-setup.json
 ```
 
-The file contains a one-use enrollment token and public trust/configuration material, not an endpoint private key. Keep it private. The endpoint creates its own key. Family installers check prerequisites; OS package installation and competing firewall-manager migration are separate operator work.
+The fleet file contains an expiring/revocable enrollment key and public trust/configuration material, with no endpoint private key. Keep it private. Each endpoint creates its own key/certificate automatically; no fixed host-count limit applies. The GUI shows fleet-profile expiry, registration count and revoke controls. Optional individual kits remain single-use/15-minute. Family installers check prerequisites; OS package installation and competing firewall-manager migration are separate operator work.
 
 After the first authenticated report, verify real addresses and listeners in **Servers**. Apply business tags/locations centrally. Use the endpoint's reviewed configuration workflow to change origins, management protections or security opt-ins without editing JSON. A downloaded transition or queued request becomes effective only after the exact endpoint receipt and required checks.
 
@@ -227,7 +228,7 @@ These choices support the requirements above. They are not substitutes for the r
 
 ## Documentation, evidence and development
 
-The illustrated PDFs describe earlier snapshots and remain historical guides. Current 0.9 behavior and acceptance limits are recorded in the [Markdown requirements map](docs/requirements-delivery-map.md), current operational documents and [0.9 release evidence](docs/release-0.9.0-pilot.1.md).
+The illustrated PDFs describe earlier snapshots and remain historical guides. Current 0.10 behavior and acceptance limits are recorded in the [Markdown requirements map](docs/requirements-delivery-map.md), current operational documents and [0.10 release evidence](docs/release-0.10.0-pilot.1.md).
 
 - [User requirements and delivery map](output/pdf/prthak-user-requirements-and-delivery-map.pdf)
 - [Architecture and operations handbook](output/pdf/prthak-architecture-operations-guide.pdf)

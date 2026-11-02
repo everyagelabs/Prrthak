@@ -1,4 +1,4 @@
-# GUI-configured 20-server pilot (0.9.0)
+# GUI-configured 20-server pilot (0.10.0)
 
 Configure Prṛthak in the GUI. The installer and fixed local manager generate
 protected files; no manual `.env`, agent JSON, token or CA editing is required.
@@ -51,7 +51,7 @@ flowchart LR
 
 ## 2. Stage the verified release and run one controller installer
 
-Obtain `prthak-controller-0.9.0.tar.gz` and its detached `.signature.json`.
+Obtain `prthak-controller-0.10.0.tar.gz` and its detached `.signature.json`.
 Verify exact archive bytes **before extraction/execution**, using an independently
 approved public release-signing pin and verifier. A public key downloaded beside
 an unknown archive does not establish trust. The project signing authority is
@@ -126,27 +126,35 @@ approved repositories. Family installers check prerequisites; they do not run
 apt/dnf, start firewalld, disable UFW or migrate existing rules. Package hooks
 may activate services, so stage OS work with management access protected.
 
-Stage and independently verify `prthak-agent-0.9.0-linux-amd64.tar.gz` or
-`prthak-agent-0.9.0-linux-arm64.tar.gz`, then extract to a protected root-owned
+Stage and independently verify `prthak-agent-0.10.0-linux-amd64.tar.gz` or
+`prthak-agent-0.10.0-linux-arm64.tar.gz`, then extract to a protected root-owned
 release directory. Use its signed runtime manifest and independently approved
 public trust. The static Go endpoint needs no Git, Python or Go compiler/runtime.
 
-## 5. Download one private setup file per endpoint
+## 5. Download one fleet setup for all endpoints
 
-1. Open **Install agent** as Admin/Super Admin. Choose OS family/architecture
-   and optionally the exact expected server hostname.
+1. Open **Install agent** as Admin/Super Admin. Choose **Fleet setup**, the
+   matching package family/architecture, a profile name and expiry (default
+   24 hours; 1 hour through 30 days). No hostname list or CSV is required.
 2. Confirm management, control and discovery HTTPS origins and 30-second
    control / 900-second discovery intervals. Central profiles can override
    polling; they do not silently grant local security opt-ins.
 3. If web HTTPS and endpoint issuance have different CAs, upload the approved
    **public HTTPS CA chain**. The controller validates its current web leaf,
    hostname, validity and chain. It includes the separate public endpoint issuer.
-4. Download `prthak-agent-setup.json`. This is data, public CA material and one
-   single-use enrollment token; it contains no endpoint private key. It expires
-   after 15 minutes. Generate one fresh file per endpoint, never a reusable image.
-5. Transfer privately to `/root/prthak-agent-setup.json`, root-owned mode 0600
+4. Download `prthak-agent-setup.json` **once**. Reuse this same data/public-CA/
+   enrollment-key file across the fleet until its profile expires or is revoked.
+   There is no fixed enrollment-count limit. Each endpoint creates a unique key,
+   certificate and server ID locally/through enrollment; no identity is shared.
+5. Transfer the same setup privately to `/root/prthak-agent-setup.json` on every host, root-owned mode 0600
    (0400 is accepted). Use the distribution tool's permission controls; a browser
-   cannot enforce destination ownership. Remove unnecessary download copies.
+   cannot enforce destination ownership. Protect the shared enrollment credential
+   and remove unnecessary copies. Never copy initialized endpoint identity/state.
+
+Use **Install agent → Fleet profiles** to view expiry/registration counts and
+revoke future enrollment. Existing enrolled endpoints keep their individual
+mTLS identities. Optional **Individual setup** retains the earlier single-use,
+15-minute, optional-hostname workflow. See [fleet enrollment](fleet-enrollment.md).
 
 Bootstrap is **monitor-only**: `enforce`, imported firewall changes, automatic
 learned access and unexpected-port instrumentation are false. The endpoint
@@ -166,8 +174,8 @@ Ubuntu 26.04:
 sudo ./scripts/install-agent-ubuntu.sh --setup-file /root/prthak-agent-setup.json
 ```
 
-The bundled helper validates ownership/mode, expiry, exact schema, optional
-hostname, CA trust and monitor-only settings. Signed agent/service integrity is
+The bundled helper validates ownership/mode, expiry, exact schema, fleet profile
+(or individual hostname), CA trust and monitor-only settings. Signed agent/service integrity is
 checked. The installer enables/starts `seg-agent`, preserves existing identity
 and refuses unresolved enforcement/rollback transactions. Success still needs
 the first authenticated endpoint report, not merely an installed file.

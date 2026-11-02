@@ -8,7 +8,7 @@ A lightweight Go standard-library-only endpoint agent for RHEL and Ubuntu hosts 
 
 Implemented:
 
-- Identity-only mTLS enrollment using a one-use token, ECDSA CSR and the configured bootstrap CA; certificate keys and cached state have mode 0600.
+- Identity-only mTLS enrollment using a reusable fleet enrollment key or an optional one-use token, a locally generated ECDSA CSR and the configured bootstrap CA; certificate keys and cached state have mode 0600. The same fleet setup installs across many servers, with a separate identity for each; see [fleet enrollment](../docs/fleet-enrollment.md).
 - Automatic service discovery at startup and every 15 minutes (`discovery_interval_seconds: 900`) using `ss -H -lntup`. Listeners include owning process/PID, service identity and application/systemd unit where available. New GUI/fleet defaults use 30-second control/report polling; legacy configuration can retain older intervals. Firewalld state and UFW detection remain separate runtime checks.
 - Versioned policy polling with ETag; JSON validation; local cached policy and human-readable preview plan. Existing firewall access survives controller outages.
 - Optional temporary learning and continuous monitoring with separate conntrack accepted-transport and terminal NFLOG denied-packet evidence. New scopes require `traffic_capture_v1`; both kinds default selected, with separate count units and explicit backend/family/loss receipts. Historical omitted-kind scopes retain sampled journal capture. Unsupported typed backends never silently fall back. See [0.9 traffic capture](../docs/traffic-capture.md). UFW is never disabled automatically.
@@ -140,7 +140,7 @@ Use the controller’s Agent polling settings for timing overrides. For endpoint
 | `ca_cert` | `/etc/seg-agent/controller-ca.crt` | Independently trusted controller web HTTPS CA. TLS verification stays enabled. |
 | `endpoint_ca_cert` | empty; falls back to `ca_cert` | Separate trusted public endpoint issuer when it differs from web HTTPS. Preinstall it before preflight; `--ca-file` copies web trust only. |
 | `certificate` / `private_key` | `/var/lib/seg-agent/agent.crt` / `/var/lib/seg-agent/agent.key` | Persisted node-specific mTLS identity. Preserve these across controller failover and routine upgrades. |
-| `enrollment_token_file` | `/etc/seg-agent/enrollment-token` | Private one-time bootstrap credential. Existing valid mTLS identity is reused afterward. |
+| `enrollment_token_file` | `/etc/seg-agent/enrollment-token` | Private fleet or one-use bootstrap credential. Existing valid mTLS identity is reused afterward. |
 | `state_dir` | `/var/lib/seg-agent` | Private cache, pending enrollment, readiness, approved-change backups and traffic spool directory. |
 | `enforce` | `false` | Opt-in for reviewed managed source enforcement. Requires exact approval, protected management baseline and fresh health proof. |
 | `management_sources` | deployment-specific | Restricted, root-configured management CIDRs. `/0` cannot authorize managed enforcement. |

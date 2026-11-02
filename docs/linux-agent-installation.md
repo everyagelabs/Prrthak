@@ -1,10 +1,14 @@
 # RHEL and Ubuntu endpoint installers
 
-**Preferred 0.6.1 GUI flow:** download a private setup file through **Install
-agent**, stage it as root-owned 0600 at `/root/prthak-agent-setup.json`, then run
+**Preferred 0.10 GUI flow:** download one private **Fleet setup** through **Install
+agent**, copy the same file to the servers as root-owned 0600 at `/root/prthak-agent-setup.json`, then run
 `sudo ./scripts/install-agent-rhel.sh --setup-file /root/prthak-agent-setup.json`
-or the Ubuntu wrapper. No manual JSON/token/CA editing is needed. Each kit is
-monitor-only and single-use/15-minute. See [GUI pilot installation](pilot-gui-installation.md).
+or the Ubuntu wrapper on each host. No manual JSON/token/CA editing or per-host
+package generation is needed. Fleet keys default to 24 hours, are revocable in
+the GUI and have no fixed enrollment-count limit. Each host creates its own
+private key/certificate. Optional individual kits remain single-use/15-minute.
+All bootstrap kits are monitor-only. See [fleet enrollment](fleet-enrollment.md)
+and [GUI pilot installation](pilot-gui-installation.md).
 The explicit-config examples below remain compatible advanced workflows.
 
 Prṛthak supplies two entrypoints over the same credential/upgrade-safe agent installer:
@@ -29,13 +33,13 @@ An administration-workstation verification example, using approved Python 3.10+ 
 ```sh
 python3 /approved/tools/verify-release.py \
   --public-trust-file /approved/trust/prthak-release-public-trust.json \
-  --signature prthak-agent-0.6.0-linux-amd64.tar.gz.signature.json \
-  prthak-agent-0.6.0-linux-amd64.tar.gz
+  --signature prthak-agent-0.10.0-linux-amd64.tar.gz.signature.json \
+  prthak-agent-0.10.0-linux-amd64.tar.gz
 sudo install -d -o root -g root -m 0755 /opt/prthak/agent-releases
 sudo tar --no-same-owner --no-same-permissions \
-  -xzf /protected/releases/prthak-agent-0.6.0-linux-amd64.tar.gz \
+  -xzf /protected/releases/prthak-agent-0.10.0-linux-amd64.tar.gz \
   -C /opt/prthak/agent-releases
-cd /opt/prthak/agent-releases/prthak-agent-0.6.0-linux-amd64
+cd /opt/prthak/agent-releases/prthak-agent-0.10.0-linux-amd64
 ```
 
 Use the ARM64 filenames on ARM64. Transfer the already verified archive through your protected release path before extraction; execute privileged installers from protected root-owned release files. Obtain the verifier and public pin through the approved independent channel. RHEL 8's default Python 3.6 cannot run this verifier.

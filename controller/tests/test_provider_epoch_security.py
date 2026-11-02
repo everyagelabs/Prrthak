@@ -188,13 +188,16 @@ class ProviderReviewEpochTests(unittest.TestCase):
 class ProviderCredentialCutoverTests(unittest.TestCase):
     def test_unused_tokens_fail_after_cutover_but_consumed_retries_and_active_leaf_survive(self):
         from controller import endpoint_certificates
+        from cryptography.hazmat.primitives.asymmetric import ec
         fixture = certificate_fixture.EndpointCertificateTests()
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
         unused_recovery = endpoint_certificates.recovery_token(fixture.store, fixture.server_id, "old-super")
         unused_enrollment = fixture.store.create_token("pending-old-enrollment", "old-admin")
         used_enrollment = fixture.store.create_token("completed-enrollment", "old-admin")
-        enrollment_csr = fixture.csr()
+        # This is a distinct endpoint, not recovery of billing-test. Its key
+        # must be independent of the already registered fixture identity.
+        enrollment_csr = fixture.csr(ec.generate_private_key(ec.SECP256R1()))
         enrolled = fixture.store.enroll(used_enrollment["token"], "enrolled-before-cutover", enrollment_csr, fixture.signer)
         used_recovery = endpoint_certificates.recovery_token(fixture.store, fixture.server_id, "old-super")
         recovery_body = {"token": used_recovery["token"], "hostname": "billing-test", "csr": fixture.csr()}

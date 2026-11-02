@@ -82,7 +82,7 @@ func EnrollmentToken(c Config) (string, error) {
 		path = c.EnrollmentTokenFile
 	}
 	if path == "" {
-		return "", errors.New("provide a one-time enrollment token through enrollment_token_file, SEG_ENROLLMENT_TOKEN_FILE, or SEG_ENROLLMENT_TOKEN")
+		return "", errors.New("provide an enrollment credential through enrollment_token_file, SEG_ENROLLMENT_TOKEN_FILE, or SEG_ENROLLMENT_TOKEN")
 	}
 	if e := checkPrivateFile(path); e != nil {
 		return "", fmt.Errorf("enrollment token: %w", e)

@@ -194,8 +194,8 @@ async function load({quiet=false}={}){
   finally{state.polling=false;}
 }
 
-function showModal(title,content,eyebrow='WORKSPACE'){state.accountDialogOpen=false;$('#modal-title').textContent=title;$('#modal-eyebrow').textContent=eyebrow;$('#modal-content').innerHTML=content;$('#modal').scrollTop=0;if(!$('#modal').open)$('#modal').showModal();}
-function closeModal(){defaultDenyClose();const account=state.accountDialogOpen;state.accountDialogOpen=false;$('#modal').close();$('#modal-content').innerHTML='';if(account){renderChrome();$('#account-menu-toggle').focus();}else render();}
+function showModal(title,content,eyebrow='WORKSPACE'){if(typeof agentInstallationModalChanged==='function')agentInstallationModalChanged(content);state.accountDialogOpen=false;$('#modal-title').textContent=title;$('#modal-eyebrow').textContent=eyebrow;$('#modal-content').innerHTML=content;$('#modal').scrollTop=0;if(!$('#modal').open)$('#modal').showModal();}
+function closeModal(){if(typeof clearAgentInstallation==='function')clearAgentInstallation();defaultDenyClose();const account=state.accountDialogOpen;state.accountDialogOpen=false;$('#modal').close();$('#modal-content').innerHTML='';if(account){renderChrome();$('#account-menu-toggle').focus();}else render();}
 const formError=error=>{const element=$('#form-error');if(element){element.hidden=false;element.textContent=error.message||String(error);}else toast(error.message||String(error),true);};
 const errorSlot='<div id="form-error" class="form-error" role="alert" hidden></div>';
 function modalFooter(label){return `<div class="modal-footer"><button class="button secondary" type="button" data-action="close-modal">Cancel</button><button class="button primary" type="submit">${h(label)}</button></div>`;}

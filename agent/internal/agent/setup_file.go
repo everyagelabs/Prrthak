@@ -17,16 +17,18 @@ import (
 
 const maxSetupFileBytes = 512 * 1024
 const maxSetupCABytes = 128 * 1024
+const maxFleetSetupLifetime = 30 * 24 * time.Hour
 
 type setupFile struct {
-	SchemaVersion    int             `json:"schema_version"`
-	IssuedAt         string          `json:"issued_at"`
-	ExpiresAt        string          `json:"expires_at"`
-	ExpectedHostname string          `json:"expected_hostname,omitempty"`
-	Config           json.RawMessage `json:"config"`
-	ControllerCA     string          `json:"controller_ca_pem"`
-	EndpointCA       string          `json:"endpoint_ca_pem,omitempty"`
-	EnrollmentToken  string          `json:"enrollment_token"`
+	SchemaVersion       int             `json:"schema_version"`
+	IssuedAt            string          `json:"issued_at"`
+	ExpiresAt           string          `json:"expires_at"`
+	ExpectedHostname    string          `json:"expected_hostname,omitempty"`
+	EnrollmentProfileID string          `json:"enrollment_profile_id,omitempty"`
+	Config              json.RawMessage `json:"config"`
+	ControllerCA        string          `json:"controller_ca_pem"`
+	EndpointCA          string          `json:"endpoint_ca_pem,omitempty"`
+	EnrollmentToken     string          `json:"enrollment_token"`
 }
 
 // setupPath rejects aliases and writable non-sticky ancestors before touching
@@ -182,22 +184,48 @@ func parseSetup(data []byte, hostname string, now time.Time) (Config, setupFile,
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&value) != nil || value.SchemaVersion != 1 || len(value.Config) == 0 {
+	if decoder.Decode(&value) != nil || (value.SchemaVersion != 1 && value.SchemaVersion != 2) || len(value.Config) == 0 {
 		return Config{}, value, errors.New("setup file has an unsupported schema or field")
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(data, &fields) != nil {
+		return Config{}, value, errors.New("setup file has an unsupported schema or field")
+	}
+	if value.SchemaVersion == 1 {
+		// A profile is a new explicit contract, never a way to reinterpret a
+		// historical one-use token as reusable fleet authority.
+		if _, present := fields["enrollment_profile_id"]; present {
+			return Config{}, value, errors.New("one-use setup cannot contain a fleet enrollment profile")
+		}
+	} else if !regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`).MatchString(value.EnrollmentProfileID) || value.EnrollmentProfileID == "00000000-0000-0000-0000-000000000000" || value.ExpectedHostname != "" {
+		return Config{}, value, errors.New("fleet setup requires its canonical enrollment profile and no hostname binding")
 	}
 	issued, err := time.Parse(time.RFC3339Nano, value.IssuedAt)
 	if err != nil {
 		return Config{}, value, errors.New("setup issued_at must be an ISO timestamp")
 	}
 	expires, err := time.Parse(time.RFC3339Nano, value.ExpiresAt)
-	if err != nil || !expires.After(now) || !expires.After(issued) || expires.Sub(issued) > 15*time.Minute || issued.After(now.Add(2*time.Minute)) {
+	if err != nil || !expires.After(now) || !expires.After(issued) || issued.After(now.Add(2*time.Minute)) {
+		if value.SchemaVersion == 1 {
+			return Config{}, value, errors.New("setup file has expired or exceeds its 15-minute validity")
+		}
+		return Config{}, value, errors.New("setup file has expired or has invalid validity timestamps")
+	}
+	lifetime := expires.Sub(issued)
+	if value.SchemaVersion == 1 && lifetime > 15*time.Minute {
 		return Config{}, value, errors.New("setup file has expired or exceeds its 15-minute validity")
+	}
+	if value.SchemaVersion == 2 && (lifetime < time.Hour || lifetime > maxFleetSetupLifetime) {
+		return Config{}, value, errors.New("fleet setup validity must be between one hour and 30 days")
 	}
 	if value.ExpectedHostname != "" && (!regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$`).MatchString(value.ExpectedHostname) || value.ExpectedHostname != hostname) {
 		return Config{}, value, errors.New("setup file belongs to another hostname")
 	}
 	if !regexp.MustCompile(`^[A-Za-z0-9_-]{32,256}$`).MatchString(value.EnrollmentToken) {
 		return Config{}, value, errors.New("setup file has an invalid enrollment token")
+	}
+	if value.SchemaVersion == 2 && len(value.EnrollmentToken) != 64 {
+		return Config{}, value, errors.New("fleet setup has an invalid enrollment credential")
 	}
 	c := defaultConfig()
 	var configFields map[string]json.RawMessage

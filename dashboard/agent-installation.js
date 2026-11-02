@@ -1,5 +1,16 @@
 'use strict';
 
+let agentInstallationEpoch=0,agentInstallationDraft=0;
+let agentFleetProfiles=[],agentFleetProfileTotal=0,agentFleetProfileOffset=0,agentFleetProfileLoading=false,agentFleetProfileError='',agentFleetListSequence=0;
+const agentFleetProfileLimit=20;
+function agentInstallationIdentity(){
+  return JSON.stringify([state.authConfig?.mode||'',state.authConfig?.tenant_id||'',state.authConfig?.client_id||'',state.authType||'',state.role||'',state.user?.tenant_id||'',state.user?.id||state.user?.oid||state.user?.sub||'',state.token||'']);
+}
+function clearAgentInstallation(){
+  agentInstallationEpoch++;agentInstallationDraft++;agentFleetListSequence++;agentFleetProfiles=[];agentFleetProfileTotal=0;agentFleetProfileOffset=0;agentFleetProfileLoading=false;agentFleetProfileError='';
+}
+function agentInstallationModalChanged(content){if(!String(content).includes('id="agent-installation-form"'))clearAgentInstallation();}
+function agentInstallationCurrent(epoch,identity){return epoch===agentInstallationEpoch&&identity===agentInstallationIdentity()&&canWrite()&&state.authConfig?.mode!=='demo'&&$('#modal')?.open===true;}
 function agentInstallationOrigin(){
   const candidates=[state.authConfig?.agent_channels?.controller_url,state.platformAppliance?.cluster?.origin,state.authConfig?.redirect_uri,globalThis.location?.origin];
   for(const value of candidates){try{const parsed=new URL(value);if(parsed.protocol==='https:'&&!parsed.username&&!parsed.password)return parsed.origin;}catch{}}
@@ -7,40 +18,124 @@ function agentInstallationOrigin(){
 }
 function agentInstallationChannelsHTML(){const channels=state.authConfig?.agent_channels||{};return `<div class="field-row"><div class="field"><label for="agent-install-control-url">Control HTTPS origin</label><input id="agent-install-control-url" name="control_url" type="url" value="${h(channels.control_url||'')}" placeholder="Blank uses combined controller origin"><small>Policy, protection and certificate renewal.</small></div><div class="field"><label for="agent-install-discovery-url">Discovery HTTPS origin</label><input id="agent-install-discovery-url" name="discovery_url" type="url" value="${h(channels.discovery_url||'')}" placeholder="Blank uses combined controller origin"><small>Enrollment, discovery reports and traffic evidence.</small></div></div>`;}
 function agentInstallationCommand(family){return 'sudo ./scripts/install-agent-'+(family==='ubuntu'?'ubuntu':'rhel')+'.sh --setup-file /root/prthak-agent-setup.json';}
-function agentInstallationArchive(architecture){return 'prthak-agent-0.6.1-linux-'+(architecture==='arm64'?'arm64':'amd64')+'.tar.gz';}
+function agentInstallationArchive(architecture){
+  const current=String(state.data?.meta?.version||''),version=/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(current)?current:'0.10.0';
+  return 'prthak-agent-'+version+'-linux-'+(architecture==='arm64'?'arm64':'amd64')+'.tar.gz';
+}
+function agentInstallationScopeHTML(mode){
+  if(mode==='individual')return `<div class="field"><label for="agent-install-hostname">Expected hostname (optional)</label><input id="agent-install-hostname" name="expected_hostname" maxlength="253" autocomplete="off" placeholder="billing-server-01"><small>This optional one-use setup expires after 15 minutes. Its credential enrolls one endpoint.</small></div>`;
+  return `<div class="field-row"><div class="field"><label for="agent-install-profile-name">Enrollment profile name</label><input id="agent-install-profile-name" name="name" maxlength="120" value="Server fleet" required autocomplete="off" placeholder="Production server rollout"></div><div class="field"><label for="agent-install-profile-validity">Allow new enrollment for</label><select id="agent-install-profile-validity" name="validity_hours"><option value="1">1 hour</option><option value="24" selected>24 hours</option><option value="168">7 days</option><option value="720">30 days</option></select></div></div><p class="help-text">Reuse the same private setup file on any number of servers before expiry. Each server generates its own private key and certificate automatically. No hostname list, CSV or per-server download is required.</p>`;
+}
+function agentInstallationSetupHelp(mode){return mode==='individual'?'Transfer this one-use setup file privately as root-owned mode 0600 to /root/prthak-agent-setup.json. Generate a fresh file for another endpoint.':'Transfer the same reusable setup file privately as root-owned mode 0600 to /root/prthak-agent-setup.json on every server. It contains an enrollment key, so distribute it only through your approved private deployment channel.';}
 function showAgentInstallation(){
-  const allowed=canWrite(),demo=state.authConfig?.mode==='demo';
-  showModal('Install an endpoint agent',`<form id="agent-installation-form"><div class="modal-body">${errorSlot}<div class="inline-notice">RHEL 8/9 and Ubuntu 26.04 · native systemd agent · outbound HTTPS</div><p class="platform-intro">Choose the endpoint settings here and download its private setup file. Run one installer command on the server. No agent JSON or environment-file editing is required.</p>${demo?'<p class="inline-notice warning">This is a local preview. Real setup files require an installed HTTPS controller and its trusted certificate identity.</p>':''}<div class="field-row"><div class="field"><label for="agent-install-family">Linux family</label><select id="agent-install-family" name="family"><option value="rhel">RHEL 8 or 9</option><option value="ubuntu">Ubuntu 26.04</option></select></div><div class="field"><label for="agent-install-architecture">CPU architecture</label><select id="agent-install-architecture" name="architecture"><option value="amd64">x86_64 / AMD64</option><option value="arm64">aarch64 / ARM64</option></select></div></div><div class="field"><label for="agent-install-hostname">Expected hostname (optional)</label><input id="agent-install-hostname" name="expected_hostname" maxlength="253" autocomplete="off" placeholder="billing-server-01"><small>Use the server's exact hostname to prevent installing this file on a different endpoint.</small></div><div class="field"><label for="agent-install-controller">Controller HTTPS origin</label><input id="agent-install-controller" name="controller_url" type="url" value="${h(agentInstallationOrigin())}" required placeholder="https://prthak.example.internal"><small>Use the trusted dashboard/load-balancer origin, including its port when required.</small></div>${agentInstallationChannelsHTML()}<div class="field"><label for="agent-install-ca">Public HTTPS CA chain (when required)</label><input id="agent-install-ca" name="controller_ca" type="file" accept=".pem,.crt,.cer"><small>Use an independently approved public CA chain if the web certificate uses a different issuer. Never upload a private key. The controller validates the chain against its current HTTPS identity.</small></div><div class="field-row"><div class="field"><label for="agent-install-control">Control polling (seconds)</label><input id="agent-install-control" name="interval_seconds" type="number" min="5" max="3600" value="30" required></div><div class="field"><label for="agent-install-discovery">Service discovery (seconds)</label><input id="agent-install-discovery" name="discovery_interval_seconds" type="number" min="60" max="86400" value="900" required></div></div><p class="help-text">This pilot setup discovers services and reports inventory. Enforcement, automatic learned access and traffic instrumentation remain disabled. Central polling profiles can override these initial intervals. For the measured 60-second delivery profile, a Super Admin should open <a href="/settings">Platform settings</a> → Agent polling to set global control to 30 seconds and check server, group and tag overrides.</p><p class="help-text">Enrollment is identity-only. Assign tags and DC centrally after discovery, through subnet mappings, or by importing IP profiles.</p><ol class="setup-steps"><li>Stage and independently verify <code id="agent-install-archive">${agentInstallationArchive('amd64')}</code> and its detached signature. Extract the signed release into the protected agent release directory.</li><li>Download a fresh setup file for this server. Transfer it securely as root-owned mode 0600 to <code>/root/prthak-agent-setup.json</code>. Each file contains a single-use token with a short expiry.</li><li>From the extracted release directory run:</li></ol><code id="agent-install-command" class="setup-code">${h(agentInstallationCommand('rhel'))}</code><p class="help-text">The installer checks OS dependencies, reads the private setup file and starts seg-agent. It does not install OS packages, switch firewall managers or enable firewalld. Watch Servers for the first authenticated discovery report.</p><p><button type="button" class="button secondary" data-action="endpoint-configuration">Configure an enrolled endpoint</button></p><div id="agent-installation-result" role="status" aria-live="polite"></div>${!allowed?'<p class="inline-notice">Admin or Super Admin access is required to download an endpoint setup file.</p>':''}</div><div class="modal-footer"><button type="button" class="button secondary" data-action="close-modal">Close</button><button type="submit" class="button primary" ${!allowed||demo?'disabled':''}>Download private setup file</button></div></form>`,'GUI-CONFIGURED ENDPOINT SETUP');
+  clearAgentInstallation();const allowed=canWrite(),demo=state.authConfig?.mode==='demo';
+  showModal('Install endpoint agents',`<form id="agent-installation-form"><div class="modal-body">${errorSlot}<div class="inline-notice">RHEL 8/9 and Ubuntu 26.04 · native systemd agent · outbound HTTPS</div><p class="platform-intro">Download the agent once per CPU architecture and reuse it across your servers. Create one reusable fleet setup file here, then run the matching installer on each server. No agent JSON or environment-file editing is required.</p>${demo?'<p class="inline-notice warning">This is a local preview. Real setup files require an installed HTTPS controller and its trusted certificate identity.</p>':''}<div class="field"><label for="agent-install-mode">Setup type</label><select id="agent-install-mode" name="setup_mode"><option value="fleet" selected>Fleet setup · reusable</option><option value="individual">Individual setup · one use</option></select></div><div id="agent-install-scope-fields">${agentInstallationScopeHTML('fleet')}</div><div class="field-row"><div class="field"><label for="agent-install-family">Linux family</label><select id="agent-install-family" name="family"><option value="rhel">RHEL 8 or 9</option><option value="ubuntu">Ubuntu 26.04</option></select><small>The same binary is used on RHEL and Ubuntu for the same CPU.</small></div><div class="field"><label for="agent-install-architecture">CPU architecture</label><select id="agent-install-architecture" name="architecture"><option value="amd64">x86_64 / AMD64</option><option value="arm64">aarch64 / ARM64</option></select></div></div><div class="field"><label for="agent-install-controller">Controller HTTPS origin</label><input id="agent-install-controller" name="controller_url" type="url" value="${h(agentInstallationOrigin())}" required placeholder="https://prthak.example.internal"><small>Use the trusted dashboard/load-balancer origin, including its port when required.</small></div>${agentInstallationChannelsHTML()}<div class="field"><label for="agent-install-ca">Public HTTPS CA chain (when required)</label><input id="agent-install-ca" name="controller_ca" type="file" accept=".pem,.crt,.cer"><small>Use an independently approved public CA chain if the web certificate uses a different issuer. Never upload a private key.</small></div><div class="field-row"><div class="field"><label for="agent-install-control">Control polling (seconds)</label><input id="agent-install-control" name="interval_seconds" type="number" min="5" max="3600" value="30" required></div><div class="field"><label for="agent-install-discovery">Service discovery (seconds)</label><input id="agent-install-discovery" name="discovery_interval_seconds" type="number" min="60" max="86400" value="900" required></div></div><p class="help-text">Initial setup is monitor-only. Enforcement, automatic learned access and traffic instrumentation remain disabled. Central polling profiles can override these intervals. The enrollment key grants no dashboard or firewall-policy authority.</p><p class="help-text">Enrollment is identity-only. Assign tags and DC centrally after discovery, through subnet mappings, or by importing IP profiles.</p><ol class="setup-steps"><li>Stage and independently verify <code id="agent-install-archive">${agentInstallationArchive('amd64')}</code> and its detached signature. Extract the signed release into a protected directory on each server.</li><li id="agent-install-file-help">${agentInstallationSetupHelp('fleet')}</li><li>From the extracted release directory run:</li></ol><code id="agent-install-command" class="setup-code">${h(agentInstallationCommand('rhel'))}</code><p class="help-text">Your deployment tool can run the same installer across the fleet. The installer checks prerequisites and starts seg-agent. OS package preparation and firewall-manager migration remain separate host operations. Servers appear automatically after their first authenticated report.</p><div id="agent-installation-result" role="status" aria-live="polite"></div><div class="section-line"><h3>Fleet enrollment keys</h3><button type="button" class="text-button" data-action="agent-fleet-refresh" ${!allowed||demo?'disabled':''}>Refresh</button></div><p class="help-text">Keys can be downloaded only when created. Revoking a key stops new enrollment; existing enrolled servers keep their own certificates and remain connected.</p><div id="agent-fleet-profiles">${demo?'Native fleet enrollment is unavailable in this synthetic preview.':allowed?'Loading enrollment profiles…':'Admin or Super Admin access is required to manage enrollment profiles.'}</div><p><button type="button" class="button secondary" data-action="endpoint-configuration">Configure an enrolled endpoint</button></p>${!allowed?'<p class="inline-notice">Admin or Super Admin access is required to download an endpoint setup file.</p>':''}</div><div class="modal-footer"><button type="button" class="button secondary" data-action="close-modal">Close</button><button type="submit" class="button primary" ${!allowed||demo?'disabled':''}>Download private setup file</button></div></form>`,'FLEET AGENT INSTALLATION');
+  if(allowed&&!demo)loadAgentFleetProfiles();
 }
 function agentInstallationChange(event){
-  if(!['agent-install-family','agent-install-architecture'].includes(event.target.id))return false;
-  $('#agent-install-command').textContent=agentInstallationCommand($('#agent-install-family').value);
-  $('#agent-install-archive').textContent=agentInstallationArchive($('#agent-install-architecture').value);
+  if(!String(event.target.id||'').startsWith('agent-install-'))return false;
+  agentInstallationDraft++;
+  if(event.target.id==='agent-install-mode'){
+    const mode=event.target.value==='individual'?'individual':'fleet';
+    $('#agent-install-scope-fields').innerHTML=agentInstallationScopeHTML(mode);
+    $('#agent-install-file-help').textContent=agentInstallationSetupHelp(mode);
+    $('#agent-installation-result').innerHTML='';
+  }
+  if(['agent-install-family','agent-install-architecture'].includes(event.target.id)){
+    $('#agent-install-command').textContent=agentInstallationCommand($('#agent-install-family').value);
+    $('#agent-install-archive').textContent=agentInstallationArchive($('#agent-install-architecture').value);
+  }
+  const button=$('button[type="submit"]',$('#agent-installation-form'));if(button)button.disabled=!canWrite()||state.authConfig?.mode==='demo';
   return true;
 }
+function agentInstallationMode(form){const value=String(new FormData(form).get('setup_mode')||'fleet');if(!['fleet','individual'].includes(value))throw new Error('Choose fleet or individual setup.');return value;}
 function agentInstallationPayload(form){
-  const values=new FormData(form),get=key=>String(values.get(key)||'').trim();
+  const values=new FormData(form),get=key=>String(values.get(key)||'').trim(),mode=agentInstallationMode(form);
   const family=get('family'),architecture=get('architecture'),expected_hostname=get('expected_hostname'),controller_url=get('controller_url');
   if(!['rhel','ubuntu'].includes(family)||!['amd64','arm64'].includes(architecture))throw new Error('Choose the endpoint Linux family and CPU architecture.');
-  if(expected_hostname&&(!/^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$/.test(expected_hostname)||expected_hostname.includes('..')))throw new Error('Enter the exact valid endpoint hostname, or leave it blank.');
+  if(mode==='individual'&&expected_hostname&&(!/^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$/.test(expected_hostname)||expected_hostname.includes('..')))throw new Error('Enter the exact valid endpoint hostname, or leave it blank.');
   let origin;try{const parsed=new URL(controller_url);if(parsed.protocol!=='https:'||parsed.username||parsed.password||parsed.search||parsed.hash||!['','/'].includes(parsed.pathname))throw new Error();origin=parsed.origin;}catch{throw new Error('Use an HTTPS controller origin without a path, credentials, query or fragment.');}
-  const integer=(key,min,max)=>{const value=get(key);if(!/^\d+$/.test(value)||!Number.isSafeInteger(Number(value))||Number(value)<min||Number(value)>max)throw new Error('Use a whole-number polling interval within the displayed range.');return Number(value);};
+  const integer=(key,min,max)=>{const value=get(key);if(!/^\d+$/.test(value)||!Number.isSafeInteger(Number(value))||Number(value)<min||Number(value)>max)throw new Error('Use a whole-number value within the displayed range.');return Number(value);};
   const channel=key=>{const value=get(key);if(!value)return '';try{const parsed=new URL(value);if(parsed.protocol!=='https:'||parsed.username||parsed.password||parsed.search||parsed.hash||!['','/'].includes(parsed.pathname))throw new Error();return parsed.origin;}catch{throw new Error('Channel URLs must be trusted HTTPS origins.');}};
   const channels={};for(const key of ['control_url','discovery_url']){const value=channel(key);if(value)channels[key]=value;}
-  return {family,architecture,expected_hostname,controller_url:origin,...channels,interval_seconds:integer('interval_seconds',5,3600),discovery_interval_seconds:integer('discovery_interval_seconds',60,86400)};
+  const scope=mode==='individual'?{expected_hostname}:{name:get('name'),validity_hours:integer('validity_hours',1,720)};
+  if(mode==='fleet'&&(!scope.name||scope.name.length>120||/[\x00-\x1f\x7f]/.test(scope.name)))throw new Error('Enter an enrollment profile name of 1–120 characters.');
+  return {family,architecture,...scope,controller_url:origin,...channels,interval_seconds:integer('interval_seconds',5,3600),discovery_interval_seconds:integer('discovery_interval_seconds',60,86400)};
+}
+function agentFleetPublicProfile(profile){
+  if(!profile||typeof profile.id!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(profile.id))throw new Error('The controller returned an invalid enrollment profile.');
+  return {id:profile.id,name:String(profile.name||'Enrollment profile').slice(0,120),status:['active','expired','revoked'].includes(profile.status)?profile.status:'unknown',expires_at:typeof profile.expires_at==='string'?profile.expires_at:'',enrollment_count:Number.isSafeInteger(profile.enrollment_count)&&profile.enrollment_count>=0?profile.enrollment_count:0};
+}
+function renderAgentFleetProfiles(){
+  const container=$('#agent-fleet-profiles');if(!container)return;
+  if(agentFleetProfileError){container.innerHTML=`<p class="inline-notice warning">${h(agentFleetProfileError)}</p>`;return;}
+  const start=agentFleetProfiles.length?agentFleetProfileOffset+1:0,end=agentFleetProfiles.length?agentFleetProfileOffset+agentFleetProfiles.length:0;
+  container.innerHTML=(agentFleetProfiles.map(profile=>`<article class="inline-notice"><strong>${h(profile.name)}</strong><p>${h(profile.status)} · ${profile.enrollment_count} enrolled · expires ${h(timestamp(profile.expires_at))}</p>${profile.status==='active'?`<button type="button" class="button secondary small" data-action="agent-fleet-revoke" data-id="${h(profile.id)}" ${agentFleetProfileLoading?'disabled':''}>Revoke enrollment key</button>`:''}</article>`).join('')||`<p class="help-text">${agentFleetProfileLoading?'Loading enrollment profiles…':'No fleet enrollment profiles on this page.'}</p>`)+`<div class="toolbar-group"><span>${start}–${end} of ${agentFleetProfileTotal} profiles</span><button type="button" class="text-button" data-action="agent-fleet-previous" ${agentFleetProfileLoading||agentFleetProfileOffset===0?'disabled':''}>Previous</button><button type="button" class="text-button" data-action="agent-fleet-next" ${agentFleetProfileLoading||end>=agentFleetProfileTotal?'disabled':''}>Next</button></div>`;
+}
+async function loadAgentFleetProfiles(offset=agentFleetProfileOffset){
+  if(!canWrite()||state.authConfig?.mode==='demo')return;
+  const epoch=agentInstallationEpoch,identity=agentInstallationIdentity(),sequence=++agentFleetListSequence;
+  agentFleetProfileLoading=true;agentFleetProfileError='';renderAgentFleetProfiles();
+  try{
+    const result=await api('/agent-installation/fleet-profiles?limit='+agentFleetProfileLimit+'&offset='+offset,{cache:'no-store'});
+    if(!agentInstallationCurrent(epoch,identity)||sequence!==agentFleetListSequence)return;
+    if(!Array.isArray(result.items)||!Number.isSafeInteger(result.total)||result.total<0||result.items.length>agentFleetProfileLimit)throw new Error('The controller returned an invalid enrollment profile page.');
+    agentFleetProfiles=result.items.map(agentFleetPublicProfile);agentFleetProfileTotal=result.total;agentFleetProfileOffset=offset;
+  }catch(error){if(agentInstallationCurrent(epoch,identity)&&sequence===agentFleetListSequence)agentFleetProfileError='Enrollment profiles could not be loaded. Refresh to try again.';}
+  finally{if(agentInstallationCurrent(epoch,identity)&&sequence===agentFleetListSequence){agentFleetProfileLoading=false;renderAgentFleetProfiles();}}
+}
+async function agentFleetAction(button){
+  if(!canWrite()||state.authConfig?.mode==='demo'||button.disabled)return;
+  const action=button.dataset.action;
+  if(action==='agent-fleet-refresh')return loadAgentFleetProfiles();
+  if(action==='agent-fleet-previous')return loadAgentFleetProfiles(Math.max(0,agentFleetProfileOffset-agentFleetProfileLimit));
+  if(action==='agent-fleet-next'){if(agentFleetProfileOffset+agentFleetProfileLimit<agentFleetProfileTotal)return loadAgentFleetProfiles(agentFleetProfileOffset+agentFleetProfileLimit);return;}
+  if(action!=='agent-fleet-revoke')return;
+  const profile=agentFleetProfiles.find(item=>item.id===button.dataset.id&&item.status==='active');if(!profile)return;
+  const epoch=agentInstallationEpoch,identity=agentInstallationIdentity();button.disabled=true;agentFleetListSequence++;agentFleetProfileLoading=false;
+  try{
+    const response=await api('/agent-installation/fleet-profiles/'+encodeURIComponent(profile.id)+'/revoke',{method:'POST',cache:'no-store',body:{}});
+    if(!agentInstallationCurrent(epoch,identity))return;
+    const updated=agentFleetPublicProfile(response);if(updated.id!==profile.id||updated.status!=='revoked')throw new Error('The controller did not confirm enrollment-key revocation.');
+    agentFleetListSequence++;agentFleetProfileLoading=false;
+    agentFleetProfiles=agentFleetProfiles.map(item=>item.id===updated.id?updated:item);renderAgentFleetProfiles();toast('Enrollment key revoked. Existing enrolled servers remain connected.');
+  }catch(error){if(agentInstallationCurrent(epoch,identity))formError(error);}
+  finally{if(agentInstallationCurrent(epoch,identity))button.disabled=false;}
+}
+function validateAgentInstallationKit(kit,mode,profile){
+  const expected=mode==='fleet'?2:1;
+  if(kit?.schema_version!==expected||typeof kit.enrollment_token!=='string'||!kit.enrollment_token||!Number.isFinite(Date.parse(kit.expires_at))||Date.parse(kit.expires_at)<=Date.now())throw new Error('The controller did not return a fresh setup file. Generate another file.');
+  if(mode==='fleet'){
+    const publicProfile=agentFleetPublicProfile(profile);
+    if(kit.enrollment_profile_id!==publicProfile.id||kit.expected_hostname||publicProfile.status!=='active'||publicProfile.expires_at!==kit.expires_at)throw new Error('The controller returned an inconsistent fleet setup file.');
+  }
+  if(!kit.config||['enforce','allow_firewall_changes','learning_auto_allow','unexpected_port_monitor_enabled'].some(key=>kit.config[key]!==false)||['allow_host_default_deny','allow_single_admin_pilot'].some(key=>kit.config[key]===true))throw new Error('The controller returned a setup file outside the monitor-only setup defaults.');
 }
 async function agentInstallationSubmit(event){
-  event.preventDefault();if(!canWrite())return;const form=event.target,button=$('button[type="submit"]',form);button.disabled=true;
+  event.preventDefault();if(!canWrite()||state.authConfig?.mode==='demo')return;
+  const form=event.target,button=$('button[type="submit"]',form),epoch=agentInstallationEpoch,draft=agentInstallationDraft,identity=agentInstallationIdentity();if(button.disabled)return;button.disabled=true;
+  const current=()=>agentInstallationCurrent(epoch,identity)&&draft===agentInstallationDraft&&form.isConnected!==false;
   try{
-    const payload=agentInstallationPayload(form),caFile=$('#agent-install-ca').files?.[0];if(caFile){if(caFile.size>128*1024)throw new Error('The public HTTPS CA chain must be at most 128 KiB.');const pem=await caFile.text();if(!pem.includes('-----BEGIN CERTIFICATE-----')||/PRIVATE KEY|PKCS12/i.test(pem))throw new Error('Upload a PEM public certificate chain without any private key.');payload.controller_ca_pem=pem;}const kit=await api('/agent-installation/kit',{method:'POST',cache:'no-store',body:payload});
-    if(kit?.schema_version!==1||typeof kit.enrollment_token!=='string'||!kit.enrollment_token||!Number.isFinite(Date.parse(kit.expires_at))||Date.parse(kit.expires_at)<=Date.now())throw new Error('The controller did not return a fresh endpoint setup file. Generate another file.');
-    if(!kit.config||['enforce','allow_firewall_changes','learning_auto_allow','unexpected_port_monitor_enabled'].some(key=>kit.config[key]!==false))throw new Error('The controller returned a setup file outside the monitor-only setup defaults.');
+    const mode=agentInstallationMode(form),payload=agentInstallationPayload(form),caFile=$('#agent-install-ca').files?.[0];
+    if(caFile){
+      if(caFile.size>128*1024)throw new Error('The public HTTPS CA chain must be at most 128 KiB.');
+      const pem=await caFile.text();if(!current()||$('#agent-install-ca').files?.[0]!==caFile)return;
+      if(pem.length>128*1024||!pem.includes('-----BEGIN CERTIFICATE-----')||/PRIVATE KEY|PKCS12/i.test(pem))throw new Error('Upload a PEM public certificate chain without any private key.');
+      payload.controller_ca_pem=pem;
+    }
+    if(!current())return;
+    const response=await api(mode==='fleet'?'/agent-installation/fleet-profiles':'/agent-installation/kit',{method:'POST',cache:'no-store',body:payload});
+    if(!current())return;
+    const kit=mode==='fleet'?response?.kit:response;validateAgentInstallationKit(kit,mode,response?.profile);
     const blob=new Blob([JSON.stringify(kit,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');
     try{link.href=url;link.download='prthak-agent-setup.json';link.click();}finally{setTimeout(()=>URL.revokeObjectURL(url),1000);}
-    $('#agent-installation-result').innerHTML=`<div class="inline-notice">Private setup file downloaded. Expires ${h(timestamp(kit.expires_at))}. Use it for one endpoint; generate a different file for the next server.</div>`;
-    toast('Private endpoint setup file downloaded.');
-  }catch(error){formError(error);}finally{button.disabled=!canWrite()||state.authConfig?.mode==='demo';}
+    $('#agent-installation-result').innerHTML=`<div class="inline-notice">Private setup file downloaded. Expires ${h(timestamp(kit.expires_at))}. ${mode==='fleet'?'Reuse this file on any number of servers before expiry. Each server creates its own identity. Keep the shared enrollment key private.':'Use it for one endpoint; generate a different file for the next server.'}</div>`;
+    toast(mode==='fleet'?'Reusable fleet setup file downloaded.':'Private endpoint setup file downloaded.');
+    if(mode==='fleet')await loadAgentFleetProfiles(0);
+  }catch(error){if(current())formError(error);}finally{if(current())button.disabled=false;}
 }
+document.addEventListener('click',event=>{const button=event.target.closest?.('[data-action^="agent-fleet-"]');if(button){event.preventDefault();agentFleetAction(button);}});
+document.addEventListener('input',event=>{if(String(event.target.id||'').startsWith('agent-install-')&&event.target.id!=='agent-install-mode')agentInstallationChange(event);});
 
 let endpointConfigurationReviews=[];
 const endpointConfigurationFlags=['enforce','allow_firewall_changes','learning_auto_allow','unexpected_port_monitor_enabled','allow_host_default_deny'];
