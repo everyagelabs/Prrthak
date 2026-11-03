@@ -1,6 +1,6 @@
 # GUI-configured 20-server pilot (0.16.0)
 
-Use the unchanged [0.14 illustrated PDF](guide/prthak-pilot-0.14.0.pdf) or [HTML guide](guide/prthak-pilot-0.14.0.html) as the installation/operations baseline. They have not been regenerated for the new login screens. This runbook and [Local/SAML login](local-and-saml-login.md) describe current authentication; older illustrated exports remain historical.
+For short picture-led instructions, start with the [controller PDF](guide/simple/controller-installation.pdf), then the [agent PDF](guide/simple/agent-installation.pdf). Their [browser editions](guide/simple/README.md) include copyable commands. This detailed runbook and [Local/SAML login](local-and-saml-login.md) supply operational detail. The unchanged [0.14 PDF](guide/prthak-pilot-0.14.0.pdf) and [HTML](guide/prthak-pilot-0.14.0.html) remain historical editions.
 
 Configure Prṛthak in the GUI. The installer and fixed local manager generate
 protected files; no manual `.env`, agent JSON, token or CA editing is required.
@@ -450,3 +450,5 @@ After native lockout acceptance, use [Policies → Whole-server default deny](wh
 ## Native traffic capture in 0.9
 
 Upgrade controller and endpoints before creating new learning/monitor scopes. They require `traffic_capture_v1`, with accepted connections and denied packets selected independently or together. Historical log-only sessions remain labelled legacy. Unsupported native contexts and missing coverage are shown; there is no silent journal fallback. See [the capture guide](traffic-capture.md) before enabling per-port automatic grants from denied hits.
+
+<sub>Created by Pratik Srivastava</sub>

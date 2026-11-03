@@ -199,3 +199,5 @@ Results from a shared development machine show a measured workload on that
 machine; they are not a production capacity guarantee. Repeat with the real DC
 hardware, intended database quorum/replication settings and site latency. Keep
 polling jitter and stage enrollment/rollouts; do not synchronize all 5,000 hosts.
+
+<sub>Created by Pratik Srivastava</sub>

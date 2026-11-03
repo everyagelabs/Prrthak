@@ -28,3 +28,5 @@ The image report retains advisories without vendor fixes. Its automated gate rej
 External release signing records the clean checkout's commit and exact tag in each detached manifest. A dirty or unknown checkout has no claimed exact source commit. Git probes are bound to the requested checkout, ignoring ambient repository-routing variables. Historical artifacts do not acquire source provenance retroactively.
 
 See [review remediation](review-remediation-0.7.md), [policy signing](policy-signing.md) and [pilot installation](pilot-gui-installation.md).
+
+<sub>Created by Pratik Srivastava</sub>

@@ -1,5 +1,7 @@
 # RHEL and Ubuntu endpoint installers
 
+New to Linux? Use the [simple agent picture guide](guide/simple/agent-installation.pdf), or its [browser edition with copyable commands](guide/simple/agent-installation.html).
+
 **Preferred 0.16 GUI flow:** download one private **Fleet setup** through **Install
 agent**, copy the same file to the servers as root-owned 0600 at `/root/prthak-agent-setup.json`, then run
 `sudo ./scripts/install-agent-rhel.sh --setup-file /root/prthak-agent-setup.json`
@@ -99,3 +101,5 @@ If the controller is temporarily unavailable, the installed service retries enro
 Use `--replace-config` only after reviewing a changed config; the old file is retained as `config.json.previous`. `--no-start` stages an enabled but stopped service and requires a stopped existing agent. `--root /absolute/staging-root --no-start` validates the target's `etc/os-release` and executable dependency files, then stages only under that root. A staging install still executes the selected binary for credential preflight and needs a compatible administration host. It never operates live systemd. No unsupported-version bypass is supplied.
 
 Full enforcement, bank preparation, rollback and protected management prerequisites are in [managed enforcement](managed-enforcement.md), [source-set preparation](ipset-enforcement.md) and the [agent guide](../agent/README.md). Leave endpoint enforcement/automatic learning off controller, database-voter and LB infrastructure for this pilot until native ingress-protection acceptance.
+
+<sub>Created by Pratik Srivastava</sub>

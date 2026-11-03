@@ -41,3 +41,5 @@ preserved. See the [capacity record](controller-capacity-5000.md) for bounds.
 The 20-server enforcement pilot has not started. Native RHEL 8/9 and Ubuntu 26.04 systemd/firewalld/SELinux, genuine management routes, live Entra/MFA, real notification providers, DC/WAN/LB/quorum/watchdog/fencing, production recovery and workload endurance remain deferred acceptance. Isolated kernel capture and temporary database fixtures do not replace those checks.
 
 Vendor appliance advisories remain open. The broader roadmap was explicitly excluded from this ten-finding pass. Passing tests or a release gate does not certify production or organizational compliance.
+
+<sub>Created by Pratik Srivastava</sub>

@@ -89,3 +89,5 @@ acceptance remain deferred operator checks. Historical passive agent resource
 measurements are not current active-capture CPU/RAM guarantees. Vendor image
 advisories remain open; a successful CI gate does not establish a clean VA or
 production certification.
+
+<sub>Created by Pratik Srivastava</sub>

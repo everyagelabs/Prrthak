@@ -8,7 +8,9 @@ Prṛthak discovers servers and their real listening services, shows permitted s
 
 Private repository: [Prṛthak](https://github.com/everyagelabs/Prrthak). Product owner: **Airtel Payments Bank**.
 
-**Local + SSO authentication in current source:** fresh empty installations offer temporary `admin` / `admin` as Super Admin, with a mandatory password change before workspace access. Local users, Microsoft Entra OIDC and configured SAML use the same three roles. Only Super Admin provisions accounts and grants roles. The built-in `admin` cannot be deleted, disabled, renamed or demoted; password changes/reset and session revocation remain available. See [Local and SAML login](docs/local-and-saml-login.md); the illustrated pilot baseline has not been regenerated for these screens.
+**Start with pictures:** [Install the controller](docs/guide/simple/controller-installation.html) ([PDF](docs/guide/simple/controller-installation.pdf)) · [Install the agent](docs/guide/simple/agent-installation.html) ([PDF](docs/guide/simple/agent-installation.pdf)) · [All requested features in simple language](docs/features-in-simple-language.md). The two installation guides are separate: prepare the control room first, then add your servers. OS/runtime preparation and verified release staging come before the one installer invocation; configuration is then done through the GUI.
+
+**Local + SSO authentication in current source:** fresh empty installations offer temporary `admin` / `admin` as Super Admin, with a mandatory password change before workspace access. Local users, Microsoft Entra OIDC and configured SAML use the same three roles. Only Super Admin provisions accounts and grants roles. The built-in `admin` cannot be deleted, disabled, renamed or demoted; password changes/reset and session revocation remain available. See [Local and SAML login](docs/local-and-saml-login.md) and the current controller picture guide above. The older combined pilot guide remains an unchanged historical baseline.
 
 [0.13 rollout verification](docs/release-0.13.0-pilot.1.md) · [0.12 GUI completion release](docs/release-0.12.0-pilot.1.md) · [0.11 endpoint/health](docs/release-0.11.0-pilot.1.md) · [0.10 fleet enrollment](docs/release-0.10.0-pilot.1.md) · [0.9 capture/security release](docs/release-0.9.0-pilot.1.md) · [Whole-server default-deny workflow](docs/whole-server-default-deny.md).
 
@@ -60,7 +62,7 @@ The numbered register retains the original requirements and later explicit reque
 | R33 | Agent/controller CPU, RAM, packages, VM and Git details | The sizing section below distinguishes historical measurements from planning allocations. Source, installer and package workflows are in this private repository. |
 | R34 | Application-security review, vulnerability assessment and code fixes | Scoped source review, adversarial regressions, static/dependency checks and remediation reports are maintained. Tool warnings are triaged; passing tests or scans do not establish that no vulnerabilities remain. |
 | R35 | Prepare a 20-server pilot, with native/DC tests later | Start with one controller and monitoring, enroll a small mixed fleet, review inventory/evidence and exercise approved changes gradually. The actual pilot and deferred infrastructure tests are not claimed as completed. |
-| R36 | One illustrated explanation of prerequisites, roles, ports and flows | The linked illustrated documents retain their historical snapshot labels. Current workflows, including whole-server deny and 0.9 capture, are described in the Markdown requirements map, architecture, API and pilot guide. |
+| R36 | One illustrated explanation of prerequisites, roles, ports and flows | Separate current controller/agent picture guides provide short steps, communication diagrams and GUI examples. The plain-language feature guide explains the requested behavior. Earlier illustrated exports retain their historical snapshot labels. |
 | R37 | Separate management, control and discovery communication ports | Installed listener roles separate browser/admin traffic (**8787**), agent policy/authorization (**8788**) and agent enrollment/report/flow uploads (**8789**). The API admits routes according to the actual listener, not a caller-supplied header. |
 | R38 | Application groups such as Platform, Billing and Payments | Saved static/dynamic application groups support inventory browsing, target/source selection, policies and scoped operations. Future matching enrolled servers can join dynamic groups. |
 | R39 | Protect installed code and trace releases to Git | Compiled agents, restricted read-only containers, pinned image identities, detached Ed25519 signatures and startup integrity checks reject changed release bytes. Root/Git owners retain authority; this is not complete source encryption. See [release integrity](docs/release-integrity.md). |
@@ -237,7 +239,9 @@ These choices support the requirements above. They are not substitutes for the r
 
 ## Documentation, evidence and development
 
-The [0.14 illustrated PDF](docs/guide/prthak-pilot-0.14.0.pdf) and [HTML guide](docs/guide/prthak-pilot-0.14.0.html) remain the unchanged pilot baseline for installation, communication, sizing and operational evidence. They have not been regenerated for the Local/SAML login addition; use [current authentication steps](docs/local-and-saml-login.md) for those screens. Older illustrated PDFs remain historical. The historical 0.14 behavior and acceptance limits are recorded in the [Markdown requirements map](docs/requirements-delivery-map.md), current operational documents and [0.14 release evidence](docs/release-0.14.0-pilot.1.md).
+Start with the current [controller picture guide](docs/guide/simple/controller-installation.html) ([PDF](docs/guide/simple/controller-installation.pdf)), [agent picture guide](docs/guide/simple/agent-installation.html) ([PDF](docs/guide/simple/agent-installation.pdf)) and [plain-language feature explanation](docs/features-in-simple-language.md). The guides describe the current workflow without claiming native OS or DC acceptance.
+
+The [0.14 illustrated PDF](docs/guide/prthak-pilot-0.14.0.pdf) and [HTML guide](docs/guide/prthak-pilot-0.14.0.html) remain an unchanged historical baseline. They have not been regenerated for the Local/SAML login addition. Historical behavior and acceptance limits remain recorded in the [requirements map](docs/requirements-delivery-map.md), current operational documents and [0.14 release evidence](docs/release-0.14.0-pilot.1.md).
 
 - [User requirements and delivery map](output/pdf/prthak-user-requirements-and-delivery-map.pdf)
 - [Architecture and operations handbook](output/pdf/prthak-architecture-operations-guide.pdf)
@@ -258,3 +262,5 @@ Keep runtime databases, `.local/`, private setup files, secrets, keys, certifica
 ---
 
 © 2026 Airtel Payments Bank. All rights reserved.
+
+<sub>Created by Pratik Srivastava</sub>

@@ -101,3 +101,5 @@ from a certificate fingerprint. This does not affect a fresh pilot deployment.
 
 Native RHEL 8/9, Ubuntu 26.04, real DC/Entra and workload acceptance remain
 deployment checks. See [the GUI pilot guide](pilot-gui-installation.md).
+
+<sub>Created by Pratik Srivastava</sub>

@@ -1,6 +1,20 @@
 # Illustrated deployment and onboarding guides
 
-The current **0.14.0 illustrated pilot guide** is available as [PDF](prthak-pilot-0.14.0.pdf) and [self-contained HTML](prthak-pilot-0.14.0.html). It covers current components, ports, GUI configuration, one-command installation, central metadata review, per-port learning, safe publication, rollout evidence, sizing and platform operations. Its diagrams explain workflows; they are not relabeled historical screenshots or native acceptance evidence. Regenerate with `python3 scripts/build-current-pilot-guide.py` using ReportLab.
+## Start here with the simple picture guides
+
+The **0.16 controller guide** has nine short picture-led steps: [open in a browser](simple/controller-installation.html) or [download PDF](simple/controller-installation.pdf). It separates Linux preparation from the one-command application install and explains first login, mandatory password change and GUI configuration.
+
+The **0.16 agent guide** has nine short picture-led steps: [open in a browser](simple/agent-installation.html) or [download PDF](simple/agent-installation.pdf). It shows one reusable fleet setup, matching CPU packages, the RHEL/Ubuntu commands, automatic inventory and central location/tag assignment.
+
+[Features in simple language](../features-in-simple-language.md) explains all 47 requirement groups through seven original diagrams. Every new guide page and the project Markdown documentation carry the requested author note. Existing historical PDF/HTML exports and signed release archives remain unchanged.
+
+Screenshots are actual v0.16 local synthetic preview captures, explicitly labelled. Diagrams explain the workflow; they do not certify native OS, live IdP or DC acceptance. Setup downloads are disabled in the synthetic preview. Native RHEL/Ubuntu validation and the real pilot remain deployment work.
+
+Rebuild the new assets with `scripts/build-simple-guide-diagrams.py`, then `scripts/build-simple-installation-guides.py`, using approved Python with Pillow and ReportLab. `simple/verification.json` records artifact hashes, original captures, pixel-preserving crops and layout measurements. HTML embeds every image, includes copyable commands, and can be read without a server.
+
+## Historical 0.14 illustrated baseline
+
+The unchanged **0.14.0 illustrated pilot guide** remains available as [PDF](prthak-pilot-0.14.0.pdf) and [self-contained HTML](prthak-pilot-0.14.0.html). It covers its recorded components, ports, GUI configuration, one-command installation, central metadata review, per-port learning, safe publication, rollout evidence, sizing and platform operations. Its diagrams explain workflows; they are not relabeled historical screenshots or native acceptance evidence. The historical builder is `scripts/build-current-pilot-guide.py`; do not overwrite the archived edition to represent later behavior.
 
 ## Authentication screens added after the pilot baseline
 
@@ -50,3 +64,5 @@ The unchanged 37-page PDF/HTML remains that historical baseline. The [31 October
 A local project release-signing authority is not organization-approved or independently distributed. Before DC use, adopt its public fingerprint through an approved process. Native licensed RHEL 8/9 and target Ubuntu/systemd, native database-host watchdog reset/fencing, physical site/WAN failure, live Entra/MFA, real providers and measured pilot/RPO/RTO remain external acceptance. No real 20-server pilot or production readiness is claimed. Missing current PKI/Vault/live safety ledger blocks online recovery; complete compromised-CA recovery is separately fenced and offline.
 
 Source references: current code and tests; README; authentication, security, architecture, HA, API, managed-enforcement, policy-signing, Linux, source-set and capacity runbooks; agent sample and installer. See `docs/release-0.6.md` for the release/evidence summary.
+
+<sub>Created by Pratik Srivastava</sub>

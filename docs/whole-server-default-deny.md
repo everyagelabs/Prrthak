@@ -110,3 +110,5 @@ are recorded with the release. Native RHEL 8/9, Ubuntu 26.04, SELinux/systemd,
 actual bastion routes and DC/DR acceptance remain required before the real
 20-server enforcement pilot. Use a small canary scope with approved application
 reachability tests before extending a rollout.
+
+<sub>Created by Pratik Srivastava</sub>

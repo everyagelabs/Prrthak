@@ -481,3 +481,5 @@ and remains bounded even after upload grace, so an old restart receipt does
 not block a healthy heartbeat. Recovery makes retained observations historical.
 Historical witnesses remain inspectable and are not displayed as a current
 green pass. See [workflow and limitations](policy-rollout-verification.md).
+
+<sub>Created by Pratik Srivastava</sub>

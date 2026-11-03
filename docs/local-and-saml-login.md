@@ -110,3 +110,5 @@ This addition changes human sign-in and application authorization. Endpoint enro
 Repository tests exercise real locally signed SAML fixtures, wrong trust/identity/time/replay cases, local credential and first-login restrictions, role/session revocation and shared GUI workflows. They do not connect to your live IdP or prove its MFA/Conditional Access, reverse-proxy cookie behavior, cross-site HA operation or native endpoint/DC behavior. Validate the actual organization configuration before using it in the real pilot.
 
 © 2026 Airtel Payments Bank. All rights reserved.
+
+<sub>Created by Pratik Srivastava</sub>

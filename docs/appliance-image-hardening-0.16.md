@@ -31,3 +31,5 @@ The [public scan summary](../output/security/appliance-0.16-scan-summary.json) r
 The reusable [etcd TLS validator](../deploy/appliance/validate_etcd.py) exercises nonroot/read-only operation, client/peer mTLS, unauthenticated and wrong-CA refusal, quorum operations, leader loss/rejoin and snapshot save/status/restore. Controller, database and router validation additionally covers the required Python imports, signed startup/tamper rejection, verified HTTPS, backups and supported HA operations. Live organization IdP, native RHEL/Ubuntu and physical DC acceptance remain deferred.
 
 © 2026 Airtel Payments Bank. All rights reserved.
+
+<sub>Created by Pratik Srivastava</sub>

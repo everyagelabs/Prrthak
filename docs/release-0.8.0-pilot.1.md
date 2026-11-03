@@ -36,3 +36,5 @@ The passive agent resource baseline is historical and excludes this enforcement 
 ## Remaining deployment acceptance
 
 Native RHEL 8/9 and Ubuntu 26.04 VMs, SELinux/systemd, real Entra sign-in, bastion routes, DC/WAN/LB/quorum/fencing and endurance acceptance remain deferred. The real 20-server enforcement pilot starts after those operator-run checks, with a small canary. Existing upstream/vendor image findings remain open as documented in [the security assessment](security-assessment-2026-10-31.md). Development release trust is documented in [release integrity](release-integrity.md); organization-approved distribution is separate.
+
+<sub>Created by Pratik Srivastava</sub>

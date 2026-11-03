@@ -35,3 +35,5 @@ CI keeps complete image reports. It gates available high/critical fixes; unknown
 The release signer is a development authority outside the source/Documents tree, not an organizational offline/HSM signer. Public trust must be independently approved and delivered. Online policy signing remains a controller trust boundary. See [release integrity](release-integrity.md).
 
 Use the [review remediation map](review-remediation-0.7.md) for B1–B5, M1–M8 and S1–S6. The 20-server pilot should begin with inventory/monitoring and complete the deferred native lockout, kernel, systemd and firewalld checks before enforcement. Review remaining vendor findings and organization-specific regulatory evidence with the deployment/security owner.
+
+<sub>Created by Pratik Srivastava</sub>

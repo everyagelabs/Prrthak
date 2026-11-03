@@ -153,3 +153,5 @@ validate changed 0.9 code. Native RHEL/Ubuntu, real workload/endurance, live
 organization Entra and DC/WAN/fencing acceptance remain separate. Synthetic demo
 hosts show unsupported native capture and explicit demo gaps; historical seeded
 rows remain legacy examples and are never relabelled as real kernel evidence.
+
+<sub>Created by Pratik Srivastava</sub>

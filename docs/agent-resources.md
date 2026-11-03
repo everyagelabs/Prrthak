@@ -29,3 +29,5 @@ ps -p "$agent_pid" -o pid,etime,pcpu,rss,args
 ```
 
 `rss` is KiB and `%CPU` is a process lifetime average. This spot check omits helper processes and does not replace full service/cgroup and learning-load measurements.
+
+<sub>Created by Pratik Srivastava</sub>

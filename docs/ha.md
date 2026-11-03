@@ -136,3 +136,5 @@ For an externally operated HA service, supply both private metadata and traffic 
 `deploy/ha/haproxy-active-active.cfg.example`, `haproxy-dc-dr.cfg.example`, `prthak-controller.service` and environment examples require explicit operator adaptation, trusted readiness checks and actual installed-package validation. Do not start a preconfigured --ha template against a blank setup. The older bound one-time DR join-code interface remains an advanced compatibility path; the normal appliance GUI uses shared cluster-password joining with explicit peer trust review.
 
 Primary references: [PostgreSQL 16 replication](https://www.postgresql.org/docs/16/warm-standby.html), [Patroni synchronous replication](https://patroni.readthedocs.io/en/latest/replication_modes.html), [Patroni watchdog](https://patroni.readthedocs.io/en/latest/watchdog.html), [etcd transport security](https://etcd.io/docs/v3.6/op-guide/security/), and [HAProxy 2.8 configuration](https://docs.haproxy.org/2.8/configuration.html).
+
+<sub>Created by Pratik Srivastava</sub>

@@ -22,3 +22,5 @@ Configuration file is valid
 ```
 
 This is syntax/trust-file parsing verification. Actual backend TLS/HTTP connectivity, client-certificate passthrough, LB failover, database promotion and site loss were not exercised by these containers. Replace all placeholders and validate the final configuration on the installed target package before rollout. See `docs/ha.md` for the application/PostgreSQL acceptance coverage and deployment drills.
+
+<sub>Created by Pratik Srivastava</sub>

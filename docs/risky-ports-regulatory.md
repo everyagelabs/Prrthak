@@ -28,3 +28,5 @@ Temporary learning and the optional rolling hit history are operational discover
 ## Scope and limits
 
 The tool reads existing discovery data; it does not perform an intrusive port or vulnerability scan. All classified listeners use a compact cache, bounded by the endpoint’s 2,000-listener input limit. Risk-page filters and counts use that complete cache before pagination. Detailed endpoint panels retain the first 256 full reasons and mark the limit explicitly. Overlapping rules select the highest severity, then the narrower range; those choices are deterministic. Missing classification is shown as pending rather than a verified zero. Native discovery, actual network reachability, service encryption/authentication, independently reviewed VA/PT and DC/DR acceptance remain separate evidence.
+
+<sub>Created by Pratik Srivastava</sub>

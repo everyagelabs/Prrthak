@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1260" height="830" viewBox="0 0 1260 830" role="img" aria-labelledby="title desc">
+<title id="title">Manage platform settings in the GUI</title>
+<desc id="desc">The local manager writes protected configuration and supervises supported changes. Created by Pratik Srivastava.</desc>
+<rect width="1260" height="830" fill="#FFFFFF"/>
+<text x="44" y="28.0" font-family="DejaVu Sans,sans-serif" font-size="17" font-weight="600" fill="#E60012" text-anchor="start" dominant-baseline="text-before-edge">Prṛthak  /  Simple visual guide</text>
+<text x="44" y="66.0" font-family="DejaVu Sans,sans-serif" font-size="35" font-weight="600" fill="#13151C" text-anchor="start" dominant-baseline="text-before-edge">Manage platform settings in the GUI</text>
+<text x="44" y="117.0" font-family="DejaVu Sans,sans-serif" font-size="21" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">The local manager writes protected configuration and supervises supported changes.</text>
+<rect x="44" y="201" width="276" height="195" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="75.0" y="227.16666666666666" width="30.0" height="40.833333333333336" rx="3.3333333333333335" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="81.66666666666667" y1="241.33333333333334" x2="98.33333333333334" y2="241.33333333333334" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="81.66666666666667" y1="248.83333333333334" x2="98.33333333333334" y2="248.83333333333334" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="81.66666666666667" y1="256.3333333333333" x2="92.5" y2="256.3333333333333" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<circle cx="101.66666666666667" cy="262.1666666666667" r="8.333333333333334" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="98.33333333333334" y1="262.1666666666667" x2="100.83333333333334" y2="264.6666666666667" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="100.83333333333334" y1="264.6666666666667" x2="105.83333333333334" y2="258.8333333333333" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="65" y="296.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Certificates</text>
+<text x="65" y="341.0" font-family="DejaVu Sans,sans-serif" font-size="16" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">PEM, PKCS12 or generate</text>
+<rect x="346" y="201" width="276" height="195" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="373.6666666666667" y="230.5" width="36.66666666666667" height="35.833333333333336" rx="3.3333333333333335" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="373.6666666666667" y1="241.33333333333334" x2="410.3333333333333" y2="241.33333333333334" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="383.6666666666667" y1="230.5" x2="383.6666666666667" y2="241.33333333333334" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="400.3333333333333" y1="230.5" x2="400.3333333333333" y2="241.33333333333334" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="391.1666666666667" y1="247.16666666666666" x2="391.1666666666667" y2="259.6666666666667" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="386.1666666666667" y1="254.66666666666666" x2="391.1666666666667" y2="259.6666666666667" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="391.1666666666667" y1="259.6666666666667" x2="396.1666666666667" y2="254.66666666666666" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="367" y="296.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Backups</text>
+<text x="367" y="341.0" font-family="DejaVu Sans,sans-serif" font-size="16" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Create, schedule, recover</text>
+<rect x="648" y="201" width="276" height="195" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="676.5" y="232.16666666666666" width="35.0" height="30.833333333333336" rx="4.166666666666667" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<ellipse cx="694.0" cy="233.41666666666666" rx="17.5" ry="6.25" fill="white" stroke="#E60012" stroke-width="2.3"/>
+<line x1="677.3333333333334" y1="248.0" x2="710.6666666666666" y2="248.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="677.3333333333334" y1="258.0" x2="710.6666666666666" y2="258.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="669" y="296.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Storage</text>
+<text x="669" y="341.0" font-family="DejaVu Sans,sans-serif" font-size="16" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Choose a protected data path</text>
+<rect x="950" y="201" width="276" height="195" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="989.3333333333334" y="227.16666666666666" width="13.333333333333334" height="11.666666666666668" rx="2.5" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="996.0" y1="238.83333333333334" x2="996.0" y2="248.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="979.3333333333334" y1="248.0" x2="1012.6666666666666" y2="248.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="979.3333333333334" y1="248.0" x2="979.3333333333334" y2="256.3333333333333" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<rect x="973.5" y="256.3333333333333" width="11.666666666666668" height="10.833333333333334" rx="2.5" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="996.0" y1="248.0" x2="996.0" y2="256.3333333333333" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<rect x="990.1666666666666" y="256.3333333333333" width="11.666666666666668" height="10.833333333333334" rx="2.5" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="1012.6666666666666" y1="248.0" x2="1012.6666666666666" y2="256.3333333333333" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<rect x="1006.8333333333334" y="256.3333333333333" width="11.666666666666668" height="10.833333333333334" rx="2.5" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<text x="971" y="296.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Cluster</text>
+<text x="971" y="341.0" font-family="DejaVu Sans,sans-serif" font-size="16" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Join approved site nodes</text>
+<rect x="44" y="425" width="276" height="195" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<circle cx="90.0" cy="472.0" r="20.0" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="90.0" y1="459.5" x2="90.0" y2="472.8333333333333" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="90.0" y1="472.8333333333333" x2="99.16666666666667" y2="477.8333333333333" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="65" y="520.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Agent polling</text>
+<text x="65" y="565.0" font-family="DejaVu Sans,sans-serif" font-size="16" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Global, group or server scope</text>
+<rect x="346" y="425" width="276" height="195" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="370.3333333333333" y="452.8333333333333" width="43.333333333333336" height="32.5" rx="3.3333333333333335" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="370.3333333333333" y1="461.1666666666667" x2="413.6666666666667" y2="461.1666666666667" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<circle cx="376.1666666666667" cy="457.0" r="1.0" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="381.1666666666667" cy="457.0" r="1.0" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="386.1666666666667" cy="457.0" r="1.0" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<line x1="387.0" y1="486.1666666666667" x2="387.0" y2="492.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="397.0" y1="486.1666666666667" x2="397.0" y2="492.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="382.0" y1="492.0" x2="402.0" y2="492.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="367" y="520.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Application port</text>
+<text x="367" y="565.0" font-family="DejaVu Sans,sans-serif" font-size="16" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Review and change the port</text>
+<rect x="648" y="425" width="276" height="195" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<line x1="681.5" y1="452.8333333333333" x2="681.5" y2="491.1666666666667" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="694.0" y1="452.8333333333333" x2="694.0" y2="491.1666666666667" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="706.5" y1="452.8333333333333" x2="706.5" y2="491.1666666666667" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<rect x="676.5" y="461.1666666666667" width="10.0" height="6.666666666666667" rx="1.6666666666666667" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<rect x="689.0" y="476.1666666666667" width="10.0" height="6.666666666666667" rx="1.6666666666666667" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<rect x="701.5" y="466.1666666666667" width="10.0" height="6.666666666666667" rx="1.6666666666666667" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<text x="669" y="520.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Services</text>
+<text x="669" y="565.0" font-family="DejaVu Sans,sans-serif" font-size="16" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Supported start and restart</text>
+<rect x="950" y="425" width="276" height="195" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<circle cx="996.0" cy="461.1666666666667" r="8.333333333333334" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<rect x="981.0" y="474.5" width="30.0" height="18.333333333333336" rx="10.833333333333334" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<text x="971" y="520.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Users and SSO</text>
+<text x="971" y="565.0" font-family="DejaVu Sans,sans-serif" font-size="16" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Local, Entra or SAML</text>
+<text x="630" y="684.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#E60012" text-anchor="middle" dominant-baseline="text-before-edge">No manual .env editing for normal configuration</text>
+<line x1="44" y1="758" x2="1216" y2="758" stroke="#DEE0E6" stroke-width="1" stroke-linecap="round"/>
+<text x="44" y="773.0" font-family="DejaVu Sans,sans-serif" font-size="15" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Feature illustration • database HA needs three eligible voters and real fencing; physical DC acceptance is still pending.</text>
+<text x="1216" y="800.0" font-family="DejaVu Sans,sans-serif" font-size="14" font-weight="400" fill="#686B78" text-anchor="end" dominant-baseline="text-before-edge">Created by Pratik Srivastava</text>
+</svg>

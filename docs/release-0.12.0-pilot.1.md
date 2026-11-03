@@ -105,3 +105,5 @@ Vendor image advisories remain open. Passing source tests, image-integrity
 checks or capacity measurements does not establish a clean VA or production
 certification. Local payload signatures use the existing development authority;
 production signing and independent trust distribution remain operational work.
+
+<sub>Created by Pratik Srivastava</sub>

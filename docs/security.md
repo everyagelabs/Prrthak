@@ -53,3 +53,5 @@ Supervised GUI recovery requires a verified local database archive plus the curr
 Demo mode is loopback-only, unauthenticated and explicitly synthetic. It never contacts real endpoints or changes firewall rules. Keep generated keys, tokens, sessions and databases in ignored private directories. Never commit populated secrets. Cross-compilation and simulation do not prove Linux enforcement.
 
 Source-bank preparation is a separate explicit GUI maintenance action; it can perform a controlled reload only after supported runtime/permanent parity, fresh management checks and watchdog setup. It never grants access or enables enforcement. See [source-set preparation](source-bank-preparation.md).
+
+<sub>Created by Pratik Srivastava</sub>

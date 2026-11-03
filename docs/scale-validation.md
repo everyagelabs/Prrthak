@@ -26,3 +26,5 @@ python3 scripts/benchmark-fleet.py --servers 5000 --operations 5000
 For PostgreSQL, install the optional driver and provide `SEG_TEST_DATABASE_URL` and `SEG_TEST_TRAFFIC_DATABASE_URL` pointing to **new empty databases named `prthak_test_scale_*`**. The script refuses populated metadata stores or other database names. It does not connect to real endpoints. Use `--backend postgresql` and optionally `--output /path/to/result.json`.
 
 The run excludes network latency, TLS handshakes, 5,000 real processes, endpoint rule capacity, burst enrollment, temporary flow ingestion, simultaneous sustained traffic, long-duration soak, dashboard browser performance, database promotion and multi-site failure. The 20-server pilot and 5,000-server deployment remain unstarted. This is a measured development baseline, not fleet certification.
+
+<sub>Created by Pratik Srivastava</sub>

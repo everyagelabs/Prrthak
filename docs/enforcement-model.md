@@ -90,3 +90,5 @@ DC deployment/native operating-system and management-path acceptance are handled
 by the operator. No infrastructure-host enforcement is approved by this document:
 controller, database and LB ingress protection still requires topology-specific
 validation.
+
+<sub>Created by Pratik Srivastava</sub>

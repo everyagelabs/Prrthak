@@ -53,3 +53,5 @@ Complete compromised-controller/CA decommission requires fenced offline CA and a
 - [Entra identity and approval](authentication.md), [managed enforcement](managed-enforcement.md), [source-bank setup](ipset-enforcement.md), [policy/release signing](policy-signing.md)
 - [HA/recovery runbook](ha.md), [security boundary](security.md), [Linux evidence](linux-validation.md)
 - [Measured HTTPS/mTLS workload](mtls-scale-validation.md) and [earlier synthetic compilation benchmark](scale-validation.md)
+
+<sub>Created by Pratik Srivastava</sub>

@@ -138,3 +138,5 @@ etcd/bbolt's initial 10 GiB memory mapping returned `ENOMEM` under emulation.
 failover result is claimed from that run.** A native Ubuntu 24.04 AMD64 three-host
 acceptance test with the selected real watchdog/reset device remains a deployment
 gate. No supplied real target hosts or production cluster were configured.
+
+<sub>Created by Pratik Srivastava</sub>

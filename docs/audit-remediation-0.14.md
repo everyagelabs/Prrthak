@@ -24,3 +24,5 @@ The [release record](release-0.14.0-pilot.1.md) binds final aggregate validation
 Broader roadmap items remain separate: canary orchestration, scheduled policy windows, traffic what-if, fleet upgrades, specialized SIEM output, tiered retention, encrypted backup payloads, local rescue tooling and organization-approved signing. Passing this remediation does not establish native/DC readiness or a clean VA.
 
 © 2026 Airtel Payments Bank. All rights reserved.
+
+<sub>Created by Pratik Srivastava</sub>

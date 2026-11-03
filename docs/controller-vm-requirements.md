@@ -1,6 +1,6 @@
 # Controller VM requirements and 5,000-server profile
 
-2 November 2026 · 0.10.0 pilot candidate. These allocations are engineering starting recommendations, not certified hardware minima or a WAN/site-failover guarantee. DC deployment and native OS acceptance are deferred. The installer runs the controller/router on every management node; an approved database voter additionally runs PostgreSQL/Patroni and etcd on that same VM.
+3 November 2026 · 0.16.0 pilot candidate. These allocations are engineering starting recommendations, not certified hardware minima or a WAN/site-failover guarantee. DC deployment and native OS acceptance are deferred. The installer runs the controller/router on every management node; an approved database voter additionally runs PostgreSQL/Patroni and etcd on that same VM.
 
 | VM use | vCPU | RAM | OS / Docker disk | Separate DATA_ROOT SSD |
 | --- | ---: | ---: | ---: | ---: |
@@ -71,3 +71,5 @@ The installed split profile uses three actual TLS listeners with route admission
 Existing Entra provider/secret/callback changes and joined-profile convergence use GUI-supervised migration with the authorized Super Admin's verified candidate sign-in, exact Save/Apply, per-controller readiness and retained rollback context. This does not complete live Entra/DC acceptance. An authorized Admin's ordinary server/tag/policy Save takes effect directly after existing endpoint opt-ins and health/scope guards. There is no second-person requirement or bounded approval mode. Explicit imported deny/restrictive actions, restrictive learned edits/removal and destructive recovery retain extra confirmations by the same actor. User and privileged platform operations remain Super Admin responsibilities. See [authentication and provider migration](authentication.md).
 
 **Git is optional.** Install from a reviewed source checkout or the verified controller installation archive. The running controller and endpoint agent do not need Git. The installer builds/pulls container images and packages, so it needs approved registry/repository access or a separately prepared image-distribution process; the archive is not a complete offline image installer. Optional inert RPM/DEB endpoint packages only deliver the verified release under a versioned /opt directory; the family installer and GUI kit remain the activation path. See [controller installation](controller-installation.md), [RHEL/Ubuntu agent installation](linux-agent-installation.md), [native package delivery](native-agent-packages.md) and [0.7 review status](review-remediation-0.7.md).
+
+<sub>Created by Pratik Srivastava</sub>

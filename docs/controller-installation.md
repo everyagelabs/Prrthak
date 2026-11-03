@@ -1,5 +1,7 @@
 # Install the controller from a verified release
 
+New to Linux? Use the [simple controller picture guide](guide/simple/controller-installation.pdf), or its [browser edition with copyable commands](guide/simple/controller-installation.html).
+
 **Preferred 0.16.0 pilot flow:** after prerequisites and verified extraction, run
 `sudo ./scripts/install-controller.sh --gui-setup` once and complete configuration
 through the GUI. At the trusted HTTPS URL, a fresh empty account database uses
@@ -134,3 +136,5 @@ python3 scripts/package-controller.py --output-dir /private/release-output
 ```
 
 Unsigned output is for isolated lab use. Set `PRTHAK_RELEASE_SIGNING_KEY_FILE` to the separately provisioned private seed to invoke the existing detached-signature tool. The seed is never packaged. Existing output is refused unless `--overwrite` is explicitly supplied for a reviewed unpublished rebuild. The builder uses allowlisted public inputs, refuses selected symlinks/special files and populated secret fields in `.env.example`, normalizes archive paths/modes, and writes a per-file manifest plus checksum. These controls do not replace source review or the independent signature-verification decision.
+
+<sub>Created by Pratik Srivastava</sub>

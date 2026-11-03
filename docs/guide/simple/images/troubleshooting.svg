@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1260" height="950" viewBox="0 0 1260 950" role="img" aria-labelledby="title desc">
+<title id="title">If something does not look right</title>
+<desc id="desc">Pause and ask your server team before changing network security or firewall settings. Created by Pratik Srivastava.</desc>
+<rect width="1260" height="950" fill="#FFFFFF"/>
+<text x="44" y="28.0" font-family="DejaVu Sans,sans-serif" font-size="17" font-weight="600" fill="#E60012" text-anchor="start" dominant-baseline="text-before-edge">Prṛthak  /  Simple visual guide</text>
+<text x="44" y="66.0" font-family="DejaVu Sans,sans-serif" font-size="35" font-weight="600" fill="#13151C" text-anchor="start" dominant-baseline="text-before-edge">If something does not look right</text>
+<text x="44" y="117.0" font-family="DejaVu Sans,sans-serif" font-size="21" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Pause and ask your server team before changing network security or firewall settings.</text>
+<rect x="44" y="194" width="568" height="188" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="67.0" y="221.25" width="39.0" height="29.25" rx="3.0" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="67.0" y1="228.75" x2="106.0" y2="228.75" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<circle cx="72.25" cy="225.0" r="0.8999999999999999" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="76.75" cy="225.0" r="0.8999999999999999" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="81.25" cy="225.0" r="0.8999999999999999" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<line x1="82.0" y1="251.25" x2="82.0" y2="256.5" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="91.0" y1="251.25" x2="91.0" y2="256.5" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="77.5" y1="256.5" x2="95.5" y2="256.5" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="129" y="223.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Dashboard does not open</text>
+<text x="68" y="295" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Check installation, Docker, URL</text>
+<text x="68" y="329" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">and the approved network path.</text>
+<rect x="648" y="194" width="568" height="188" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="677.0" y="219.75" width="27.0" height="36.75" rx="3.0" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="683.0" y1="232.5" x2="698.0" y2="232.5" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="683.0" y1="239.25" x2="698.0" y2="239.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="683.0" y1="246.0" x2="692.75" y2="246.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<circle cx="701.0" cy="251.25" r="7.5" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="698.0" y1="251.25" x2="700.25" y2="253.5" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="700.25" y1="253.5" x2="704.75" y2="248.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="733" y="223.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Certificate warning</text>
+<text x="672" y="295" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Verify hostname and trusted CA.</text>
+<text x="672" y="329" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Do not bypass trust checks.</text>
+<rect x="44" y="406" width="568" height="188" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="70.0" y="432.5" width="33.0" height="14.25" rx="3.0" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<rect x="70.0" y="453.5" width="33.0" height="14.25" rx="3.0" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="76.0" cy="439.25" r="1.5" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="76.0" cy="460.25" r="1.5" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<line x1="82.75" y1="439.25" x2="96.25" y2="439.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="82.75" y1="460.25" x2="96.25" y2="460.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<circle cx="100.75" cy="464.0" r="7.5" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="97.0" y1="464.0" x2="100.0" y2="467.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="100.0" y1="467.0" x2="105.25" y2="460.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="129" y="435.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Server does not appear</text>
+<text x="68" y="507" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Check ports 8788 and 8789,</text>
+<text x="68" y="541" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">time and enrollment expiry.</text>
+<rect x="648" y="406" width="568" height="188" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="677.0" y="431.75" width="27.0" height="36.75" rx="3.0" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="683.0" y1="444.5" x2="698.0" y2="444.5" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="683.0" y1="451.25" x2="698.0" y2="451.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="683.0" y1="458.0" x2="692.75" y2="458.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="733" y="435.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Wrong OS or CPU package</text>
+<text x="672" y="507" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Ask for the matching supported</text>
+<text x="672" y="541" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Linux family and CPU release.</text>
+<rect x="44" y="618" width="568" height="188" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<polygon points="86.5,643.0 102.25,649.75 100.0,667.0 94.75,676.0 86.5,682.75 78.25,676.0 73.0,667.0 70.75,649.75" fill="#FFFFFF" stroke="#E60012" stroke-width="2.4"/>
+<line x1="79.0" y1="661.75" x2="85.0" y2="667.75" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="85.0" y1="667.75" x2="94.75" y2="656.5" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="129" y="647.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">UFW is already active</text>
+<text x="68" y="719" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Keep it running. Review a separate</text>
+<text x="68" y="753" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">migration before enforcement.</text>
+<rect x="648" y="618" width="568" height="188" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="677.0" y="643.75" width="27.0" height="36.75" rx="3.0" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="683.0" y1="656.5" x2="698.0" y2="656.5" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="683.0" y1="663.25" x2="698.0" y2="663.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="683.0" y1="670.0" x2="692.75" y2="670.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="733" y="647.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Policy is not applied</text>
+<text x="672" y="719" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Check monitor mode and the</text>
+<text x="672" y="753" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">reason shown in rollout status.</text>
+<text x="630" y="861.0" font-family="DejaVu Sans,sans-serif" font-size="21" font-weight="600" fill="#E60012" text-anchor="middle" dominant-baseline="text-before-edge">A screenshot or installation message alone does not prove live firewall protection.</text>
+<line x1="44" y1="878" x2="1216" y2="878" stroke="#DEE0E6" stroke-width="1" stroke-linecap="round"/>
+<text x="44" y="893.0" font-family="DejaVu Sans,sans-serif" font-size="15" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Troubleshooting illustration • native RHEL, Ubuntu and physical DC testing remain deployment acceptance work.</text>
+<text x="1216" y="920.0" font-family="DejaVu Sans,sans-serif" font-size="14" font-weight="400" fill="#686B78" text-anchor="end" dominant-baseline="text-before-edge">Created by Pratik Srivastava</text>
+</svg>

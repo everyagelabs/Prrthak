@@ -73,3 +73,5 @@ sudo /opt/prthak-agent/0.15.0-linux-amd64/scripts/install-agent-ubuntu.sh \
 For arm64 use the matching `0.15.0-linux-arm64` directory. OS dependencies, running firewalld, UFW migration and preservation of management access remain explicit prerequisites. Initial GUI kits remain monitor-only; later signed configuration/policy reviews explicitly authorize firewall opt-ins.
 
 See [GUI pilot installation](pilot-gui-installation.md), [family prerequisites](linux-agent-installation.md) and [managed enforcement](managed-enforcement.md). Package construction and payload inspection do not establish native firewalld behavior. Native RHEL 8/9, Ubuntu 26.04 and DC/DR acceptance remain deferred until disposable test hosts are provided.
+
+<sub>Created by Pratik Srivastava</sub>

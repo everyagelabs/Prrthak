@@ -57,3 +57,5 @@ The local checks below identify the candidate boundary. GitHub CI and package ma
 | Signed controller, endpoint tar, RPM/DEB artifact manifest and development-trust identity | Detached Ed25519 manifests bind exact archive bytes, source commit/tag and provenance. Runtime manifest verifies code before import. Development trust ID `98ba67b3670c9d3514867d645be89b81`; organizational offline/HSM authority remains external. [Release integrity](release-integrity.md). |
 
 The [VM allocations](controller-vm-requirements.md) are planning allowances. Historical [agent resource measurements](agent-resources.md) predate 0.7, the faster pilot cadence and continuous monitoring. The 20-server pilot and real 5,000-server lifecycle/enforcement acceptance remain separate from local virtual-identity capacity evidence.
+
+<sub>Created by Pratik Srivastava</sub>

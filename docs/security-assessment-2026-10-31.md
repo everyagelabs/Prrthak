@@ -113,3 +113,5 @@ A separate 95-second passive Linux ARM64/Ubuntu 26.04 container probe used the e
 The audit is a finite source/dynamic/dependency assessment, not an independent production penetration test or security certification. The 20-server pilot and real 5,000-endpoint rollout have not started.
 
 The [machine-readable assessment](../output/security/assessment-2026-10-31.json) and [SHA-256 source/evidence manifest](../output/security/evidence-manifest-2026-10-31.json) bind the final local artifacts. The manifest records hashes, without copying private keys, databases or fixture credentials. The original illustrated guide's PDF/HTML hashes and layout evidence remain unchanged; its verification metadata points to this later addendum.
+
+<sub>Created by Pratik Srivastava</sub>

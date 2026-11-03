@@ -41,3 +41,5 @@ The unchanged [0.14 illustrated guide](guide/prthak-pilot-0.14.0.html) remains a
 No organization IdP/Conditional Access/MFA, native RHEL/Ubuntu host, DC deployment or real 20-server enforcement pilot was used. Shared-database and isolated Linux fixtures do not certify WAN/LB/quorum/fencing or native OS behavior. Vendor appliance advisories remain retained; a passing gate is not a clean VA claim. The broader roadmap remains outside this change.
 
 © 2026 Airtel Payments Bank. All rights reserved.
+
+<sub>Created by Pratik Srivastava</sub>

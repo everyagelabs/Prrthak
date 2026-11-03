@@ -102,3 +102,5 @@ Vendor image advisories remain open. Passing tests or CI does not establish a
 clean VA or production certification. Local signed payloads use the existing
 development authority; production signing and independent trust distribution
 remain operational responsibilities.
+
+<sub>Created by Pratik Srivastava</sub>

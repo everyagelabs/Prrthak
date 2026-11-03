@@ -81,3 +81,5 @@ The verifier binds exact archive bytes, size and filename to the
 `prthak-package-manifest-v1` signature. A changed archive, unknown key or writable
 public trust file fails before extraction. The public verifier is not an excuse
 to execute an unverified newly downloaded agent binary.
+
+<sub>Created by Pratik Srivastava</sub>

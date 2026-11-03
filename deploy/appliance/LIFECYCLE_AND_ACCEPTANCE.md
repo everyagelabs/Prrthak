@@ -127,3 +127,5 @@ Primary behavior references: [etcd TLS reload](https://etcd.io/docs/v3.6/op-guid
 [Patroni reload](https://patroni.readthedocs.io/en/latest/rest_api.html),
 [PostgreSQL 16 TLS reload](https://www.postgresql.org/docs/16/ssl-tcp.html), and
 [PostgreSQL restore privileges](https://www.postgresql.org/docs/16/app-pgrestore.html).
+
+<sub>Created by Pratik Srivastava</sub>

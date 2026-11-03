@@ -11,3 +11,5 @@ The logo is used unchanged. It identifies the requested organization branding; P
 Dashboard layout reference: https://dribbble.com/shots/26652336-Cybersecurity-Dashboard-CyFocus
 
 The reference informs dashboard hierarchy and composition. No reference artwork is redistributed as a Prṛthak UI asset.
+
+<sub>Created by Pratik Srivastava</sub>

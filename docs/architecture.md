@@ -196,3 +196,5 @@ Full arbitrary existing-ipset definition/membership import remains outside the i
 This ordering follows the distinction between policy decisions and actual enforcement in [NIST SP 800-207](https://nvlpubs.nist.gov/nistpubs/specialpublications/NIST.SP.800-207.pdf), and the phased planning approach in [CISA's microsegmentation guidance](https://www.cisa.gov/sites/default/files/2025-07/ZT-Microsegmentation-Guidance-Part-One_508c.pdf). It is an engineering readiness assessment, not a regulatory compliance certification.
 
 Current fast discovery, optional dependency preparation, UFW preservation and missed-heartbeat semantics: [endpoint discovery and health](endpoint-discovery-and-preparation.md).
+
+<sub>Created by Pratik Srivastava</sub>

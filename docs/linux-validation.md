@@ -105,3 +105,5 @@ This additional runtime used root **inside the container**, with all capabilitie
 The prior official UBI 9.8 discovery/enrollment check remains valid. A new enforcement fixture attempted to install Red Hat firewalld from both official UBI 9 and UBI 8 BaseOS/AppStream/CodeReady Builder repositories on 30 October 2026. The repositories were reachable, but both package builds returned `No match for argument: firewalld`. No RHEL enforcement runtime was run, and no alternate distribution daemon was substituted.
 
 The UBI 9 base digest was `sha256:5f08e80aa970ae77712e75e5e857ac0b396abc900823c4d041c1150a9538a13f`; UBI 8 was `sha256:c322aa68f2d630b36b9faab64094357f62720be2f56f7099376ca2d6c4fe389b`. These identify attempted inputs, not successful enforcement results. An authorized RHEL lab VM/repository providing its firewalld package is required before the 20-server pilot. RHEL kernel, systemd, SELinux and polkit behavior must be tested there; cross-compilation or another distribution's daemon cannot certify those paths.
+
+<sub>Created by Pratik Srivastava</sub>

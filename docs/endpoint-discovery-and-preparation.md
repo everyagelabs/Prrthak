@@ -129,3 +129,5 @@ Five-second polling, repeated listener churn and active collection need fresh
 CPU/RAM/endurance measurement on the pilot hosts. Historical passive agent
 measurements and starting controller VM allocations remain labelled separately
 in [the pilot guide](pilot-gui-installation.md#expected-cpu-ram-and-storage).
+
+<sub>Created by Pratik Srivastava</sub>

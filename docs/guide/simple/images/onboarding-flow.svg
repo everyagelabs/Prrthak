@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1260" height="810" viewBox="0 0 1260 810" role="img" aria-labelledby="title desc">
+<title id="title">One fleet setup can enroll many servers</title>
+<desc id="desc">Download once. Copy securely. Each server receives its own identity. Created by Pratik Srivastava.</desc>
+<rect width="1260" height="810" fill="#FFFFFF"/>
+<text x="44" y="28.0" font-family="DejaVu Sans,sans-serif" font-size="17" font-weight="600" fill="#E60012" text-anchor="start" dominant-baseline="text-before-edge">Prṛthak  /  Simple visual guide</text>
+<text x="44" y="66.0" font-family="DejaVu Sans,sans-serif" font-size="35" font-weight="600" fill="#13151C" text-anchor="start" dominant-baseline="text-before-edge">One fleet setup can enroll many servers</text>
+<text x="44" y="117.0" font-family="DejaVu Sans,sans-serif" font-size="21" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Download once. Copy securely. Each server receives its own identity.</text>
+<rect x="48" y="193" width="335" height="160" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="79.0" y="216.75" width="27.0" height="36.75" rx="3.0" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="85.0" y1="229.5" x2="100.0" y2="229.5" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="85.0" y1="236.25" x2="100.0" y2="236.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="85.0" y1="243.0" x2="94.75" y2="243.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="131" y="218.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Agent package</text>
+<text x="72" y="278.0" font-family="DejaVu Sans,sans-serif" font-size="20" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">AMD64 or ARM64</text>
+<text x="72" y="305.0" font-family="DejaVu Sans,sans-serif" font-size="20" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Choose the matching CPU</text>
+<rect x="450" y="193" width="360" height="160" rx="18" fill="#FFF2F3" stroke="#E60012" stroke-width="1.5"/>
+<circle cx="485.5" cy="230.25" r="8.25" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="493.0" y1="235.5" x2="508.75" y2="251.25" stroke="#E60012" stroke-width="4" stroke-linecap="round"/>
+<line x1="502.0" y1="244.5" x2="507.25" y2="239.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="505.75" y1="248.25" x2="511.0" y2="243.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="533" y="218.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Private fleet setup</text>
+<text x="474" y="278.0" font-family="DejaVu Sans,sans-serif" font-size="18" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Reusable while profile is active</text>
+<text x="474" y="302.3" font-family="DejaVu Sans,sans-serif" font-size="18" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">No hostname list required</text>
+<line x1="384" y1="273" x2="450" y2="273" stroke="#E60012" stroke-width="3" stroke-linecap="round"/>
+<polygon points="450,273 440.3465918192059,278.2736809246462 440.3465918192059,267.7263190753538" fill="#E60012" stroke="#E60012" stroke-width="2"/>
+<rect x="884" y="193" width="328" height="160" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="922.5" y="216.75" width="12.0" height="10.5" rx="2.25" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="928.5" y1="227.25" x2="928.5" y2="235.5" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="913.5" y1="235.5" x2="943.5" y2="235.5" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="913.5" y1="235.5" x2="913.5" y2="243.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<rect x="908.25" y="243.0" width="10.5" height="9.75" rx="2.25" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="928.5" y1="235.5" x2="928.5" y2="243.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<rect x="923.25" y="243.0" width="10.5" height="9.75" rx="2.25" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="943.5" y1="235.5" x2="943.5" y2="243.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<rect x="938.25" y="243.0" width="10.5" height="9.75" rx="2.25" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<text x="967" y="218.0" font-family="DejaVu Sans,sans-serif" font-size="23" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Deploy to servers</text>
+<text x="908" y="278.0" font-family="DejaVu Sans,sans-serif" font-size="17" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">One installer on each host</text>
+<text x="908" y="300.95" font-family="DejaVu Sans,sans-serif" font-size="17" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Your team can automate this</text>
+<line x1="810" y1="273" x2="884" y2="273" stroke="#E60012" stroke-width="3" stroke-linecap="round"/>
+<polygon points="884,273 874.3465918192059,278.2736809246462 874.3465918192059,267.7263190753538" fill="#E60012" stroke="#E60012" stroke-width="2"/>
+<line x1="1048" y1="353" x2="1048" y2="415" stroke="#E60012" stroke-width="3" stroke-linecap="round"/>
+<line x1="228" y1="415" x2="1048" y2="415" stroke="#E60012" stroke-width="3" stroke-linecap="round"/>
+<line x1="223" y1="415" x2="223" y2="466" stroke="#E60012" stroke-width="3" stroke-linecap="round"/>
+<polygon points="223,466 217.72631907535376,456.3465918192059 228.27368092464624,456.3465918192059" fill="#E60012" stroke="#E60012" stroke-width="2"/>
+<rect x="58" y="466" width="330" height="178" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="86.0" y="490.5" width="33.0" height="14.25" rx="3.0" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<rect x="86.0" y="511.5" width="33.0" height="14.25" rx="3.0" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="92.0" cy="497.25" r="1.5" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="92.0" cy="518.25" r="1.5" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<line x1="98.75" y1="497.25" x2="112.25" y2="497.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="98.75" y1="518.25" x2="112.25" y2="518.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<circle cx="116.75" cy="522.0" r="7.5" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="113.0" y1="522.0" x2="116.0" y2="525.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="116.0" y1="525.0" x2="121.25" y2="518.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="141" y="491.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">RHEL server</text>
+<text x="82" y="551.0" font-family="DejaVu Sans,sans-serif" font-size="19" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Local private key</text>
+<text x="82" y="576.65" font-family="DejaVu Sans,sans-serif" font-size="19" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Own certificate and ID</text>
+<text x="223" y="673.0" font-family="DejaVu Sans,sans-serif" font-size="17" font-weight="600" fill="#237755" text-anchor="middle" dominant-baseline="text-before-edge">Automatically appears in Servers</text>
+<line x1="630" y1="415" x2="630" y2="466" stroke="#E60012" stroke-width="3" stroke-linecap="round"/>
+<polygon points="630,466 624.7263190753538,456.3465918192059 635.2736809246462,456.3465918192059" fill="#E60012" stroke="#E60012" stroke-width="2"/>
+<rect x="465" y="466" width="330" height="178" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="493.0" y="490.5" width="33.0" height="14.25" rx="3.0" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<rect x="493.0" y="511.5" width="33.0" height="14.25" rx="3.0" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="499.0" cy="497.25" r="1.5" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="499.0" cy="518.25" r="1.5" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<line x1="505.75" y1="497.25" x2="519.25" y2="497.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="505.75" y1="518.25" x2="519.25" y2="518.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<circle cx="523.75" cy="522.0" r="7.5" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="520.0" y1="522.0" x2="523.0" y2="525.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="523.0" y1="525.0" x2="528.25" y2="518.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="548" y="491.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Ubuntu server</text>
+<text x="489" y="551.0" font-family="DejaVu Sans,sans-serif" font-size="19" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Local private key</text>
+<text x="489" y="576.65" font-family="DejaVu Sans,sans-serif" font-size="19" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Own certificate and ID</text>
+<text x="630" y="673.0" font-family="DejaVu Sans,sans-serif" font-size="17" font-weight="600" fill="#237755" text-anchor="middle" dominant-baseline="text-before-edge">Automatically appears in Servers</text>
+<line x1="1037" y1="415" x2="1037" y2="466" stroke="#E60012" stroke-width="3" stroke-linecap="round"/>
+<polygon points="1037,466 1031.7263190753538,456.3465918192059 1042.2736809246462,456.3465918192059" fill="#E60012" stroke="#E60012" stroke-width="2"/>
+<rect x="872" y="466" width="330" height="178" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="900.0" y="490.5" width="33.0" height="14.25" rx="3.0" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<rect x="900.0" y="511.5" width="33.0" height="14.25" rx="3.0" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="906.0" cy="497.25" r="1.5" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="906.0" cy="518.25" r="1.5" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<line x1="912.75" y1="497.25" x2="926.25" y2="497.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="912.75" y1="518.25" x2="926.25" y2="518.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<circle cx="930.75" cy="522.0" r="7.5" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="927.0" y1="522.0" x2="930.0" y2="525.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="930.0" y1="525.0" x2="935.25" y2="518.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="955" y="491.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">More servers</text>
+<text x="896" y="551.0" font-family="DejaVu Sans,sans-serif" font-size="19" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Local private key</text>
+<text x="896" y="576.65" font-family="DejaVu Sans,sans-serif" font-size="19" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Own certificate and ID</text>
+<text x="1037" y="673.0" font-family="DejaVu Sans,sans-serif" font-size="17" font-weight="600" fill="#237755" text-anchor="middle" dominant-baseline="text-before-edge">Automatically appears in Servers</text>
+<line x1="44" y1="738" x2="1216" y2="738" stroke="#DEE0E6" stroke-width="1" stroke-linecap="round"/>
+<text x="44" y="753.0" font-family="DejaVu Sans,sans-serif" font-size="15" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Enrollment illustration • never copy an initialized agent identity or private key between servers.</text>
+<text x="1216" y="780.0" font-family="DejaVu Sans,sans-serif" font-size="14" font-weight="400" fill="#686B78" text-anchor="end" dominant-baseline="text-before-edge">Created by Pratik Srivastava</text>
+</svg>

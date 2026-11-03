@@ -52,3 +52,5 @@ The final capacity pair used the unchanged public workload, 5,000 virtual mTLS i
 A zero-finding scan applies to the recorded images, architecture, scanner and vulnerability database; it does not establish absence of unknown or future vulnerabilities. Local container/shared-database tests do not certify a live organization IdP/MFA, native RHEL/Ubuntu hosts, physical DC/quorum/fencing, an existing-estate identity migration or the real 20-server enforcement pilot. Those deployment/native OS acceptance steps remain deferred as requested. Existing 0.14/0.15 endpoints remain protocol-compatible; this controller hardening does not require an endpoint reinstall by itself. Newly packaged payloads are stamped 0.16.0.
 
 © 2026 Airtel Payments Bank. All rights reserved.
+
+<sub>Created by Pratik Srivastava</sub>

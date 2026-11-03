@@ -1,8 +1,8 @@
 # Prṛthak local appliance
 
 Use the same Git checkout and installer on each Linux management host. The
-installer builds the controller and PostgreSQL 16/Patroni images, pulls the
-official etcd and HAProxy images, and installs a small root-owned service
+installer builds the controller and PostgreSQL 16/Patroni images, builds the
+pinned etcd security recipe, pulls the pinned HAProxy image, and installs a small root-owned service
 manager. The controller runs as UID 10001 and never receives the Docker socket.
 
 ```sh
@@ -231,3 +231,5 @@ Primary references: [Patroni replication modes](https://patroni.readthedocs.io/e
 [etcd transport security](https://etcd.io/docs/v3.6/op-guide/security/),
 [HAProxy 2.8 configuration](https://docs.haproxy.org/2.8/configuration.html), and
 [PostgreSQL 16 replication](https://www.postgresql.org/docs/16/warm-standby.html).
+
+<sub>Created by Pratik Srivastava</sub>

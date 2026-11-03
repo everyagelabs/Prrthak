@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1260" height="820" viewBox="0 0 1260 820" role="img" aria-labelledby="title desc">
+<title id="title">Ask for these three controller connections</title>
+<desc id="desc">Use your approved hostname or load balancer address and include the configured port. Created by Pratik Srivastava.</desc>
+<rect width="1260" height="820" fill="#FFFFFF"/>
+<text x="44" y="28.0" font-family="DejaVu Sans,sans-serif" font-size="17" font-weight="600" fill="#E60012" text-anchor="start" dominant-baseline="text-before-edge">Prṛthak  /  Simple visual guide</text>
+<text x="44" y="66.0" font-family="DejaVu Sans,sans-serif" font-size="35" font-weight="600" fill="#13151C" text-anchor="start" dominant-baseline="text-before-edge">Ask for these three controller connections</text>
+<text x="44" y="117.0" font-family="DejaVu Sans,sans-serif" font-size="21" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Use your approved hostname or load balancer address and include the configured port.</text>
+<rect x="44" y="209" width="324" height="155" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="69.0" y="234.25" width="39.0" height="29.25" rx="3.0" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="69.0" y1="241.75" x2="108.0" y2="241.75" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<circle cx="74.25" cy="238.0" r="0.8999999999999999" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="78.75" cy="238.0" r="0.8999999999999999" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="83.25" cy="238.0" r="0.8999999999999999" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<line x1="84.0" y1="264.25" x2="84.0" y2="269.5" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="93.0" y1="264.25" x2="93.0" y2="269.5" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="79.5" y1="269.5" x2="97.5" y2="269.5" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="127" y="234.0" font-family="DejaVu Sans,sans-serif" font-size="26" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Your browser</text>
+<text x="68" y="294.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Admin access</text>
+<rect x="44" y="449" width="324" height="191" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="72.0" y="473.5" width="33.0" height="14.25" rx="3.0" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<rect x="72.0" y="494.5" width="33.0" height="14.25" rx="3.0" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="78.0" cy="480.25" r="1.5" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="78.0" cy="501.25" r="1.5" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<line x1="84.75" y1="480.25" x2="98.25" y2="480.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="84.75" y1="501.25" x2="98.25" y2="501.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<circle cx="102.75" cy="505.0" r="7.5" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="99.0" y1="505.0" x2="102.0" y2="508.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="102.0" y1="508.0" x2="107.25" y2="501.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="127" y="474.0" font-family="DejaVu Sans,sans-serif" font-size="25" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Endpoint agent</text>
+<text x="68" y="534.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">RHEL or Ubuntu</text>
+<text x="68" y="566.4" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Connects outward</text>
+<rect x="911" y="209" width="305" height="431" rx="18" fill="#FFF2F3" stroke="#E60012" stroke-width="1.5"/>
+<polygon points="1061.0,248.33333333333334 1089.0,260.3333333333333 1085.0,291.0 1075.6666666666667,307.0 1061.0,319.0 1046.3333333333333,307.0 1037.0,291.0 1033.0,260.3333333333333" fill="#FFFFFF" stroke="#E60012" stroke-width="2.4"/>
+<line x1="1047.6666666666667" y1="281.6666666666667" x2="1058.3333333333333" y2="292.3333333333333" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="1058.3333333333333" y1="292.3333333333333" x2="1075.6666666666667" y2="272.3333333333333" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="1063" y="351.0" font-family="DejaVu Sans,sans-serif" font-size="30" font-weight="600" fill="#202127" text-anchor="middle" dominant-baseline="text-before-edge">Controller</text>
+<text x="1063" y="404.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="middle" dominant-baseline="text-before-edge">Three separate</text>
+<text x="1063" y="439.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="middle" dominant-baseline="text-before-edge">HTTPS listeners</text>
+<line x1="368" y1="287" x2="911" y2="287" stroke="#E60012" stroke-width="3" stroke-linecap="round"/>
+<polygon points="911,287 901.3465918192059,292.2736809246462 901.3465918192059,281.7263190753538" fill="#E60012" stroke="#E60012" stroke-width="2"/>
+<text x="635" y="231.0" font-family="DejaVu Sans,sans-serif" font-size="25" font-weight="600" fill="#E60012" text-anchor="middle" dominant-baseline="text-before-edge">8787  Dashboard</text>
+<line x1="368" y1="500" x2="911" y2="500" stroke="#E60012" stroke-width="3" stroke-linecap="round"/>
+<polygon points="911,500 901.3465918192059,505.2736809246462 901.3465918192059,494.7263190753538" fill="#E60012" stroke="#E60012" stroke-width="2"/>
+<text x="635" y="446.0" font-family="DejaVu Sans,sans-serif" font-size="25" font-weight="600" fill="#E60012" text-anchor="middle" dominant-baseline="text-before-edge">8788  Policy and control</text>
+<line x1="368" y1="602" x2="911" y2="602" stroke="#E60012" stroke-width="3" stroke-linecap="round"/>
+<polygon points="911,602 901.3465918192059,607.2736809246462 901.3465918192059,596.7263190753538" fill="#E60012" stroke="#E60012" stroke-width="2"/>
+<text x="635" y="550.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#E60012" text-anchor="middle" dominant-baseline="text-before-edge">8789  Enrollment and reports</text>
+<text x="630" y="686.0" font-family="DejaVu Sans,sans-serif" font-size="23" font-weight="600" fill="#202127" text-anchor="middle" dominant-baseline="text-before-edge">No inbound agent control port is needed on your Linux servers.</text>
+<line x1="44" y1="748" x2="1216" y2="748" stroke="#DEE0E6" stroke-width="1" stroke-linecap="round"/>
+<text x="44" y="763.0" font-family="DejaVu Sans,sans-serif" font-size="15" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Network illustration • endpoint mTLS must be preserved; an SSH safety probe uses its separately approved service port.</text>
+<text x="1216" y="790.0" font-family="DejaVu Sans,sans-serif" font-size="14" font-weight="400" fill="#686B78" text-anchor="end" dominant-baseline="text-before-edge">Created by Pratik Srivastava</text>
+</svg>

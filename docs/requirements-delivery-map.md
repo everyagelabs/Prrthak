@@ -96,3 +96,5 @@ supersede these current workflows.
 The Go service, Python controller, browser dashboard, signed assignments, mTLS, durable metadata/traffic storage, fixed local manager and supervisors support these requirements; they are implementation components rather than additional original requirements. See [architecture](architecture.md), [API](api-contract.md), [agent](../agent/README.md) and [current GUI installation](pilot-gui-installation.md).
 
 Code and isolated acceptance evidence do not establish native RHEL/Ubuntu behavior, physical DC/WAN/quorum/fencing, live organization Entra/SAML/MFA, provider delivery or production readiness. Those deployment gates remain explicit. Supported exact firewalld subsets do not imply universal vendor/direct/NAT policy management; unsupported contexts remain view-only. No new aggregate test totals are asserted here.
+
+<sub>Created by Pratik Srivastava</sub>

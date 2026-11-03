@@ -49,3 +49,5 @@ The exact source commit is resolved by [the candidate tag](https://github.com/ev
 Native RHEL 8/9, Ubuntu 26.04, real Entra/MFA, bastion routes, LB/NAT/WAN/quorum/fencing, backup restore and workload/endurance acceptance remain operator-run gates before the real 20-server enforcement pilot. Resource bounds do not establish active collector CPU/RAM guarantees. The passive resource baseline is historical.
 
 Recorded vendor image advisories remain open. The upstream 3.6 branch still lists 3.6.17 as pending; a source change here is not a vendor patch. See [the upstream release record](https://github.com/etcd-io/etcd/blob/main/CHANGELOG/CHANGELOG-3.6.md), [vendor advisory disposition](security-assessment-0.7.md) and [development release trust](release-integrity.md). Green CI does not mean a clean VA or production certification.
+
+<sub>Created by Pratik Srivastava</sub>

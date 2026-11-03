@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1260" height="860" viewBox="0 0 1260 860" role="img" aria-labelledby="title desc">
+<title id="title">Copy the same private setup to your servers</title>
+<desc id="desc">Your server team can distribute the files to all hosts with an approved deployment tool. Created by Pratik Srivastava.</desc>
+<rect width="1260" height="860" fill="#FFFFFF"/>
+<text x="44" y="28.0" font-family="DejaVu Sans,sans-serif" font-size="17" font-weight="600" fill="#E60012" text-anchor="start" dominant-baseline="text-before-edge">Prṛthak  /  Simple visual guide</text>
+<text x="44" y="66.0" font-family="DejaVu Sans,sans-serif" font-size="35" font-weight="600" fill="#13151C" text-anchor="start" dominant-baseline="text-before-edge">Copy the same private setup to your servers</text>
+<text x="44" y="117.0" font-family="DejaVu Sans,sans-serif" font-size="21" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Your server team can distribute the files to all hosts with an approved deployment tool.</text>
+<rect x="44" y="196" width="554" height="171" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="75.0" y="219.75" width="27.0" height="36.75" rx="3.0" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="81.0" y1="232.5" x2="96.0" y2="232.5" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="81.0" y1="239.25" x2="96.0" y2="239.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="81.0" y1="246.0" x2="90.75" y2="246.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="127" y="221.0" font-family="DejaVu Sans,sans-serif" font-size="25" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Matching agent archive</text>
+<text x="68" y="281.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">AMD64 for x86_64</text>
+<text x="68" y="313.4" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">ARM64 for aarch64</text>
+<rect x="654" y="196" width="562" height="171" rx="18" fill="#FFF2F3" stroke="#E60012" stroke-width="1.5"/>
+<circle cx="689.5" cy="233.25" r="8.25" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="697.0" y1="238.5" x2="712.75" y2="254.25" stroke="#E60012" stroke-width="4" stroke-linecap="round"/>
+<line x1="706.0" y1="247.5" x2="711.25" y2="242.25" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="709.75" y1="251.25" x2="715.0" y2="246.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="737" y="221.0" font-family="DejaVu Sans,sans-serif" font-size="25" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">One private fleet setup</text>
+<text x="678" y="281.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">/root/prthak-agent-setup.json</text>
+<text x="678" y="313.4" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Root owned, private mode 0600</text>
+<line x1="321" y1="368" x2="321" y2="418" stroke="#E60012" stroke-width="3" stroke-linecap="round"/>
+<line x1="935" y1="368" x2="935" y2="418" stroke="#E60012" stroke-width="3" stroke-linecap="round"/>
+<line x1="321" y1="418" x2="935" y2="418" stroke="#E60012" stroke-width="3" stroke-linecap="round"/>
+<line x1="630" y1="418" x2="630" y2="456" stroke="#E60012" stroke-width="3" stroke-linecap="round"/>
+<line x1="223" y1="456" x2="1037" y2="456" stroke="#E60012" stroke-width="3" stroke-linecap="round"/>
+<line x1="223" y1="456" x2="223" y2="502" stroke="#E60012" stroke-width="3" stroke-linecap="round"/>
+<polygon points="223,502 217.72631907535376,492.3465918192059 228.27368092464624,492.3465918192059" fill="#E60012" stroke="#E60012" stroke-width="2"/>
+<rect x="44" y="502" width="358" height="175" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="82.26666666666667" y="538.2" width="45.46666666666667" height="19.633333333333336" rx="4.133333333333334" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<rect x="82.26666666666667" y="567.1333333333333" width="45.46666666666667" height="19.633333333333336" rx="4.133333333333334" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="90.53333333333333" cy="547.5" r="2.066666666666667" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="90.53333333333333" cy="576.4333333333334" r="2.066666666666667" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<line x1="99.83333333333334" y1="547.5" x2="118.43333333333334" y2="547.5" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="99.83333333333334" y1="576.4333333333334" x2="118.43333333333334" y2="576.4333333333334" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="161" y="542.0" font-family="DejaVu Sans,sans-serif" font-size="25" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">RHEL 8</text>
+<text x="223" y="629.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="middle" dominant-baseline="text-before-edge">Local private key</text>
+<line x1="630" y1="456" x2="630" y2="502" stroke="#E60012" stroke-width="3" stroke-linecap="round"/>
+<polygon points="630,502 624.7263190753538,492.3465918192059 635.2736809246462,492.3465918192059" fill="#E60012" stroke="#E60012" stroke-width="2"/>
+<rect x="451" y="502" width="358" height="175" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="489.26666666666665" y="538.2" width="45.46666666666667" height="19.633333333333336" rx="4.133333333333334" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<rect x="489.26666666666665" y="567.1333333333333" width="45.46666666666667" height="19.633333333333336" rx="4.133333333333334" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="497.53333333333336" cy="547.5" r="2.066666666666667" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="497.53333333333336" cy="576.4333333333334" r="2.066666666666667" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<line x1="506.8333333333333" y1="547.5" x2="525.4333333333334" y2="547.5" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="506.8333333333333" y1="576.4333333333334" x2="525.4333333333334" y2="576.4333333333334" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="568" y="542.0" font-family="DejaVu Sans,sans-serif" font-size="25" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">RHEL 9</text>
+<text x="630" y="629.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="middle" dominant-baseline="text-before-edge">Local private key</text>
+<line x1="1037" y1="456" x2="1037" y2="502" stroke="#E60012" stroke-width="3" stroke-linecap="round"/>
+<polygon points="1037,502 1031.7263190753538,492.3465918192059 1042.2736809246462,492.3465918192059" fill="#E60012" stroke="#E60012" stroke-width="2"/>
+<rect x="858" y="502" width="358" height="175" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="896.2666666666667" y="538.2" width="45.46666666666667" height="19.633333333333336" rx="4.133333333333334" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<rect x="896.2666666666667" y="567.1333333333333" width="45.46666666666667" height="19.633333333333336" rx="4.133333333333334" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="904.5333333333333" cy="547.5" r="2.066666666666667" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="904.5333333333333" cy="576.4333333333334" r="2.066666666666667" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<line x1="913.8333333333334" y1="547.5" x2="932.4333333333334" y2="547.5" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="913.8333333333334" y1="576.4333333333334" x2="932.4333333333334" y2="576.4333333333334" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="975" y="542.0" font-family="DejaVu Sans,sans-serif" font-size="25" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Ubuntu 26.04</text>
+<text x="1037" y="629.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="middle" dominant-baseline="text-before-edge">Local private key</text>
+<text x="630" y="718.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="middle" dominant-baseline="text-before-edge">Do not create or download a different agent for every server.</text>
+<text x="630" y="759.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#E60012" text-anchor="middle" dominant-baseline="text-before-edge">Never copy an enrolled agent&#x27;s identity folder to another host.</text>
+<line x1="44" y1="788" x2="1216" y2="788" stroke="#DEE0E6" stroke-width="1" stroke-linecap="round"/>
+<text x="44" y="803.0" font-family="DejaVu Sans,sans-serif" font-size="15" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Deployment illustration • verify release signatures before extraction; keep the reusable enrollment setup private.</text>
+<text x="1216" y="830.0" font-family="DejaVu Sans,sans-serif" font-size="14" font-weight="400" fill="#686B78" text-anchor="end" dominant-baseline="text-before-edge">Created by Pratik Srivastava</text>
+</svg>

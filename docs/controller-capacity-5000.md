@@ -288,3 +288,5 @@ The command fails when a complete cycle misses 60 seconds or a delivered source 
 ## Boundaries
 
 Real inter-site latency, synchronous replication/quorum, load-balancer failures, enrollment storms, largest supported policy matrices, 5,000 simultaneous traffic collectors, long soaks and native firewall installation/rollback are separate measurements. All sites share a PostgreSQL writer; additional controller VMs do not remove database/WAN constraints. The [upstream/vendor VA findings](security-assessment-2026-10-31.md) remain open. A measured capacity pass does not grant security or production clearance.
+
+<sub>Created by Pratik Srivastava</sub>

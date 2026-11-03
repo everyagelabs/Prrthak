@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1260" height="810" viewBox="0 0 1260 810" role="img" aria-labelledby="title desc">
+<title id="title">Watching traffic and learning access are separate</title>
+<desc id="desc">Choose the exact server and port. Seeing a source does not mean it is trusted. Created by Pratik Srivastava.</desc>
+<rect width="1260" height="810" fill="#FFFFFF"/>
+<text x="44" y="28.0" font-family="DejaVu Sans,sans-serif" font-size="17" font-weight="600" fill="#E60012" text-anchor="start" dominant-baseline="text-before-edge">Prṛthak  /  Simple visual guide</text>
+<text x="44" y="66.0" font-family="DejaVu Sans,sans-serif" font-size="35" font-weight="600" fill="#13151C" text-anchor="start" dominant-baseline="text-before-edge">Watching traffic and learning access are separate</text>
+<text x="44" y="117.0" font-family="DejaVu Sans,sans-serif" font-size="21" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Choose the exact server and port. Seeing a source does not mean it is trusted.</text>
+<rect x="44" y="198" width="566" height="443" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<rect x="650" y="198" width="566" height="443" rx="18" fill="#FFF2F3" stroke="#DEE0E6" stroke-width="1.5"/>
+<polyline points="78.25,258.5 90.16666666666667,245.5 107.5,239.0 124.83333333333333,245.5 136.75,258.5 124.83333333333333,271.5 107.5,278.0 90.16666666666667,271.5 78.25,258.5" fill="none" stroke="#E60012" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="107.5" cy="258.5" r="9.75" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<text x="164" y="234.0" font-family="DejaVu Sans,sans-serif" font-size="28" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Port hit monitoring</text>
+<text x="77" y="323.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Who hit this port in the last hour?</text>
+<text x="77" y="373.0" font-family="DejaVu Sans,sans-serif" font-size="21" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Source IP  →  port  →  count and time</text>
+<text x="77" y="427.0" font-family="DejaVu Sans,sans-serif" font-size="22" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Review history or export a CSV</text>
+<circle cx="103.0" cy="511.0" r="18.400000000000002" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="103.0" y1="499.5" x2="103.0" y2="511.76666666666665" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="103.0" y1="511.76666666666665" x2="111.43333333333334" y2="516.3666666666667" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="148" y="497.0" font-family="DejaVu Sans,sans-serif" font-size="22" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Optional and off by default</text>
+<text x="78" y="575.0" font-family="DejaVu Sans,sans-serif" font-size="22" font-weight="600" fill="#237755" text-anchor="start" dominant-baseline="text-before-edge">Does not create access rules</text>
+<line x1="705.9166666666666" y1="231.41666666666666" x2="721.0833333333334" y2="231.41666666666666" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="709.1666666666666" y1="231.41666666666666" x2="709.1666666666666" y2="250.91666666666666" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="717.8333333333334" y1="231.41666666666666" x2="717.8333333333334" y2="250.91666666666666" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<polyline points="709.1666666666666,250.91666666666666 691.8333333333334,279.0833333333333 694.0,284.5 733.0,284.5 735.1666666666666,279.0833333333333 717.8333333333334,250.91666666666666" fill="none" stroke="#E60012" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="700.5" y1="269.3333333333333" x2="726.5" y2="269.3333333333333" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<circle cx="708.0833333333334" cy="275.8333333333333" r="1.95" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<circle cx="720.0" cy="276.9166666666667" r="1.625" fill="#E60012" stroke="#E60012" stroke-width="2.3"/>
+<text x="770" y="234.0" font-family="DejaVu Sans,sans-serif" font-size="28" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Temporary learning</text>
+<text x="683" y="323.0" font-family="DejaVu Sans,sans-serif" font-size="23" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Build access from observed traffic</text>
+<text x="683" y="373.0" font-family="DejaVu Sans,sans-serif" font-size="22" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Choose ports and an end time</text>
+<text x="683" y="427.0" font-family="DejaVu Sans,sans-serif" font-size="22" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Review suggestions or enable</text>
+<text x="683" y="461.0" font-family="DejaVu Sans,sans-serif" font-size="22" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">the exact auto allow scope</text>
+<rect x="694.4" y="512.5" width="25.2" height="34.3" rx="2.8" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<line x1="700.0" y1="524.4" x2="714.0" y2="524.4" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="700.0" y1="530.7" x2="714.0" y2="530.7" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="700.0" y1="537.0" x2="709.1" y2="537.0" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="752" y="516.0" font-family="DejaVu Sans,sans-serif" font-size="22" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Rules appear in Policies</text>
+<text x="684" y="575.0" font-family="DejaVu Sans,sans-serif" font-size="21" font-weight="600" fill="#E60012" text-anchor="start" dominant-baseline="text-before-edge">Stop learning → capture stops</text>
+<text x="630" y="675.0" font-family="DejaVu Sans,sans-serif" font-size="21" font-weight="400" fill="#686B78" text-anchor="middle" dominant-baseline="text-before-edge">Saved learned grants stay until you review and remove them.</text>
+<line x1="44" y1="738" x2="1216" y2="738" stroke="#DEE0E6" stroke-width="1" stroke-linecap="round"/>
+<text x="44" y="753.0" font-family="DejaVu Sans,sans-serif" font-size="15" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Feature illustration • capture reports gaps or dropped events; observed counts are not a guaranteed complete ledger.</text>
+<text x="1216" y="780.0" font-family="DejaVu Sans,sans-serif" font-size="14" font-weight="400" fill="#686B78" text-anchor="end" dominant-baseline="text-before-edge">Created by Pratik Srivastava</text>
+</svg>

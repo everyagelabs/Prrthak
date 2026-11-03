@@ -81,3 +81,5 @@ open; successful code tests or CI do not establish a clean VA or production
 certification. Local detached signatures use the existing development authority;
 organization-approved production signing and independent trust distribution
 remain operational responsibilities.
+
+<sub>Created by Pratik Srivastava</sub>

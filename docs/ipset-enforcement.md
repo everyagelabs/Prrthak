@@ -80,3 +80,5 @@ Ubuntu 26.04 kernel, systemd timers or RHEL SELinux/polkit behavior. Separately,
 `scripts/smoke-linux-container.sh ubuntu26` passed unprivileged real SSH-2022
 discovery, mTLS enrollment and identity reuse with the 0.6 agent. No fixture
 container or labeled network was retained after either run.
+
+<sub>Created by Pratik Srivastava</sub>
