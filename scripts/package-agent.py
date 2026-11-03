@@ -38,7 +38,7 @@ for arch in ('amd64', 'arm64'):
              (root / 'docs' / 'authentication.md', 'docs/authentication.md'),
              (root / 'deploy' / 'systemd' / 'seg-agent.service', 'deploy/systemd/seg-agent.service'),
              (root / 'scripts' / 'install-agent.sh', 'scripts/install-agent.sh')]
-    files.extend((root / 'scripts' / name, 'scripts/' + name) for name in ('prepare-managed-ipsets.py', 'verify-release.py', 'install-agent-linux.sh', 'install-agent-rhel.sh', 'install-agent-ubuntu.sh'))
+    files.extend((root / 'scripts' / name, 'scripts/' + name) for name in ('prepare-managed-ipsets.py', 'verify-release.py', 'install-agent-auto.sh', 'install-agent-linux.sh', 'install-agent-rhel.sh', 'install-agent-ubuntu.sh'))
     signing_key = os.environ.get('PRTHAK_RELEASE_SIGNING_KEY_FILE')
     if signing_key:
         integrity = out / (stem + '-runtime-integrity.json')
@@ -60,23 +60,25 @@ for arch in ('amd64', 'arm64'):
    Each endpoint automatically creates its own private key and certificate.
    The optional Individual setup remains single-use/15minutes. See
    docs/fleet-enrollment.md for GUI profile revocation and identity boundaries.
-   Optional unchecked GUI choices can install missing OS dependencies with
-   service-start suppression and export private UFW evidence. UFW is preserved;
+   The automatic installer prepares missing OS dependencies with service-start
+   suppression after validating the private setup and signed runtime. Optional
+   GUI UFW assessment can export private migration evidence. UFW is preserved;
    no firewall activation or migration is performed. See
-   docs/endpoint-discovery-and-preparation.md before selecting preparation.
+   docs/endpoint-discovery-and-preparation.md for preparation safeguards.
    Source banks are prepared later in Servers > Source-set preparation through
    a separate exact maintenance review. No additional bank-preparation CLI is
    required. Set restricted management source IPs/CIDRs in the GUI setup when
    this workflow is intended; setup remains monitor-only.
-3. From this extracted release directory run exactly one matching installer:
+3. From this extracted release directory run the same installer on RHEL/Ubuntu:
 
-   sudo ./scripts/install-agent-rhel.sh --setup-file /root/prthak-agent-setup.json
-   or sudo ./scripts/install-agent-ubuntu.sh --setup-file /root/prthak-agent-setup.json
+   sudo ./scripts/install-agent-auto.sh --setup-file /root/prthak-agent-setup.json
 
    No hand-editing agent JSON, token or CA configuration is required. Public CA
    material and monitor-only settings are prepared by the validated Go helper.
-   Without explicit GUI preparation, OS prerequisites must already exist.
-   No firewall manager is switched or activated. See
+   The automatic entrypoint detects RHEL8/9 or Ubuntu26.04 and prepares required
+   packages; the signed setup is not edited and no firewall manager is switched
+   or activated. Read-only/staged checks never install dependencies. Existing
+   family entrypoints remain available for compatibility workflows. See
    docs/pilot-gui-installation.md for the full GUI workflow.
 
 ADVANCED COMPATIBILITY: explicit reviewed config/token/CA files remain supported.
@@ -152,6 +154,8 @@ report unsupported paths, gaps and losses and do not silently use journal logs.
 Separate unexpected-port monitoring retains bounded log-only instrumentation.
 See docs/traffic-capture.md and agent/README.md before enabling capture.
 See agent/README.md for capabilities, credential handling and limitations.
+
+Created by Pratik Srivastava
 ''', encoding='utf-8')
     files.append((guide, 'INSTALL.txt'))
     with tarfile.open(archive, 'w:gz') as tar:
@@ -163,7 +167,7 @@ See agent/README.md for capabilities, credential handling and limitations.
             entry.uid = entry.gid = 0
             entry.uname = entry.gname = ''
             entry.mtime = 0
-            entry.mode = 0o755 if source.stat().st_mode & 0o111 else 0o644
+            entry.mode = 0o755 if target == 'seg-agent' or target.startswith('scripts/') else 0o644
             with source.open('rb') as incoming:
                 tar.addfile(entry, incoming)
     checksums.append(f'{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n')

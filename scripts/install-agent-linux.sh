@@ -5,8 +5,10 @@ set -eu
 umask 077
 
 FAMILY=${1:-}
-case "$FAMILY" in rhel|ubuntu) shift ;; *) echo 'Choose install-agent-rhel.sh or install-agent-ubuntu.sh.' >&2; exit 2 ;; esac
+case "$FAMILY" in auto|rhel|ubuntu) shift ;; *) echo 'Choose install-agent-auto.sh, install-agent-rhel.sh or install-agent-ubuntu.sh.' >&2; exit 2 ;; esac
 PROGRAM=install-agent-$FAMILY.sh
+AUTO_DEPENDENCIES=0
+[ "$FAMILY" != auto ] || AUTO_DEPENDENCIES=1
 usage() {
   cat <<USAGE
 Usage: $PROGRAM --setup-file /root/prthak-agent-setup.json [--binary FILE]
@@ -26,6 +28,9 @@ The shared installer enables/starts only seg-agent after credential validation.
 --setup-file consumes the private data-only GUI download; no config/token/CA editing.
 Explicit GUI preparation can install missing dependencies with startup suppression
 and export a private UFW assessment. It never disables UFW or activates firewalld.
+The auto entrypoint detects the OS and installs missing dependencies automatically
+after validating the private setup and signed release. It requires --setup-file
+for a new install; --check-only and staging/--no-start never prepare packages.
 USAGE
 }
 CHECK_ONLY=0
@@ -73,6 +78,9 @@ else
   [ "$#" -eq 1 ] || { usage >&2; exit 2; }
 fi
 CONFIG_SOURCE=${1:-}
+if [ "$AUTO_DEPENDENCIES" -eq 1 ] && [ "$CHECK_ONLY" -eq 0 ] && [ -z "$SETUP_FILE$CONFIGURATION_FILE" ]; then
+  echo 'The automatic installer requires the GUI --setup-file; manual configuration inputs use a family entrypoint.' >&2; exit 2
+fi
 case "$WAIT_SECONDS" in ''|*[!0-9]*) usage >&2; exit 2 ;; esac
 [ "$WAIT_SECONDS" -le 60 ] || { usage >&2; exit 2; }
 
@@ -115,6 +123,13 @@ RELEASE=$(release_field VERSION_ID) || { echo 'Target os-release must contain on
 case "$RELEASE" in
   ''|*[!0-9.]*|.*|*.|*..*) echo 'Target VERSION_ID must be a literal numeric release.' >&2; exit 1 ;;
 esac
+if [ "$FAMILY" = auto ]; then
+  case "$DISTRO:$RELEASE" in
+    rhel:8|rhel:8.*|rhel:9|rhel:9.*) FAMILY=rhel ;;
+    ubuntu:26.04) FAMILY=ubuntu ;;
+    *) printf '%s\n' "$PROGRAM supports RHEL 8/9 or Ubuntu 26.04; this target is unsupported." >&2; exit 1 ;;
+  esac
+fi
 case "$FAMILY:$DISTRO:$RELEASE" in
   rhel:rhel:8|rhel:rhel:8.*|rhel:rhel:9|rhel:rhel:9.*|ubuntu:ubuntu:26.04) ;;
   *) printf '%s\n' "$PROGRAM supports RHEL 8/9 or Ubuntu 26.04 through its matching entrypoint; this target is unsupported." >&2; exit 1 ;;
@@ -151,9 +166,13 @@ if [ -n "$SETUP_FILE" ]; then
   CA_SOURCE=$SETUP_WORK/controller-ca.crt
   TOKEN_SOURCE=$SETUP_WORK/enrollment-token
   if [ -f "$SETUP_WORK/endpoint-ca.crt" ]; then ENDPOINT_CA_SOURCE=$SETUP_WORK/endpoint-ca.crt; fi
-  if [ -f "$SETUP_WORK/preparation-options.json" ]; then
+  if [ -f "$SETUP_WORK/preparation-options.json" ] || [ "$AUTO_DEPENDENCIES" -eq 1 ]; then
     if [ -z "$TARGET_ROOT" ] && [ "$NO_START" -eq 0 ]; then
-      "$BINARY" --prepare-host "$SETUP_FILE" --prepare-family "$FAMILY" --release-manifest "$MANIFEST" --release-trust "$TRUST" --release-binary "$BINARY" --release-unit "$PROJECT_ROOT/deploy/systemd/seg-agent.service"
+      if [ "$AUTO_DEPENDENCIES" -eq 1 ]; then
+        "$BINARY" --prepare-host "$SETUP_FILE" --prepare-family "$FAMILY" --install-dependencies --release-manifest "$MANIFEST" --release-trust "$TRUST" --release-binary "$BINARY" --release-unit "$PROJECT_ROOT/deploy/systemd/seg-agent.service"
+      else
+        "$BINARY" --prepare-host "$SETUP_FILE" --prepare-family "$FAMILY" --release-manifest "$MANIFEST" --release-trust "$TRUST" --release-binary "$BINARY" --release-unit "$PROJECT_ROOT/deploy/systemd/seg-agent.service"
+      fi
     else
       printf '%s\n' 'Staging/--no-start: explicit host preparation skipped; no package/service/firewall action is permitted.'
     fi

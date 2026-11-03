@@ -16,8 +16,9 @@ import (
 	"time"
 )
 
-// Host preparation is an explicit, data-only GUI opt-in. It never activates a
-// firewall or migrates UFW: assessment exports stay on the endpoint.
+// Host preparation uses data-only GUI options or the automatic installer's
+// explicit local dependency consent. It never activates a firewall or migrates
+// UFW: assessment exports stay on the endpoint.
 type HostPreparationOptions struct {
 	InstallDependencies bool   `json:"install_dependencies"`
 	UFWAction           string `json:"ufw_action"`
@@ -101,6 +102,14 @@ func ReadHostPreparationStatus(stateDir string) *HostPreparationStatus {
 // before acquiring the same installation/configuration lease used by upgrades.
 // Enrollment validity at the controller is checked later by authenticated bootstrap.
 func PrepareHostFromSetup(ctx context.Context, setupPathName, family, manifest, trust, binary, unit string) error {
+	return PrepareHostFromSetupWithDependencies(ctx, setupPathName, family, manifest, trust, binary, unit, false)
+}
+
+// PrepareHostFromSetupWithDependencies adds the auto installer's explicit local
+// package consent. The private setup remains unchanged; no firewall opt-in is
+// granted. Runtime verification and complete setup validation still precede all
+// dependency operations, including for original schema-1/schema-2 GUI kits.
+func PrepareHostFromSetupWithDependencies(ctx context.Context, setupPathName, family, manifest, trust, binary, unit string, installDependencies bool) error {
 	if runtime.GOOS != "linux" || os.Geteuid() != 0 {
 		return errors.New("host preparation requires a native Linux root installation")
 	}
@@ -122,8 +131,9 @@ func PrepareHostFromSetup(ctx context.Context, setupPathName, family, manifest, 
 	if err != nil {
 		return err
 	}
-	if kit.SchemaVersion != 3 || kit.InstallationOptions == nil {
-		return errors.New("host preparation requires explicit GUI setup options")
+	options, err := preparationOptionsForSetup(kit, installDependencies)
+	if err != nil {
+		return err
 	}
 	// Prefer the existing installed state for upgrade fencing, rather than the
 	// new kit's deliberately monitor-only configuration.
@@ -135,7 +145,22 @@ func PrepareHostFromSetup(ctx context.Context, setupPathName, family, manifest, 
 	} else if !os.IsNotExist(e) {
 		return errors.New("existing endpoint configuration cannot be inspected")
 	}
-	return prepareHostUnder(ctx, "", family, c, *kit.InstallationOptions, hostPreparationRunner{}, time.Now().UTC())
+	return prepareHostUnder(ctx, "", family, c, options, hostPreparationRunner{}, time.Now().UTC())
+}
+
+func preparationOptionsForSetup(kit setupFile, installDependencies bool) (HostPreparationOptions, error) {
+	options := HostPreparationOptions{UFWAction: "preserve"}
+	if kit.InstallationOptions != nil {
+		options = *kit.InstallationOptions
+	}
+	if installDependencies {
+		options.InstallDependencies = true
+		return options, nil
+	}
+	if kit.SchemaVersion != 3 || kit.InstallationOptions == nil {
+		return HostPreparationOptions{}, errors.New("host preparation requires explicit GUI setup options or automatic-installer dependency consent")
+	}
+	return options, nil
 }
 
 // Package operations get longer bounds than discovery commands, but retain the

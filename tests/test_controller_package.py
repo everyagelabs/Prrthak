@@ -27,7 +27,9 @@ class ControllerPackageTests(unittest.TestCase):
         self.output=self.base/'output'
         for name in package.FIXED_FILES:
             destination=self.source/name;destination.parent.mkdir(parents=True,exist_ok=True)
-            if name=='docs/controller-vm-requirements.md':
+            if name in package.SIMPLE_GUIDE_FILES or name=='docs/guide/README.md':
+                destination.write_bytes(('public guide fixture '+name+'\n').encode())
+            elif name=='docs/controller-vm-requirements.md':
                 destination.write_text('# Private fixture sizing document\n')
             else:
                 shutil.copy2(PROJECT/name,destination)
@@ -104,15 +106,72 @@ class ControllerPackageTests(unittest.TestCase):
         self.assertEqual(manifest['archive'],'prthak-controller-0.6.0.tar.gz')
         self.assertIn('deploy/appliance/node_manager.py',manifest['manifest']['files'])
 
+    def test_automatic_installer_and_prerequisite_helper_ship_as_signed_public_inputs(self):
+        result=self.build()
+        contents=self.members(result['archive'])
+        manifest=json.loads(contents['MANIFEST.json'][1])
+        for name in ('scripts/install-controller.sh','scripts/install-prerequisites.sh',
+                     'deploy/appliance/install_prerequisites.py'):
+            member,raw=contents[name]
+            self.assertEqual(member.mode,0o755 if name.startswith('scripts/') else 0o644)
+            self.assertEqual(raw,(self.source/name).read_bytes())
+            self.assertEqual(manifest['files'][name]['sha256'],hashlib.sha256(raw).hexdigest())
+        guide=contents['INSTALL.txt'][1].decode()
+        self.assertIn('sudo ./scripts/install-controller.sh\n',guide)
+        self.assertIn('detects RHEL or Ubuntu',guide)
+        self.assertIn('No token-file retrieval or manual .env editing',guide)
+        self.assertTrue(guide.rstrip().endswith('Created by Pratik Srivastava'))
+
+    def test_current_simple_guides_use_exact_public_file_allowlist(self):
+        excluded=('docs/guide/private-capture.jpg','docs/guide/simple/private.env',
+                  'docs/guide/simple/unreviewed.html','docs/guide/simple/arbitrary.json',
+                  'docs/guide/simple/images/unreviewed.png',
+                  'docs/guide/simple/images/private/architecture.svg',
+                  'docs/guide/simple/nested/controller-installation.pdf')
+        for name in excluded:
+            self.put(name,b'private guide material must not be published')
+        contents=self.members(self.build()['archive'])
+        manifest=json.loads(contents['MANIFEST.json'][1])
+        expected={'docs/guide/README.md',*package.SIMPLE_GUIDE_FILES}
+        self.assertTrue({'docs/guide/simple/controller-installation.html',
+                         'docs/guide/simple/agent-installation.pdf',
+                         'docs/guide/simple/installation-commands.json',
+                         'docs/guide/simple/verification.json',
+                         'docs/guide/simple/images/architecture.svg'}<=expected)
+        for name in expected:
+            member,raw=contents[name]
+            self.assertEqual(member.mode,0o644)
+            self.assertEqual(raw,(self.source/name).read_bytes())
+            self.assertEqual(manifest['files'][name]['sha256'],hashlib.sha256(raw).hexdigest())
+        self.assertTrue(set(excluded).isdisjoint(contents))
+        self.assertTrue(set(excluded).isdisjoint(manifest['files']))
+
+    def test_missing_current_guide_prevents_partial_distribution(self):
+        (self.source/'docs/guide/simple/controller-installation.pdf').unlink()
+        with self.assertRaises(OSError):
+            self.build()
+        self.assertFalse(self.output.exists())
+
     def test_selected_leaf_and_ancestor_symlinks_never_read_external_material(self):
         external=self.base/'external-secret';external.write_text('external source material')
-        for name in ['controller/app.py','deploy/appliance/rotation_helper.py','dashboard/assets/fonts/example.woff2']:
+        for name in ['controller/app.py','deploy/appliance/rotation_helper.py','dashboard/assets/fonts/example.woff2',
+                     'scripts/install-controller.sh','scripts/install-prerequisites.sh',
+                     'deploy/appliance/install_prerequisites.py','docs/guide/README.md',
+                     'docs/guide/simple/agent-installation.html',
+                     'docs/guide/simple/verification.json',
+                     'docs/guide/simple/images/architecture.svg']:
             with self.subTest(path=name):
                 path=self.source/name;original=path.read_bytes();path.unlink();path.symlink_to(external)
                 with self.assertRaises((OSError,package.PackageError)):
                     self.build()
                 self.assertFalse(any(self.output.glob('*.tar.gz')))
                 path.unlink();path.write_bytes(original)
+        directory=self.source/'docs/guide/simple/images'
+        directory.rename(directory.with_name('saved-images'))
+        directory.symlink_to(directory.with_name('saved-images'),target_is_directory=True)
+        with self.assertRaises((OSError,package.PackageError)):
+            self.build()
+        directory.unlink();directory.with_name('saved-images').rename(directory)
         directory=self.source/'deploy/cluster';directory.rename(directory.with_name('saved-cluster'))
         directory.symlink_to(directory.with_name('saved-cluster'),target_is_directory=True)
         with self.assertRaises((OSError,package.PackageError)):
@@ -158,6 +217,14 @@ class ControllerPackageTests(unittest.TestCase):
         with patch.object(package,'MAX_PAYLOAD_BYTES',32):
             with self.assertRaises(package.PackageError):self.build()
         self.assertFalse(self.output.exists())
+
+    def test_missing_bootstrap_dependency_helper_prevents_partial_distribution(self):
+        for name in ('scripts/install-prerequisites.sh','deploy/appliance/install_prerequisites.py'):
+            with self.subTest(path=name):
+                path=self.source/name;original=path.read_bytes();path.unlink()
+                with self.assertRaises(OSError):self.build()
+                self.assertFalse(self.output.exists())
+                path.write_bytes(original)
 
     def test_repeated_build_is_reproducible_but_requires_explicit_overwrite(self):
         first=self.build()

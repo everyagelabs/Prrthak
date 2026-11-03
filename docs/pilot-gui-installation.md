@@ -1,23 +1,27 @@
-# GUI-configured 20-server pilot (0.16.0)
+# GUI-configured 20-server pilot (0.17.0 implementation)
 
 For short picture-led instructions, start with the [controller PDF](guide/simple/controller-installation.pdf), then the [agent PDF](guide/simple/agent-installation.pdf). Their [browser editions](guide/simple/README.md) include copyable commands. This detailed runbook and [Local/SAML login](local-and-saml-login.md) supply operational detail. The unchanged [0.14 PDF](guide/prthak-pilot-0.14.0.pdf) and [HTML](guide/prthak-pilot-0.14.0.html) remain historical editions.
 
 Configure Prṛthak in the GUI. The installer and fixed local manager generate
 protected files; no manual `.env`, agent JSON, token or CA editing is required.
-Use one matching installer invocation per prepared host. Later endpoint security
+Use one automatic installer invocation per host. Later endpoint security
 changes use a separately reviewed signed kit and one local apply invocation.
-OS preparation, independently trusted release verification/extraction, DNS/LB
-routing, time synchronization and private file transfer remain prerequisites.
+Genuine systemd/root access, approved repositories, independently trusted release
+verification/extraction, DNS/LB routing, storage, time synchronization and private
+file transfer remain prerequisites. Supported missing software dependencies are
+prepared by the same installer; native OS acceptance is still pending.
 The browser does not provide a remote shell or silently prepare a DC.
 
 ## 1. Prepare the controller and communication paths
 
-Use a RHEL 9 VM with a unique hostname/management IP and the pilot allocation in
-the sizing section below. Prepare genuine Linux systemd, a root-owned Python
-3.9+ interpreter, Docker Engine and Compose v2 through approved repositories.
-The controller image supplies its application runtime and dependencies. Approve
-registry/OS/Python package access; the source archive is not an offline image
-bundle. Mount persistent storage first; default DATA_ROOT is `/var/lib/prthak`.
+Use a RHEL 9 or Ubuntu 26.04 VM with a unique hostname/management IP, genuine
+systemd, root/sudo access and the pilot allocation below. The automatic installer
+detects the OS and prepares protected Python 3.9+, Docker Engine and Compose v2
+through approved repositories. It reuses a compatible installation and blocks
+conflicting container stacks without removing them. The controller image supplies
+its application runtime and dependencies. Approve registry/OS/Python package
+access; the source archive is not an offline image bundle. Mount persistent
+storage first; default DATA_ROOT is `/var/lib/prthak`.
 
 Arrange stable DNS, for example `prthak-pilot.example.internal`, and approved
 HTTPS certificates. The managed appliance separates these listeners:
@@ -54,7 +58,7 @@ flowchart LR
 
 ## 2. Stage the verified release and run one controller installer
 
-Obtain `prthak-controller-0.16.0.tar.gz` and its detached `.signature.json`.
+Obtain `prthak-controller-0.17.0.tar.gz` and its detached `.signature.json`.
 Verify exact archive bytes **before extraction/execution**, using an independently
 approved public release-signing pin and verifier. A public key downloaded beside
 an unknown archive does not establish trust. The project signing authority is
@@ -62,7 +66,7 @@ not automatically an organizationally approved production publisher. Stage the
 extracted release in a protected root-owned directory and enter it.
 
 ```sh
-sudo ./scripts/install-controller.sh --gui-setup
+sudo ./scripts/install-controller.sh
 ```
 
 Git is optional when installing a verified release archive. A source checkout
@@ -169,25 +173,28 @@ or external failover acceptance.
 ## 4. Prepare endpoints
 
 The intended pilot matrix is RHEL 8/9 and Ubuntu 26.04 on x86_64/amd64 or
-aarch64/arm64; native acceptance on those VMs remains pending. Prepare `systemd`,
-`firewalld`, `ca-certificates`, `util-linux` (for `flock`) and `iproute` (RHEL) or `iproute2` (Ubuntu) through
-approved repositories. By default family installers check prerequisites. The
-GUI has separate unchecked options to install missing dependencies with journaled
-startup suppression and assess/export UFW privately. Neither starts firewalld,
-disables UFW or migrates existing rules. Unsupported administrator overrides or
-uncertain package state block automatic preparation; native acceptance is pending.
+aarch64/arm64; native acceptance on those VMs remains pending. Genuine systemd,
+root/sudo access and approved repositories are prerequisites. The automatic
+agent installer validates the private kit and signed runtime before preparing
+missing `firewalld`, `ca-certificates`, `util-linux` (for `flock`) and `iproute`
+(RHEL) or `iproute2` (Ubuntu) with journaled startup suppression. Required
+dependency preparation is automatic; optional UFW assessment/export starts off.
+It preserves UFW and existing firewalld activity, and never migrates rules or
+enables enforcement. Unsupported administrator overrides or uncertain package
+state block preparation.
 See [endpoint preparation](endpoint-discovery-and-preparation.md).
 
-Stage and independently verify `prthak-agent-0.16.0-linux-amd64.tar.gz` or
-`prthak-agent-0.16.0-linux-arm64.tar.gz`, then extract to a protected root-owned
+Stage and independently verify `prthak-agent-0.17.0-linux-amd64.tar.gz` or
+`prthak-agent-0.17.0-linux-arm64.tar.gz`, then extract to a protected root-owned
 release directory. Use its signed runtime manifest and independently approved
 public trust. The static Go endpoint needs no Git, Python or Go compiler/runtime. Existing 0.14 agents remain protocol-compatible with the human-login addition; they need no reinstall solely to enable local/SAML accounts.
 
 ## 5. Download one fleet setup for all endpoints
 
 1. Open **Install agent** as Admin/Super Admin. Choose **Fleet setup**, the
-   matching package family/architecture, a profile name and expiry (default
+   matching CPU architecture, a profile name and expiry (default
    24 hours; 1 hour through 30 days). No hostname list or CSV is required.
+   Linux family detection and required dependencies are automatic.
 2. Confirm management, control and discovery HTTPS origins and 30-second
    control / 900-second discovery intervals. Central profiles can override
    polling; they do not silently grant local security opt-ins.
@@ -212,21 +219,14 @@ Bootstrap is **monitor-only**: `enforce`, imported firewall changes, automatic
 learned access and unexpected-port instrumentation are false. The endpoint
 creates its own private identity. Do not edit the downloaded JSON.
 
-## 6. Run one matching endpoint installer
-
-RHEL 8/9:
+## 6. Run the same automatic endpoint installer
 
 ```sh
-sudo ./scripts/install-agent-rhel.sh --setup-file /root/prthak-agent-setup.json
+sudo ./scripts/install-agent-auto.sh --setup-file /root/prthak-agent-setup.json
 ```
 
-Ubuntu 26.04:
-
-```sh
-sudo ./scripts/install-agent-ubuntu.sh --setup-file /root/prthak-agent-setup.json
-```
-
-The bundled helper validates ownership/mode, expiry, exact schema, fleet profile
+This command detects RHEL 8/9 or Ubuntu 26.04 and checks the CPU package. The
+bundled helper validates ownership/mode, expiry, exact schema, fleet profile
 (or individual hostname), CA trust and monitor-only settings. Signed agent/service integrity is
 checked. The installer enables/starts `seg-agent`, preserves existing identity
 and refuses unresolved enforcement/rollback transactions. Success still needs
@@ -277,14 +277,15 @@ For a fresh endpoint reporting `endpoint_configuration_v1`:
 3. Download the signed `prthak-endpoint-configuration.json`. Its lifetime is at
    most 15 minutes within the current review. Transfer it as root-owned 0600 to
    `/root/prthak-endpoint-configuration.json`; do not edit it.
-4. Run one matching verified family command:
+4. Run the verified automatic command:
 
    ```sh
-   sudo ./scripts/install-agent-rhel.sh --configuration-file /root/prthak-endpoint-configuration.json
+   sudo ./scripts/install-agent-auto.sh --configuration-file /root/prthak-endpoint-configuration.json
    ```
 
-   For Ubuntu use `install-agent-ubuntu.sh` with the same argument. This wrapper
-   checks the platform then invokes the bundled `--apply-configuration` helper.
+   This wrapper checks the platform then invokes the bundled
+   `--apply-configuration` helper. Configuration transitions do not prepare OS
+   packages. Existing family wrappers remain compatibility entrypoints.
    There is no manual JSON editing or generic remote command execution.
 5. Wait for the exact authenticated configuration receipt. An independent
    90-second rollback timer restores prior config/trust unless the new daemon

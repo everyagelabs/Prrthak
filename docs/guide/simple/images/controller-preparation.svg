@@ -17,31 +17,31 @@
 <rect x="950" y="198" width="276" height="142" rx="18" fill="#FFF2F3" stroke="#DEE0E6" stroke-width="1.5"/>
 <text x="1088" y="221.0" font-family="DejaVu Sans,sans-serif" font-size="39" font-weight="600" fill="#E60012" text-anchor="middle" dominant-baseline="text-before-edge">100 GiB</text>
 <text x="1088" y="283.0" font-family="DejaVu Sans,sans-serif" font-size="23" font-weight="400" fill="#686B78" text-anchor="middle" dominant-baseline="text-before-edge">Separate data SSD</text>
-<text x="48" y="387.0" font-family="DejaVu Sans,sans-serif" font-size="28" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Already installed on the VM</text>
+<text x="48" y="387.0" font-family="DejaVu Sans,sans-serif" font-size="28" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Dependencies and host access</text>
 <circle cx="74.0" cy="472.0" r="16.0" fill="#FFFFFF" stroke="#237755" stroke-width="2.3"/>
 <line x1="64.66666666666667" y1="472.0" x2="71.33333333333333" y2="478.6666666666667" stroke="#237755" stroke-width="3" stroke-linecap="round"/>
 <line x1="71.33333333333333" y1="478.6666666666667" x2="84.0" y2="465.3333333333333" stroke="#237755" stroke-width="3" stroke-linecap="round"/>
 <text x="120" y="449.0" font-family="DejaVu Sans,sans-serif" font-size="25" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Python 3.9+</text>
-<text x="120" y="494.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Root owned interpreter</text>
+<text x="120" y="494.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Installed if missing</text>
 <circle cx="678.0" cy="472.0" r="16.0" fill="#FFFFFF" stroke="#237755" stroke-width="2.3"/>
 <line x1="668.6666666666666" y1="472.0" x2="675.3333333333334" y2="478.6666666666667" stroke="#237755" stroke-width="3" stroke-linecap="round"/>
 <line x1="675.3333333333334" y1="478.6666666666667" x2="688.0" y2="465.3333333333333" stroke="#237755" stroke-width="3" stroke-linecap="round"/>
 <text x="724" y="449.0" font-family="DejaVu Sans,sans-serif" font-size="25" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Docker Engine</text>
-<text x="724" y="494.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Local service running</text>
+<text x="724" y="494.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Installed or safely reused</text>
 <circle cx="74.0" cy="602.0" r="16.0" fill="#FFFFFF" stroke="#237755" stroke-width="2.3"/>
 <line x1="64.66666666666667" y1="602.0" x2="71.33333333333333" y2="608.6666666666666" stroke="#237755" stroke-width="3" stroke-linecap="round"/>
 <line x1="71.33333333333333" y1="608.6666666666666" x2="84.0" y2="595.3333333333334" stroke="#237755" stroke-width="3" stroke-linecap="round"/>
 <text x="120" y="579.0" font-family="DejaVu Sans,sans-serif" font-size="25" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Compose v2</text>
-<text x="120" y="624.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Docker plugin installed</text>
+<text x="120" y="624.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Installed if missing</text>
 <circle cx="678.0" cy="602.0" r="16.0" fill="#FFFFFF" stroke="#237755" stroke-width="2.3"/>
 <line x1="668.6666666666666" y1="602.0" x2="675.3333333333334" y2="608.6666666666666" stroke="#237755" stroke-width="3" stroke-linecap="round"/>
 <line x1="675.3333333333334" y1="608.6666666666666" x2="688.0" y2="595.3333333333334" stroke="#237755" stroke-width="3" stroke-linecap="round"/>
 <text x="724" y="579.0" font-family="DejaVu Sans,sans-serif" font-size="25" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">systemd + sudo</text>
-<text x="724" y="624.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Linux service and root access</text>
+<text x="724" y="624.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Host must provide before install</text>
 <line x1="44" y1="717" x2="1216" y2="717" stroke="#DEE0E6" stroke-width="1.5" stroke-linecap="round"/>
 <text x="48" y="744.0" font-family="DejaVu Sans,sans-serif" font-size="23" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Also arrange</text>
 <text x="246" y="744.0" font-family="DejaVu Sans,sans-serif" font-size="23" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Stable IP and DNS  •  correct time  •  approved downloads</text>
-<text x="48" y="786.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#E60012" text-anchor="start" dominant-baseline="text-before-edge">Mount storage first. Prṛthak does not install Python or Docker.</text>
+<text x="48" y="786.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="600" fill="#E60012" text-anchor="start" dominant-baseline="text-before-edge">Provide systemd, sudo, storage and approved repositories first.</text>
 <line x1="44" y1="828" x2="1216" y2="828" stroke="#DEE0E6" stroke-width="1" stroke-linecap="round"/>
 <text x="44" y="843.0" font-family="DejaVu Sans,sans-serif" font-size="15" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Pilot planning allocation • fresh standalone setup needs no database cluster or watchdog.</text>
 <text x="1216" y="870.0" font-family="DejaVu Sans,sans-serif" font-size="14" font-weight="400" fill="#686B78" text-anchor="end" dominant-baseline="text-before-edge">Created by Pratik Srivastava</text>

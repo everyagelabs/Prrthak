@@ -2,8 +2,9 @@
 
 New to Linux? Use the [simple controller picture guide](guide/simple/controller-installation.pdf), or its [browser edition with copyable commands](guide/simple/controller-installation.html). The [end-to-end command sheets](installation-commands.md#controller) include fresh RHEL 9/Ubuntu dependency installation, file transfer, verification, extraction and startup checks.
 
-**Preferred 0.16.0 pilot flow:** after prerequisites and verified extraction, run
-`sudo ./scripts/install-controller.sh --gui-setup` once and complete configuration
+**Preferred 0.17.0 flow:** after verified extraction on a supported Linux systemd
+host, run `sudo ./scripts/install-controller.sh` once. It detects the OS and
+prepares dependencies automatically; complete application configuration
 through the GUI. At the trusted HTTPS URL, a fresh empty account database uses
 local **admin** / **admin** as Super Admin and requires a password change before
 workspace access. Local users and optional SAML are managed in **Users & access**;
@@ -14,19 +15,19 @@ below remains an advanced compatibility path for existing installations.
 
 Git is an optional way for an administrator to obtain approved source. The installed controller, local manager and containers do not invoke Git. A verified controller installation archive carries the required public source and setup files, so Git is not required on a management VM or an endpoint. Use the reviewed candidate from https://github.com/everyagelabs/Prrthak and pin its exact release commit when choosing the source-checkout route.
 
-## Host prerequisites
+## Host preparation and automatic dependencies
 
-Use the [VM sizing and layout requirements](controller-vm-requirements.md) for the intended fleet and retention. The controller installer requires:
+Use the [VM sizing and layout requirements](controller-vm-requirements.md) for the intended fleet and retention. Automatic preparation supports **RHEL 9 and Ubuntu 26.04**, on AMD64/ARM64. It defaults to GUI setup. Provide these foundations:
 
-- A real Linux host with systemd as PID1, root access, and a protected root-owned Python **3.9+** interpreter and ancestors. The image supplies the controller Python runtime/dependencies; the host manager uses the system interpreter. Do not run the privileged manager with a user-writable virtual environment.
-- Local Docker Engine and the **Compose v2** plugin, prepared through your approved OS/vendor procedure. Remote Docker endpoints are not accepted by the fixed manager. No Node.js or Go compiler is required on the controller VM.
+- A real Linux host with systemd as PID1 and root/sudo access. The installer prepares a protected root-owned Python **3.9+** interpreter when missing; the host manager uses it and the image supplies the application runtime. An older/custom interpreter is not silently replaced. Do not use a user-writable virtual environment for the privileged manager.
+- Approved OS and Docker package repositories. The installer prepares local Docker Engine and **Compose v2**, then starts Docker when needed. An existing compatible installation is reused. Conflicting Docker/Podman/containerd packages or uncertain runtime contexts block automatic preparation; the installer does not remove another container stack. Remote/rootless Docker is not supported. No host Node.js, Go or PostgreSQL installation is required.
 - A dedicated persistent `DATA_ROOT`, such as `/var/lib/prthak` or `/mnt/prthak`, with protected root-owned ancestors. The installer rejects symlinks, traversal, unsafe roots and unrelated contents. Docker image/build/log storage remains in Docker's configured storage location.
 - Reserved UID/GID **10001** for the locked no-login `prthak-controller` host identity. The installer creates it when safe and rejects collisions, aliases or unrelated group members. The application container runs as UID10001 and never receives the Docker socket.
 - Approved registry and package access: the installer builds images using pinned PostgreSQL 16/Alpine bases and OS/Python packages, builds the pinned etcd source with its reviewed dependency fixes, and pulls the configured HAProxy image. The etcd builder fetches a checksum-verified upstream archive from `codeload.github.com` and verified Go modules through the Go module/checksum services over HTTPS. These are build-time downloads inside Docker; Git and Go are not required on the host. An approved mirror can be part of the deployment environment. This source archive is **not an offline image installer**, and an unattended offline-image import workflow is not supplied.
 
-Installation does not disable UFW/firewalld or open host firewall ports. Arrange DNS, TLS, LB routing, approved access paths and native OS behavior in your deployment phase. Local code/fixture tests do not certify RHEL/Ubuntu, SELinux/polkit, hardware watchdogs or physical DC/DR failover.
+Dependency preparation runs only after protected release/OS/systemd checks and uses fixed package/repository actions. Keep SELinux enabled. Installation does not disable UFW/firewalld or open host firewall ports. Arrange DNS, TLS, LB routing, approved access paths and Docker-aware publication filtering in your deployment phase. Local code/fixture tests do not certify RHEL/Ubuntu, SELinux/polkit, hardware watchdogs or physical DC/DR failover.
 
-RHEL 8's default Python3.6 is insufficient for this host manager. Prepare an approved root-owned Python3.9+ interpreter without replacing the OS Python. If it is not the `python3` selected by root's PATH, set `PRTHAK_INSTALL_PYTHON` to its absolute path when invoking the installer, for example `/usr/bin/python3.11` if that approved interpreter is installed.
+The prepared-host compatibility paths `--env-file`, `--validate-only` and `--no-start` do **not** install packages or start Docker. They require existing protected Python 3.9+ and the dependencies applicable to that operation. `PRTHAK_INSTALL_PYTHON` may select an approved absolute root-owned interpreter path for such deployments. RHEL 8's default Python 3.6 is insufficient; RHEL 8 is not an automatic controller-preparation target.
 
 ## Existing PostgreSQL appliances
 
@@ -34,7 +35,7 @@ This candidate changes the database libc/runtime profile. **Create and download 
 
 ## Obtain and verify a release
 
-The source archive is named `prthak-controller-0.16.0.tar.gz`. It contains public runtime Python modules, browser assets, Dockerfiles, fixed local manager/helpers, `.env.example`, installer/verifier and these guides. It excludes tests, populated environment files, keys, certificates, databases, private state and agent binaries.
+The source archive is named `prthak-controller-0.17.0.tar.gz`. It contains public runtime Python modules, browser assets, Dockerfiles, fixed local manager/helpers, `.env.example`, installer/verifier and these guides. It excludes tests, populated environment files, keys, certificates, databases, private state and agent binaries.
 
 Top-level public Markdown runbooks and `agent/README.md` are included to preserve installation and operational references. The unchanged illustrated 0.14.0 HTML/PDF baseline is included under docs/guide; use [Local/SAML login](local-and-saml-login.md) for the new authentication screens. Source-local evidence links can also refer to private assessment artifacts, generated capacity results, historical illustrated guides or development fixtures; those historical/private artifacts are not part of this runtime installation archive. Obtain the separately retained assessment/source evidence when reviewing those historical measurements. Agent installers and binaries are distributed in their separate verified endpoint packages.
 
@@ -43,8 +44,8 @@ Before extraction, use an independently approved copy of `verify-release.py`, a 
 ```sh
 python3 /approved/tools/verify-release.py \
   --public-trust-file /approved/trust/prthak-release-public-trust.json \
-  --signature prthak-controller-0.16.0.tar.gz.signature.json \
-  prthak-controller-0.16.0.tar.gz
+  --signature prthak-controller-0.17.0.tar.gz.signature.json \
+  prthak-controller-0.17.0.tar.gz
 ```
 
 Use an approved administration tool environment supporting Ed25519 verification. Python3.10+ with the compatible `cryptography` requirement is recommended; the running installed endpoint needs neither. A public key downloaded next to an untrusted archive does not establish authenticity. The included `deploy/release-public-trust.json` describes the current **local project** public authority; it is not independent organizational approval.
@@ -54,10 +55,10 @@ Place the verified archive and extracted release in protected root-owned locatio
 ```sh
 sudo install -d -o root -g root -m 0755 /opt/prthak/releases
 sudo tar --no-same-owner --no-same-permissions \
-  -xzf /protected/releases/prthak-controller-0.16.0.tar.gz \
+  -xzf /protected/releases/prthak-controller-0.17.0.tar.gz \
   -C /opt/prthak/releases
-cd /opt/prthak/releases/prthak-controller-0.16.0
-sudo ./scripts/install-controller.sh --gui-setup
+cd /opt/prthak/releases/prthak-controller-0.17.0
+sudo ./scripts/install-controller.sh
 ```
 
 The alternative is an approved source checkout, pinned to a reviewed release commit. Prepare a protected release copy before running the same installer. No real repository URL is invented here; Git is a source-distribution choice, not a runtime prerequisite.

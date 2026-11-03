@@ -1,4 +1,4 @@
-# Prṛthak (पृथक्) endpoint agent · 0.9 source
+# Prṛthak (पृथक्) endpoint agent · 0.17.0 source
 
 **पृथक् · Central service discovery and firewall policy automation**
 
@@ -17,13 +17,40 @@ Implemented:
 - Locally enforced expiry, exact owned-rule cleanup at shutdown/startup, bounded durable file spool, idempotent batch IDs, and session coverage with rate-limit/gap diagnostics. Firewalld runtime rule timeout is an additional expiry safeguard.
 - Simulation mode uses synthetic listeners and never invokes any OS/firewall commands; it does not fabricate traffic events.
 
+## Install with GUI configuration
+
+Download the private fleet setup in **Install agent** and transfer it to
+`/root/prthak-agent-setup.json`, root-owned mode 0600. From the independently
+verified, extracted root-owned release, run the same command on every endpoint:
+
+```sh
+sudo ./scripts/install-agent-auto.sh --setup-file /root/prthak-agent-setup.json
+```
+
+The command detects RHEL 8/9 or Ubuntu 26.04 and verifies the CPU package. It
+validates the GUI kit and signed binary/service before automatically preparing
+missing OS dependencies through the native helper. The GUI keeps CPU selection;
+Linux family and required dependencies are automatic. Optional UFW assessment is
+off by default. Older schema-1/2 kits also work without rewriting them. The
+explicit automatic command authorizes package preparation, never enforcement.
+Genuine systemd, root/sudo, approved repositories and trusted file transfer are
+still required. No separate endpoint Python, Go runtime or Git is needed.
+Existing UFW and firewalld activity are preserved; firewall cutover is separate.
+Read-only/staging/no-start paths do not prepare OS packages. Family entrypoints
+remain compatible. All subsequent application configuration is GUI-managed;
+signed endpoint security transitions use a reviewed kit and local apply step.
+See [the installation guide](../docs/linux-agent-installation.md).
+
 ## Runtime versus optional helper prerequisites
 
 The static Go endpoint and stock POSIX-shell installer require no Python or Python cryptography package. `scripts/prepare-managed-ipsets.py` is a separate one-time administrative helper: Python **3.6+** standard library plus `firewall-cmd`; it does not import cryptography. Its empty permanent definitions still need separately reviewed runtime activation.
 
-`scripts/verify-release.py` runs on an administration workstation **before extraction**. Its syntax floor is Python **3.8+**; use this release's supported `cryptography>=44` with Ed25519, and prefer an approved Python **3.10+** tool environment. The tested cryptography 50.0.2 requires Python>=3.9 (excluding3.9.0/3.9.1). RHEL 8's default Python 3.6 cannot run this verifier; do not add a Python dependency to the running endpoint to imply otherwise. Signing tools import the controller modules and use the controller Python 3.10+/requirements environment. The controller-appliance host installer separately requires Python 3.9+, Docker and Compose; its image supplies the controller runtime.
+`scripts/verify-release.py` runs on an administration workstation **before extraction**. Its syntax floor is Python **3.8+**; use this release's supported `cryptography>=44` with Ed25519, and prefer an approved Python **3.10+** tool environment. The tested cryptography 50.0.2 requires Python>=3.9 (excluding3.9.0/3.9.1). RHEL 8's default Python 3.6 cannot run this verifier; do not add a Python dependency to the running endpoint to imply otherwise. Signing tools import the controller modules and use the controller Python 3.10+/requirements environment. The automatic controller installer prepares protected Python 3.9+, Docker Engine and Compose on RHEL 9 or Ubuntu 26.04; its image supplies the controller runtime.
 
-## Build and run
+## Build and advanced compatibility
+
+The commands below are retained development/prepared-host interfaces. Normal
+installation uses the GUI kit and automatic command above.
 
 ```sh
 cd agent
@@ -32,7 +59,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o bin/seg-agent-linux-
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o bin/seg-agent-linux-arm64 ./cmd/seg-agent
 ```
 
-The server does **not** need a manual dashboard entry. Prepare a reviewed configuration using the canonical paths in `config.example.json`, the trusted controller CA, and one private single-use bootstrap token. Then run the installer on the endpoint:
+The server does **not** need a manual dashboard entry. For the legacy explicit-configuration interface, prepare a reviewed configuration using the canonical paths in `config.example.json`, the trusted controller CA, and one private single-use bootstrap token. Then run the installer on the endpoint:
 
 ```sh
 sudo install -d -m 0700 /etc/seg-agent
@@ -129,7 +156,7 @@ The agent detects actual SSH listeners, including custom ports and supported soc
 
 ## Communication and discovery settings
 
-Use the controller’s Agent polling settings for timing overrides. For endpoint URLs, management scope and security opt-ins, create an Admin-authorized signed configuration kit in Platform → Setup and apply it locally with the verified family installer. This does not silently enable enforcement. `/etc/seg-agent/config.json` remains the protected technical configuration; the agent reads it at service start. These settings are independent of a temporary traffic-learning duration. Business tags and DC/location are configured in the dashboard, not this file:
+Use the controller’s Agent polling settings for timing overrides. For endpoint URLs, management scope and security opt-ins, create an Admin-authorized signed configuration kit in Platform → Setup and apply it locally with `sudo ./scripts/install-agent-auto.sh --configuration-file /root/prthak-endpoint-configuration.json`. This path does not prepare packages or silently enable enforcement. `/etc/seg-agent/config.json` remains the protected technical configuration; the agent reads it at service start. These settings are independent of a temporary traffic-learning duration. Business tags and DC/location are configured in the dashboard, not this file:
 
 | Setting | Default | Accepted value / purpose |
 | --- | --- | --- |
@@ -211,11 +238,11 @@ For the pilot, do not enable endpoint enforcement or automatic learning on contr
 
 A current authorized local or SSO Admin’s normal Save/Apply publishes exact intent directly. No second person, approval-mode selector, 20-host approval scope or seven-day approval-mode expiry is required. Deny/restrictive imported changes and restrictive learned edits/removal retain two explicit confirmations by the same actor, using current nonces and the final typed challenge. Endpoint local opt-ins, signed identity/scope bindings, current authority, management health, durable journals and rollback still gate mutation. Only Super Admin manages application users and privileged platform settings; destructive database recovery retains two explicit same-Super-Admin confirmations. Shared-token/demo flows remain labelled lab fixtures.
 
-See [endpoint discovery, preparation and health](../docs/endpoint-discovery-and-preparation.md) for fast-check bounds, offline alerts and the optional schema-3 dependency/UFW assessment workflow.
+See [endpoint discovery, preparation and health](../docs/endpoint-discovery-and-preparation.md) for fast-check bounds, offline alerts, automatic dependency preparation and optional UFW assessment.
 
 
 ## Local and SSO controller users
 
-The current endpoint payload is stamped 0.16.0. Local, Entra OIDC and SAML user roles are managed by the controller; human passwords are never sent to endpoints. Existing 0.14 agents remain protocol-compatible with this login addition and do not need reinstallation solely for it. See [current authentication](../docs/local-and-saml-login.md).
+The current endpoint implementation is 0.17.0, with release validation in progress. Local, Entra OIDC and SAML user roles are managed by the controller; human passwords are never sent to endpoints. Existing 0.14 agents remain protocol-compatible with this login addition and do not need reinstallation solely for it. See [current authentication](../docs/local-and-saml-login.md).
 
 <sub>Created by Pratik Srivastava</sub>

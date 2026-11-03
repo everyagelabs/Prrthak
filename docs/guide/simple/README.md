@@ -1,20 +1,32 @@
 # Simple installation guides
 
-Follow the controller guide first, then the agent guide. Each has nine short steps with pictures, four end-to-end command sheets, current preview screenshots and a small author note on every page.
+Use the controller guide first, then the agent guide. Each has **nine picture-led steps plus two short reference sheets**, refreshed 3 November 2026 for the 0.17 universal installers. Every page includes **Created by Pratik Srivastava**.
 
 | Install | Read and print | Copy commands in a browser |
 |---|---|---|
-| Controller on prepared RHEL 9 or Ubuntu 26.04 | [Controller PDF](controller-installation.pdf) | [Controller HTML](controller-installation.html) |
+| Controller on RHEL 9 or Ubuntu 26.04 | [Controller PDF](controller-installation.pdf) | [Controller HTML](controller-installation.html) |
 | Agent on RHEL 8/9 or Ubuntu 26.04 | [Agent PDF](agent-installation.pdf) | [Agent HTML](agent-installation.html) |
 
-GitHub previews the PDFs. Download an HTML edition and open it in your browser for its copy buttons; all pictures are embedded. For a fresh machine, use **Command sheets 1–4 on pages 10–13** or the [end-to-end command runbook](../../installation-commands.md). Choose RHEL or Ubuntu preparation, then follow private file transfer, checksum verification, extraction, installation and status checks. The app's configuration stays in the GUI; no manual `.env` editing is required.
+From the verified, extracted, root-owned controller release:
 
-The commands require approved repositories, sudo/root, the signed pilot packages and independently approved release trust. They do not install on an unknown host automatically. Shell syntax and documentation are checked; native OS/DC execution remains pending.
+```sh
+sudo ./scripts/install-controller.sh
+```
+
+From the matching CPU agent release, with its private GUI setup copied to `/root/prthak-agent-setup.json`:
+
+```sh
+sudo ./scripts/install-agent-auto.sh --setup-file /root/prthak-agent-setup.json
+```
+
+Both commands detect the supported Linux OS and prepare missing dependencies. The controller opens GUI setup by default. Product configuration stays in the GUI; no manual `.env` or agent JSON editing is required. Existing firewall activity is preserved and new agents start monitor-only.
+
+GitHub previews the PDFs. Download an HTML edition and open it in a browser for copy buttons; all pictures are embedded. Optional transfer/extraction and read-only checks are on pages 10-11 and in the [plain command runbook](../../installation-commands.md). The release must be independently verified before running an installer; the bootstrap cannot authenticate itself before execution.
 
 ![Controller guide first page](images/controller-guide-preview.png)
 
 ![Agent guide first page](images/agent-guide-preview.png)
 
-For the rest of the product, read [all features in simple language](../../features-in-simple-language.md). The [detailed runbook](../../pilot-gui-installation.md) supplies technical steps. Synthetic preview screens and explanatory drawings are labelled. Native OS, real pilot and DC/DR testing remain pending.
+The guides include ports, authentication, discovery, tags, expected resource allowances and troubleshooting. Read [all features in simple language](../../features-in-simple-language.md) for the full requirement map. Screenshots are labelled actual **synthetic preview** captures, not a real installation. Native RHEL/Ubuntu and DC deployment/pilot acceptance remain deferred.
 
 <sub>Created by Pratik Srivastava</sub>

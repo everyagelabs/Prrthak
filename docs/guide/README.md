@@ -2,13 +2,13 @@
 
 ## Start here with the simple picture guides
 
-The **0.16 controller guide** has nine short picture-led steps plus four end-to-end command sheets: [open in a browser](simple/controller-installation.html) or [download PDF](simple/controller-installation.pdf). It supplies RHEL 9/Ubuntu dependency commands, transfer, checksum, extraction and installation steps, then explains first login, mandatory password change and GUI configuration.
+The **0.17 controller guide** has nine picture-led steps plus two reference sheets: [browser edition](simple/controller-installation.html) or [PDF](simple/controller-installation.pdf). One command detects RHEL 9 or Ubuntu 26.04 and prepares missing Python/Docker/Compose dependencies, then configuration continues in the GUI.
 
-The **0.16 agent guide** has nine short picture-led steps plus four end-to-end command sheets: [open in a browser](simple/agent-installation.html) or [download PDF](simple/agent-installation.pdf). It shows one reusable fleet setup, safe dependency preparation, private transfer, matching CPU selection, RHEL/Ubuntu installation, status checks and central location/tag assignment. The [plain command runbook](../installation-commands.md) carries the same copyable commands.
+The **0.17 agent guide** has nine picture-led steps plus two reference sheets: [browser edition](simple/agent-installation.html) or [PDF](simple/agent-installation.pdf). One command detects RHEL 8/9 or Ubuntu 26.04, validates the GUI kit and signed agent, prepares missing dependencies, preserves firewall activity and starts the monitor-only agent. It covers reusable fleet setup, private transfer, discovery, central tags, resource allowances and checks. The [plain runbook](../installation-commands.md) has the same copyable commands.
 
-[Features in simple language](../features-in-simple-language.md) explains all 47 requirement groups through seven original diagrams. Every new guide page and the project Markdown documentation carry the requested author note. Existing historical PDF/HTML exports and signed release archives remain unchanged.
+[Features in simple language](../features-in-simple-language.md) maps all 48 requirement groups through seven original diagrams. Every new guide page and current Markdown document carries the author note. Historical PDF/HTML exports and signed release archives remain unchanged.
 
-Screenshots are actual v0.16 local synthetic preview captures, explicitly labelled. Diagrams explain the workflow; they do not certify native OS, live IdP or DC acceptance. Setup downloads are disabled in the synthetic preview. Native RHEL/Ubuntu validation and the real pilot remain deployment work.
+Screenshots are actual v0.17 local synthetic preview captures, explicitly labelled. Diagrams explain workflows and do not certify native OS, live IdP or DC acceptance. Setup downloads stay disabled in the synthetic preview. Native RHEL/Ubuntu validation and the real pilot remain deployment work.
 
 Rebuild the new assets with `scripts/build-simple-guide-diagrams.py`, then `scripts/build-simple-installation-guides.py`, using approved Python with Pillow and ReportLab. `simple/verification.json` records artifact hashes, original captures, pixel-preserving crops and layout measurements. HTML embeds every image, includes copyable commands, and can be read without a server.
 

@@ -3,7 +3,8 @@
 
 All payload files stay under /opt/prthak-agent/<version>-linux-<arch>. There
 are no maintainer scripts or service/firewall actions. GUI-reviewed activation
-still uses the existing family installer. Signing keys never enter Docker.
+uses the explicit automatic installer (legacy family entrypoints remain).
+Signing keys never enter Docker.
 """
 import argparse
 import gzip
@@ -32,10 +33,11 @@ FLEET_GUIDE = "docs/fleet-enrollment.md"
 PREPARATION_GUIDE = "docs/endpoint-discovery-and-preparation.md"
 SOURCE_BANK_GUIDE = "docs/source-bank-preparation.md"
 VERIFICATION_GUIDE = "docs/policy-rollout-verification.md"
+AUTO_INSTALLER = "scripts/install-agent-auto.sh"
 ALLOWED = {
     "seg-agent", "INSTALL.txt", "runtime-integrity.json", "deploy/release-public-trust.json",
     "agent/config.example.json", "agent/README.md", "deploy/systemd/seg-agent.service",
-    *{"scripts/" + name for name in ("install-agent.sh", "install-agent-linux.sh", "install-agent-rhel.sh", "install-agent-ubuntu.sh", "prepare-managed-ipsets.py", "verify-release.py")},
+    *{"scripts/" + name for name in ("install-agent.sh", "install-agent-auto.sh", "install-agent-linux.sh", "install-agent-rhel.sh", "install-agent-ubuntu.sh", "prepare-managed-ipsets.py", "verify-release.py")},
     *{"docs/" + name for name in ("managed-enforcement.md", "linux-validation.md", "scale-validation.md", "ipset-enforcement.md", "policy-signing.md", "linux-agent-installation.md", "pilot-gui-installation.md", "authentication.md")},
     HOST_DENY_GUIDE,
     TRAFFIC_CAPTURE_GUIDE,
@@ -58,14 +60,14 @@ for kind in p['formats']:
         target.parent.mkdir(parents=True)
         shutil.copytree('/input/payload',target)
         control=tree/'DEBIAN';control.mkdir()
-        (control/'control').write_text('Package: prthak-agent-payload\nVersion: '+p['version']+'\nArchitecture: '+p['arch']+'\nMaintainer: Prthak Operations <prthak@localhost>\nSection: admin\nPriority: optional\nDescription: Verified inert Prthak agent release payload\n Requires a separately reviewed GUI setup kit and explicit family installer.\n')
+        (control/'control').write_text('Package: prthak-agent-payload\nVersion: '+p['version']+'\nArchitecture: '+p['arch']+'\nMaintainer: Prthak Operations <prthak@localhost>\nSection: admin\nPriority: optional\nDescription: Verified inert Prthak agent release payload\n Requires a separately reviewed GUI setup kit and explicit installer.\n')
         subprocess.run(['dpkg-deb','--build','--root-owner-group','--uniform-compression','-Zgzip','-z9',str(tree),'/output/'+p['outputs']['deb']],check=True)
     else:
         top=work/'rpm'
         for d in ('BUILD','BUILDROOT','RPMS','SOURCES','SPECS','SRPMS'):(top/d).mkdir(parents=True)
         arch={'amd64':'x86_64','arm64':'aarch64'}[p['arch']]
         spec=top/'SPECS'/'payload.spec'
-        spec.write_text('%global _binary_payload w9.gzdio\n%global _build_id_links none\n%global __os_install_post %{nil}\nName: prthak-agent-payload\nVersion: '+p['version']+'\nRelease: 1\nSummary: Verified inert Prthak agent release payload\nLicense: Proprietary\nAutoReqProv: no\n%description\nRequires a separately reviewed GUI setup kit and explicit family installer.\n%prep\n%build\n%install\nmkdir -p %{buildroot}'+prefix+'\ncp -a /input/payload/. %{buildroot}'+prefix+'/\n%files\n%defattr(-,root,root,-)\n'+prefix+'\n')
+        spec.write_text('%global _binary_payload w9.gzdio\n%global _build_id_links none\n%global __os_install_post %{nil}\nName: prthak-agent-payload\nVersion: '+p['version']+'\nRelease: 1\nSummary: Verified inert Prthak agent release payload\nLicense: Proprietary\nAutoReqProv: no\n%description\nRequires a separately reviewed GUI setup kit and explicit installer.\n%prep\n%build\n%install\nmkdir -p %{buildroot}'+prefix+'\ncp -a /input/payload/. %{buildroot}'+prefix+'/\n%files\n%defattr(-,root,root,-)\n'+prefix+'\n')
         subprocess.run(['rpmbuild','-bb','--target',arch,'--nodeps','--define','_topdir '+str(top),'--define','_tmppath /tmp',str(spec)],check=True)
         packages=list((top/'RPMS').rglob('*.rpm'))
         if len(packages)!=1:raise SystemExit('Expected exactly one inert RPM')
@@ -129,7 +131,7 @@ def inspect_bundle(archive, payload):
                 raise ValueError("Release must contain unique allowlisted regular files only")
             found[relative] = item
         release = tuple(map(int, version.split('.')))
-        required = ALLOWED - ({HOST_DENY_GUIDE} if release < (0, 8, 0) else set()) - ({TRAFFIC_CAPTURE_GUIDE} if release < (0, 9, 0) else set()) - ({FLEET_GUIDE} if release < (0, 10, 0) else set()) - ({PREPARATION_GUIDE} if release < (0, 11, 0) else set()) - ({SOURCE_BANK_GUIDE} if release < (0, 12, 0) else set()) - ({VERIFICATION_GUIDE} if release < (0, 13, 0) else set())
+        required = ALLOWED - ({HOST_DENY_GUIDE} if release < (0, 8, 0) else set()) - ({TRAFFIC_CAPTURE_GUIDE} if release < (0, 9, 0) else set()) - ({FLEET_GUIDE} if release < (0, 10, 0) else set()) - ({PREPARATION_GUIDE} if release < (0, 11, 0) else set()) - ({SOURCE_BANK_GUIDE} if release < (0, 12, 0) else set()) - ({VERIFICATION_GUIDE} if release < (0, 13, 0) else set()) - ({AUTO_INSTALLER} if release < (0, 17, 0) else set())
         if not required <= found.keys():
             raise ValueError("Release is missing installation or signed-runtime files")
         payload.mkdir(mode=0o755)

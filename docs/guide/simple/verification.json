@@ -1,18 +1,18 @@
 {
-  "edition": "0.16 documentation guides",
+  "edition": "0.17 documentation guides",
   "created_on": "2026-11-03",
   "author": "Pratik Srivastava",
   "guides": {
     "controller": {
-      "pages": 13,
+      "pages": 11,
       "pdf": "output/pdf/prthak-controller-installation-simple.pdf",
-      "pdf_sha256": "d99ee3ac776edb236f3179aeb682e69d27acf472b774b0a87104b97ec5cd2dc9",
+      "pdf_sha256": "9482eb31dcf05ea82937678e6726446811ab5d9e47268ba9aa38d70714358341",
       "html": "docs/guide/simple/controller-installation.html",
-      "html_sha256": "58f8fe38721f6aa89c1c64c2b1e73912dcf2f55ff8e309141108058a28b1dabb",
+      "html_sha256": "60a3b3dc511fdac25a0cf611b3205c8ee18cce2715b485117b2ec5d57a250561",
       "layout": [
         {
           "page": 1,
-          "bottom_points": 152.1,
+          "bottom_points": 136.48,
           "picture_area_points": 191660.0
         },
         {
@@ -57,32 +57,22 @@
         },
         {
           "page": 10,
-          "bottom_points": 237.63,
+          "bottom_points": 303.91,
           "picture_area_points": 0
         },
         {
           "page": 11,
-          "bottom_points": 85.49,
-          "picture_area_points": 0
-        },
-        {
-          "page": 12,
-          "bottom_points": 364.53,
-          "picture_area_points": 0
-        },
-        {
-          "page": 13,
-          "bottom_points": 273.31,
+          "bottom_points": 355.97,
           "picture_area_points": 0
         }
       ]
     },
     "agent": {
-      "pages": 13,
+      "pages": 11,
       "pdf": "output/pdf/prthak-agent-installation-simple.pdf",
-      "pdf_sha256": "59edd797556125a34bc22de719270dd02b85cf2d69c407040777c0d0f9a69141",
+      "pdf_sha256": "c22896b3fbce12f9f94be7a3251718fcfcdd0843e25e5e8354a0173c1158d35d",
       "html": "docs/guide/simple/agent-installation.html",
-      "html_sha256": "1508e87cb920c502a3576470429ab863a0db3450d17e5189c0f67809f530b471",
+      "html_sha256": "ac954c8ef2fc1cabb17e81f3eda29168a725c43e1381db53b7b1ee5429d420d1",
       "layout": [
         {
           "page": 1,
@@ -111,7 +101,7 @@
         },
         {
           "page": 6,
-          "bottom_points": 123.32,
+          "bottom_points": 189.9,
           "picture_area_points": 82031.3
         },
         {
@@ -131,22 +121,12 @@
         },
         {
           "page": 10,
-          "bottom_points": 152.67,
+          "bottom_points": 273.91,
           "picture_area_points": 0
         },
         {
           "page": 11,
-          "bottom_points": 183.31,
-          "picture_area_points": 0
-        },
-        {
-          "page": 12,
-          "bottom_points": 198.31,
-          "picture_area_points": 0
-        },
-        {
-          "page": 13,
-          "bottom_points": 295.35,
+          "bottom_points": 351.97,
           "picture_area_points": 0
         }
       ]
@@ -155,66 +135,66 @@
   "captures": [
     {
       "file": "overview.jpg",
-      "sha256": "01a9ad426cb2667f8d66cd51518b18ab8eebe8e3907b14b24f3dd389e3ff0b4a",
+      "sha256": "fb638b7d419d43d9ca0a62d9d977056205506c0564c3192b91ac650671d533c3",
       "dimensions": [
         1280,
         720
       ],
-      "provenance": "Actual v0.16 local synthetic preview captured through the in-app browser on 3 November 2026. No real endpoints, setup download or enforcement."
+      "provenance": "Actual v0.17 local synthetic preview captured through the in-app browser on 3 November 2026. No real endpoints, setup download or enforcement."
     },
     {
       "file": "platform-setup.jpg",
-      "sha256": "daf39643d8d951b4caf138cd0368b5549504a939b1b4e53492a41861469224ff",
+      "sha256": "20d6c290bdbc1bcfab9b2bc5ac8058b7931b736ba9eb2aa1bf8badb6984f649e",
       "dimensions": [
         1280,
         720
       ],
-      "provenance": "Actual v0.16 local synthetic preview captured through the in-app browser on 3 November 2026. No real endpoints, setup download or enforcement."
+      "provenance": "Actual v0.17 local synthetic preview captured through the in-app browser on 3 November 2026. No real endpoints, setup download or enforcement."
     },
     {
       "file": "polling.jpg",
-      "sha256": "6a0c9852c019d5fab505ca590595c85f5aef36b2534f2830b88e8837bf07e069",
+      "sha256": "92e108977a8ca036d30c4c2fc5601a325e509e1ecec02f5bc92eb487951c84aa",
       "dimensions": [
         1280,
         720
       ],
-      "provenance": "Actual v0.16 local synthetic preview captured through the in-app browser on 3 November 2026. No real endpoints, setup download or enforcement."
+      "provenance": "Actual v0.17 local synthetic preview captured through the in-app browser on 3 November 2026. No real endpoints, setup download or enforcement."
     },
     {
       "file": "servers.jpg",
-      "sha256": "16ee923e306896b9e6d7121ead318d9f29853d38f9f871d9a4ccf84c0e90cf5c",
+      "sha256": "2ac242956731a76fdd02ccbf606d0157355f0f794c1cadfa5e07a212eb9c743d",
       "dimensions": [
         1280,
         720
       ],
-      "provenance": "Actual v0.16 local synthetic preview captured through the in-app browser on 3 November 2026. No real endpoints, setup download or enforcement."
+      "provenance": "Actual v0.17 local synthetic preview captured through the in-app browser on 3 November 2026. No real endpoints, setup download or enforcement."
     },
     {
       "file": "agent-setup-top.jpg",
-      "sha256": "a5a4fb9e11641d208bc0e2de5cfd8050b0868d5fd1e2128bb13fc7885db87328",
+      "sha256": "ff1013fe1d6f6b5cb3ef9f660ba486f222be4e512bfae474f22bcaf8744157df",
       "dimensions": [
         620,
         634
       ],
-      "provenance": "Actual v0.16 local synthetic preview captured through the in-app browser on 3 November 2026. No real endpoints, setup download or enforcement."
+      "provenance": "Actual v0.17 local synthetic preview captured through the in-app browser on 3 November 2026. No real endpoints, setup download or enforcement."
     },
     {
       "file": "agent-setup-middle.jpg",
-      "sha256": "42ec55de8f6025c3dd395a67a646b5f5ba934ebd79b9ea69d0d226c382585df9",
+      "sha256": "d6dc3caac6fd703ae83ef3bd922d708e4696eb67dd84da6fe60c00a568d40be9",
       "dimensions": [
         1280,
         720
       ],
-      "provenance": "Actual v0.16 local synthetic preview captured through the in-app browser on 3 November 2026. No real endpoints, setup download or enforcement."
+      "provenance": "Actual v0.17 local synthetic preview captured through the in-app browser on 3 November 2026. No real endpoints, setup download or enforcement."
     },
     {
       "file": "agent-setup-bottom.jpg",
-      "sha256": "bf283a693e7357ec2cd9e7b0555c3b8030c1e8a03e4762bf470501b82f7b3ca4",
+      "sha256": "0880451576de00456c8103d47a313c4385a7fd7a601e9aa3d9427ad83836469a",
       "dimensions": [
         1280,
         720
       ],
-      "provenance": "Actual v0.16 local synthetic preview captured through the in-app browser on 3 November 2026. No real endpoints, setup download or enforcement."
+      "provenance": "Actual v0.17 local synthetic preview captured through the in-app browser on 3 November 2026. No real endpoints, setup download or enforcement."
     }
   ],
   "pixel_preserving_crops": [
@@ -281,53 +261,18 @@
   ],
   "command_sheets": {
     "file": "installation-commands.json",
-    "sha256": "3335eca0a03fd377b484419d03d770264152068643ef2bbb7bf5d2e0501cdb7b",
-    "validation": "Installer/source and official package procedure review; shell syntax only. Native execution pending."
+    "sha256": "f92279c0192f7a20b456acc9fccc91c5963f6ebd8c64447ad870937b16a86ee1",
+    "validation": "Universal bootstrap unit/adversarial tests, signed package checks and transfer shell syntax; native execution pending."
   },
   "all_html_images_embedded": true,
   "historical_exports_unchanged": true,
   "native_os_acceptance_completed": false,
   "dc_deployment_completed": false,
   "visual_review_completed": true,
-  "visual_review_scope": "All 26 final rendered PDF pages; browser command-sheet navigation and embedded images",
-  "automated_checks": {
-    "controller": {
-      "pages": 13,
-      "author_footers": 13,
-      "text_bounds_valid": true,
-      "all_pages_rendered_and_reviewed": true,
-      "replacement_glyphs": 0,
-      "pdf_sha256": "d99ee3ac776edb236f3179aeb682e69d27acf472b774b0a87104b97ec5cd2dc9"
-    },
-    "agent": {
-      "pages": 13,
-      "author_footers": 13,
-      "text_bounds_valid": true,
-      "all_pages_rendered_and_reviewed": true,
-      "replacement_glyphs": 0,
-      "pdf_sha256": "59edd797556125a34bc22de719270dd02b85cf2d69c407040777c0d0f9a69141"
-    },
-    "shell_blocks_syntax_checked": 14,
-    "no_install_commands_executed": true,
-    "archive_pins_verified": 3,
-    "markdown_author_footers": 58,
-    "local_links_checked": 120,
-    "historical_exports_unchanged": true
-  },
-  "browser_checks": {
-    "controller": {
-      "pages": 13,
-      "images_loaded": 9,
-      "horizontal_overflow": false,
-      "command_sheets": 4,
-      "anchor_navigation": "#step-10"
-    },
-    "agent": {
-      "pages": 13,
-      "images_loaded": 9,
-      "horizontal_overflow": false,
-      "command_sheets": 4
-    },
-    "cross_guide_navigation_passed": true
+  "visual_review": {
+    "pdf": "All 22 rendered pages reviewed; final controller page 1 re-rendered after dependency-heading clarification. No overflow or clipping.",
+    "html": "Both browser editions checked in the in-app browser: all 9 images embedded/loaded, 11 steps each, no horizontal overflow at 1280 pixels.",
+    "footers": "Author and Airtel Payments Bank note verified on all 22 PDF pages; PDF author is Pratik Srivastava.",
+    "commands": "Every JSON command block passed /bin/sh -n; installer tests use mocked package operations, not native OS execution."
   }
 }

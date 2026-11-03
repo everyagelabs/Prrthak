@@ -58,6 +58,8 @@ def _management_sources(body):
 
 def _installation_options(body):
     if "installation_options" not in body:
+        if body.get("family") == "auto":
+            return {"install_dependencies": True, "ufw_action": "preserve"}
         return None
     value = body["installation_options"]
     if not isinstance(value, dict) or set(value) != {"install_dependencies", "ufw_action"}:
@@ -66,14 +68,16 @@ def _installation_options(body):
         raise ValueError("Use a dependency-install boolean and preserve or assess UFW")
     if not value["install_dependencies"] and value["ufw_action"] == "preserve":
         raise ValueError("Choose a preparation action or omit installation_options")
+    if body.get("family") == "auto" and not value["install_dependencies"]:
+        raise ValueError("The automatic installer always prepares required OS dependencies")
     return {"install_dependencies": value["install_dependencies"], "ufw_action": value["ufw_action"]}
 
 
 def _validated(app, body, valid_until=None):
     if app.demo or not app.signer or not app.controller_certificate:
         raise ValueError("Agent setup downloads require an installed HTTPS controller with endpoint issuance enabled")
-    if body.get("family") not in ("rhel", "ubuntu") or body.get("architecture") not in ("amd64", "arm64"):
-        raise ValueError("Choose RHEL or Ubuntu and the matching amd64 or arm64 package")
+    if body.get("family") not in ("auto", "rhel", "ubuntu") or body.get("architecture") not in ("amd64", "arm64"):
+        raise ValueError("Choose automatic OS detection or a supported legacy family and the matching amd64 or arm64 package")
     management_sources = _management_sources(body)
     url = origin(body.get("controller_url", ""))
     channels = {key: origin(body[key]) if body.get(key) else "" for key in ("control_url", "discovery_url")}

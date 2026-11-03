@@ -2,7 +2,7 @@
 
 **One place to see your Linux servers and control who may connect to their services.**
 
-This explains what you asked for and how Prṛthak does it. The current pilot candidate is **0.16.0**. Start with the [controller picture guide](guide/simple/controller-installation.html), then follow the [agent picture guide](guide/simple/agent-installation.html).
+This explains what you asked for and how Prṛthak does it. The current implementation is **0.17.0**, with release validation in progress. Start with the [controller picture guide](guide/simple/controller-installation.html), then follow the [agent picture guide](guide/simple/agent-installation.html).
 
 ## The controller is the control room
 
@@ -21,13 +21,13 @@ The browser uses HTTPS **8787**. Agents connect outward to **8788** for policy/c
 
 **What you asked:** one agent you can install on 20 servers now and more later.
 
-Download **one fleet setup file** from the GUI and reuse it with the matching RHEL/Ubuntu and CPU package. Each server creates its own private identity and appears after its first successful report. There is no fixed enrollment-count limit and no need to generate 20 individual agents. Fleet setup files expire and can be revoked.
+Download **one fleet setup file** from the GUI and reuse it with the matching CPU package. The same installer detects RHEL or Ubuntu automatically. Each server creates its own private identity and appears after its first successful report. There is no fixed enrollment-count limit and no need to generate 20 individual agents. Fleet setup files expire and can be revoked.
 
 **New agents start in monitor-only mode.** They do not change firewall access until the reviewed endpoint configuration explicitly enables enforcement. Later security opt-ins use a GUI-generated signed setup and a local apply step; an ordinary policy save cannot enable them silently.
 
 The agent reports hostname, actual interface IPs, Linux version, firewall information and listening services. SSH on **2022** can be identified as SSH from its process, rather than guessed from port 22. Booting or restarting the agent refreshes this information. Business tags and DC names come from your dashboard.
 
-**You configure the product in the GUI.** The server team still prepares Linux, Docker/Python for the controller, network access, storage and trusted release files. The controller installer does not install Docker. Agent dependency installation is an optional, initially unchecked setup choice. Existing Ubuntu UFW is preserved; an approved firewalld cutover is separate.
+**You configure the product in the GUI.** Run `sudo ./scripts/install-controller.sh` for a RHEL 9 or Ubuntu 26.04 controller. It prepares missing protected Python, Docker Engine and Compose dependencies before opening GUI setup. Run `sudo ./scripts/install-agent-auto.sh --setup-file /root/prthak-agent-setup.json` on RHEL 8/9 or Ubuntu 26.04 endpoints. It validates the GUI kit and signed runtime, detects the OS and prepares required packages automatically. The server team provides genuine systemd, root/sudo access, approved repositories/network paths, storage and verified root-owned release files. Conflicting container stacks block controller installation without removal. Existing Ubuntu UFW and firewalld activity are preserved; optional UFW assessment starts off, and an approved firewall cutover is separate.
 
 ## Write one policy for a whole application
 
@@ -115,11 +115,11 @@ Additional controllers can join through the GUI using reviewed addresses, cluste
 
 The agent figures are **historical low-traffic measurements**, not a limit or a measurement of the current learning/enforcement workload. Native pilot profiling is still required. The agent does not proxy business packets. Its compiled Go package needs no endpoint Go or Python runtime; the controller uses Python and a browser-based JavaScript/CSS dashboard.
 
-The current isolated 5,000-identity container test delivered changed policies in **45.5 seconds with Local accounts and 53.0 seconds with SAML authority**, including the polling window. Those were virtual endpoints, not 5,000 native firewalld servers. See [capacity evidence](controller-capacity-5000.md), [VM planning](controller-vm-requirements.md) and [agent measurements](agent-resources.md).
+The recorded 0.16 isolated 5,000-identity container test delivered changed policies in **45.5 seconds with Local accounts and 53.0 seconds with SAML authority**, including the polling window. Those were virtual endpoints, not 5,000 native firewalld servers or a new 0.17 measurement. See [capacity evidence](controller-capacity-5000.md), [VM planning](controller-vm-requirements.md) and [agent measurements](agent-resources.md).
 
 ## Know what is ready and what still needs your environment
 
-Code, GUI, isolated tests and signed pilot packages are available. Current four-image scans reported zero findings on the recorded ARM64 and AMD64 assessments; future or unknown vulnerabilities remain possible. Signed releases and startup checks detect changed bytes. They cannot prevent a host-root or Git owner from changing a system they control.
+Code, GUI and isolated tests are available. The previous 0.16 signed pilot snapshot's four-image scans reported zero findings on its recorded ARM64 and AMD64 assessments; those results do not measure the new 0.17 images. Future or unknown vulnerabilities remain possible. Signed releases and startup checks detect changed bytes. They cannot prevent a host-root or Git owner from changing a system they control.
 
 **Still to do in your environment:** native RHEL 8/9 and Ubuntu acceptance, the real 20-server pilot, live organization SSO/MFA, DC/WAN/fencing and failover, and full fleet workload/endurance checks. The current firewall adapter covers **inbound host traffic**. Outbound, forwarded and container segmentation are outside its scope. Broad roadmap items such as canary rollouts and fleet upgrades are not claimed here as completed.
 
@@ -157,7 +157,7 @@ The [detailed requirement register](requirements-delivery-map.md) retains implem
 | R21 | Lightweight RHEL/Ubuntu systemd agent and installers |
 | R22 | Show agent-reported IPs despite controller-path NAT |
 | R23 | Entra sign-in and exactly three application roles |
-| R24 | GUI configuration and one installer invocation per prepared host |
+| R24 | GUI configuration and one automatic dependency-installing invocation per supported host |
 | R25 | Reviewed multi-controller/DC joining and shared HA database |
 | R26 | GUI cluster credentials and supported service operations |
 | R27 | GUI-managed persistent storage location |
@@ -181,6 +181,7 @@ The [detailed requirement register](requirements-delivery-map.md) retains implem
 | R45 | Local and SSO accounts with first-login password change |
 | R46 | A permanent built-in admin with password changes only |
 | R47 | Harden all four appliance images and scan them in CI |
+| R48 | One OS-detecting installer per component; automatic dependencies and GUI configuration |
 
 </details>
 

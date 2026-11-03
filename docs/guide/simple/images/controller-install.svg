@@ -12,18 +12,18 @@
 <line x1="82.66666666666667" y1="275.73333333333335" x2="103.33333333333334" y2="275.73333333333335" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
 <line x1="82.66666666666667" y1="285.03333333333336" x2="103.33333333333334" y2="285.03333333333336" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
 <line x1="82.66666666666667" y1="294.3333333333333" x2="96.1" y2="294.3333333333333" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
-<text x="154" y="264.0" font-family="Source Code Pro,DejaVu Sans,monospace" font-size="25" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">prthak-controller-0.16.0</text>
+<text x="154" y="264.0" font-family="Source Code Pro,DejaVu Sans,monospace" font-size="25" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">prthak-controller-0.17.0</text>
 <circle cx="68" cy="369" r="20" fill="#E60012" stroke="#E60012" stroke-width="2"/>
 <text x="68" y="355.0" font-family="DejaVu Sans,sans-serif" font-size="21" font-weight="600" fill="#FFFFFF" text-anchor="middle" dominant-baseline="text-before-edge">2</text>
 <text x="107" y="352.0" font-family="DejaVu Sans,sans-serif" font-size="25" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Copy this command and press Enter once</text>
 <rect x="44" y="412" width="1172" height="116" rx="16" fill="#13151C" stroke="#13151C" stroke-width="1.5"/>
-<text x="72" y="450.0" font-family="Source Code Pro,DejaVu Sans,monospace" font-size="27" font-weight="400" fill="#FFFFFF" text-anchor="start" dominant-baseline="text-before-edge">sudo ./scripts/install-controller.sh --gui-setup</text>
+<text x="72" y="450.0" font-family="Source Code Pro,DejaVu Sans,monospace" font-size="27" font-weight="400" fill="#FFFFFF" text-anchor="start" dominant-baseline="text-before-edge">sudo ./scripts/install-controller.sh</text>
 <circle cx="68" cy="591" r="20" fill="#E60012" stroke="#E60012" stroke-width="2"/>
 <text x="68" y="577.0" font-family="DejaVu Sans,sans-serif" font-size="21" font-weight="600" fill="#FFFFFF" text-anchor="middle" dominant-baseline="text-before-edge">3</text>
 <text x="107" y="574.0" font-family="DejaVu Sans,sans-serif" font-size="25" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Open the HTTPS setup URL printed by the installer</text>
 <text x="107" y="629.0" font-family="Source Code Pro,DejaVu Sans,monospace" font-size="27" font-weight="400" fill="#E60012" text-anchor="start" dominant-baseline="text-before-edge">https://&lt;CONTROLLER-IP&gt;:8787/settings</text>
 <text x="107" y="681.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Verify its certificate identity before entering login details.</text>
 <line x1="44" y1="758" x2="1216" y2="758" stroke="#DEE0E6" stroke-width="1" stroke-linecap="round"/>
-<text x="44" y="773.0" font-family="DejaVu Sans,sans-serif" font-size="15" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Installation illustration • Python, Docker and Compose must already be prepared; normal setup needs no .env file.</text>
+<text x="44" y="773.0" font-family="DejaVu Sans,sans-serif" font-size="15" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Installation illustration • OS detection and missing dependencies are automatic; normal setup needs no .env file.</text>
 <text x="1216" y="800.0" font-family="DejaVu Sans,sans-serif" font-size="14" font-weight="400" fill="#686B78" text-anchor="end" dominant-baseline="text-before-edge">Created by Pratik Srivastava</text>
 </svg>

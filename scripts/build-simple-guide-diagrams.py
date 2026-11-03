@@ -347,8 +347,8 @@ def controller_preparation():
     for i,(value,label) in enumerate(specs):
         x=44+i*302;c.rect(x,198,276,142,PALE,BORDER)
         c.text(x+138,221,value,39,RED,True,"middle");c.text(x+138,283,label,23,MUTED,anchor="middle")
-    c.text(48,387,"Already installed on the VM",28,DARK,True)
-    tools=[("Python 3.9+","Root owned interpreter"),("Docker Engine","Local service running"),("Compose v2","Docker plugin installed"),("systemd + sudo","Linux service and root access")]
+    c.text(48,387,"Dependencies and host access",28,DARK,True)
+    tools=[("Python 3.9+","Installed if missing"),("Docker Engine","Installed or safely reused"),("Compose v2","Installed if missing"),("systemd + sudo","Host must provide before install")]
     for i,(title,body) in enumerate(tools):
         x=44+(i%2)*604;y=442+(i//2)*130
         c.icon("check",x+10,y+10,40,GREEN);c.text(x+76,y+7,title,25,DARK,True)
@@ -356,7 +356,7 @@ def controller_preparation():
     c.line(44,717,1216,717,BORDER,1.5)
     c.text(48,744,"Also arrange",23,DARK,True)
     c.text(246,744,"Stable IP and DNS  •  correct time  •  approved downloads",23,MUTED)
-    c.text(48,786,"Mount storage first. Prṛthak does not install Python or Docker.",24,RED,True)
+    c.text(48,786,"Provide systemd, sudo, storage and approved repositories first.",24,RED,True)
     c.footer("Pilot planning allocation • fresh standalone setup needs no database cluster or watchdog.")
     return c
 
@@ -379,14 +379,14 @@ def network_ports():
 def controller_install():
     c=Canvas("controller-install","Run one controller installer command","Start in the verified release folder prepared by your server team.",830)
     c.step(68,211,1);c.text(107,194,"Verified archive extracted into a protected folder",25,DARK,True)
-    c.icon("file",62,253,62);c.text(154,264,"prthak-controller-0.16.0",25,MUTED,mono=True)
+    c.icon("file",62,253,62);c.text(154,264,"prthak-controller-0.17.0",25,MUTED,mono=True)
     c.step(68,369,2);c.text(107,352,"Copy this command and press Enter once",25,DARK,True)
     c.rect(44,412,1172,116,INK,INK,16)
-    c.text(72,450,"sudo ./scripts/install-controller.sh --gui-setup",27,WHITE,mono=True)
+    c.text(72,450,"sudo ./scripts/install-controller.sh",27,WHITE,mono=True)
     c.step(68,591,3);c.text(107,574,"Open the HTTPS setup URL printed by the installer",25,DARK,True)
     c.text(107,629,"https://<CONTROLLER-IP>:8787/settings",27,RED,mono=True)
     c.text(107,681,"Verify its certificate identity before entering login details.",24,MUTED)
-    c.footer("Installation illustration • Python, Docker and Compose must already be prepared; normal setup needs no .env file.")
+    c.footer("Installation illustration • OS detection and missing dependencies are automatic; normal setup needs no .env file.")
     return c
 
 
@@ -431,20 +431,19 @@ def agent_copy():
 
 
 def agent_install():
-    c=Canvas("agent-install","Run the matching command on each server","Start in the verified extracted agent folder. Choose the command for that server's OS.",960)
-    c.text(48,193,"RHEL 8 or RHEL 9",27,DARK,True)
-    c.rect(44,242,1172,134,INK,INK,14)
-    c.text(70,269,"sudo ./scripts/install-agent-rhel.sh \\\n  --setup-file /root/prthak-agent-setup.json",25,WHITE,mono=True,line_height=39)
-    c.text(48,419,"Ubuntu 26.04",27,DARK,True)
-    c.rect(44,468,1172,134,INK,INK,14)
-    c.text(70,495,"sudo ./scripts/install-agent-ubuntu.sh \\\n  --setup-file /root/prthak-agent-setup.json",25,WHITE,mono=True,line_height=39)
+    c=Canvas("agent-install","One command on RHEL and Ubuntu","Start in the verified extracted agent folder. The OS is detected automatically.",960)
+    c.text(48,193,"RHEL 8 / RHEL 9 / Ubuntu 26.04",29,DARK,True)
+    c.rect(44,250,1172,150,INK,INK,14)
+    c.text(70,284,"sudo ./scripts/install-agent-auto.sh \\\n  --setup-file /root/prthak-agent-setup.json",25,WHITE,mono=True,line_height=39)
+    c.card(44,448,554,140,"Missing dependencies","Prepared after signature + setup validation",icon="tools",title_size=25,body_size=21)
+    c.card(654,448,562,140,"Existing firewall stays","UFW / firewalld activity preserved",icon="shield",title_size=25,body_size=22)
     records=[(44,"seg-agent starts","Native systemd service","agent"),(451,"First report arrives","Authenticated report","lock"),(858,"Visible in Servers","OS, IP and services","browser")]
     for x,title,body,icon in records:
         c.rect(x,664,358,139,WHITE,BORDER);c.icon(icon,x+18,683,44)
         c.text(x+77,690,title,24,DARK,True);c.text(x+179,758,body,24,MUTED,anchor="middle")
         if x<858:c.arrow(x+359,734,x+405,734)
     c.text(630,838,"Installation starts in monitor only mode. Firewall enforcement stays off.",23,RED,True,"middle")
-    c.footer("Command illustration • the backslash continues the command on the next line; run one matching command per host.")
+    c.footer("Command illustration • one universal installer per host; configuration is supplied by the private GUI setup file.")
     return c
 
 

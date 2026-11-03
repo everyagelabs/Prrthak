@@ -20,6 +20,60 @@ import tempfile
 PROJECT = Path(__file__).resolve().parents[1]
 MAX_FILE_BYTES = 8 * 1024 * 1024
 MAX_PAYLOAD_BYTES = 64 * 1024 * 1024
+# Reviewed public guide outputs only. A new render or image name must be added
+# deliberately; unrelated nested documentation and private captures are excluded.
+SIMPLE_GUIDE_FILES = (
+    'docs/guide/simple/README.md',
+    'docs/guide/simple/agent-installation.html',
+    'docs/guide/simple/agent-installation.pdf',
+    'docs/guide/simple/controller-installation.html',
+    'docs/guide/simple/controller-installation.pdf',
+    'docs/guide/simple/installation-commands.json',
+    'docs/guide/simple/verification.json',
+    'docs/guide/simple/images/agent-copy.png',
+    'docs/guide/simple/images/agent-copy.svg',
+    'docs/guide/simple/images/agent-guide-preview.png',
+    'docs/guide/simple/images/agent-install.png',
+    'docs/guide/simple/images/agent-install.svg',
+    'docs/guide/simple/images/agent-setup-bottom-focus.jpg',
+    'docs/guide/simple/images/agent-setup-bottom.jpg',
+    'docs/guide/simple/images/agent-setup-middle-focus.jpg',
+    'docs/guide/simple/images/agent-setup-middle.jpg',
+    'docs/guide/simple/images/agent-setup-top.jpg',
+    'docs/guide/simple/images/architecture.png',
+    'docs/guide/simple/images/architecture.svg',
+    'docs/guide/simple/images/controller-guide-preview.png',
+    'docs/guide/simple/images/controller-install.png',
+    'docs/guide/simple/images/controller-install.svg',
+    'docs/guide/simple/images/controller-preparation.png',
+    'docs/guide/simple/images/controller-preparation.svg',
+    'docs/guide/simple/images/first-login.png',
+    'docs/guide/simple/images/first-login.svg',
+    'docs/guide/simple/images/locations.png',
+    'docs/guide/simple/images/locations.svg',
+    'docs/guide/simple/images/monitoring-vs-learning.png',
+    'docs/guide/simple/images/monitoring-vs-learning.svg',
+    'docs/guide/simple/images/network-ports.png',
+    'docs/guide/simple/images/network-ports.svg',
+    'docs/guide/simple/images/onboarding-flow.png',
+    'docs/guide/simple/images/onboarding-flow.svg',
+    'docs/guide/simple/images/overview-focus.jpg',
+    'docs/guide/simple/images/overview.jpg',
+    'docs/guide/simple/images/platform-setup-focus.jpg',
+    'docs/guide/simple/images/platform-setup.jpg',
+    'docs/guide/simple/images/platform.png',
+    'docs/guide/simple/images/platform.svg',
+    'docs/guide/simple/images/policy-flow.png',
+    'docs/guide/simple/images/policy-flow.svg',
+    'docs/guide/simple/images/polling-focus.jpg',
+    'docs/guide/simple/images/polling.jpg',
+    'docs/guide/simple/images/roles.png',
+    'docs/guide/simple/images/roles.svg',
+    'docs/guide/simple/images/servers-focus.jpg',
+    'docs/guide/simple/images/servers.jpg',
+    'docs/guide/simple/images/troubleshooting.png',
+    'docs/guide/simple/images/troubleshooting.svg',
+)
 FIXED_FILES = (
     'controller/requirements.txt',
     'dashboard/index.html',
@@ -30,6 +84,7 @@ FIXED_FILES = (
     'deploy/appliance/Dockerfile.etcd',
     'deploy/appliance/etcd-build-inputs.json',
     'deploy/appliance/node_manager.py',
+    'deploy/appliance/install_prerequisites.py',
     'deploy/appliance/controller_entrypoint.py',
     'deploy/appliance/bootstrap_roles.py',
     'deploy/appliance/rotation_helper.py',
@@ -37,14 +92,18 @@ FIXED_FILES = (
     'deploy/cluster/node_helper.py',
     'deploy/release-public-trust.json',
     'scripts/install-controller.sh',
+    'scripts/install-prerequisites.sh',
     'scripts/verify-release.py',
     '.env.example',
     'docs/controller-installation.md',
     'docs/controller-vm-requirements.md',
+    'docs/guide/README.md',
+    *SIMPLE_GUIDE_FILES,
     'agent/README.md',
 )
 ASSET_SUFFIXES = frozenset(('.svg', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.ico', '.woff', '.woff2', '.ttf', '.otf'))
-EXECUTABLES = frozenset(('scripts/install-controller.sh', 'scripts/verify-release.py', 'deploy/appliance/node_manager.py'))
+EXECUTABLES = frozenset(('scripts/install-controller.sh', 'scripts/install-prerequisites.sh',
+                         'scripts/verify-release.py', 'deploy/appliance/node_manager.py'))
 
 
 class PackageError(ValueError):
@@ -201,10 +260,15 @@ signing authority is not an organization-approved release authority.
 
 Read docs/controller-installation.md and docs/controller-vm-requirements.md.
 Git is optional for obtaining source and is not a controller runtime dependency.
-The host needs genuine Linux systemd, protected root-owned Python3.9+, local
-Docker Engine and Composev2. After verified extraction, run once:
+Use a supported genuine Linux systemd host with sudo/root and approved package
+and image repositories. After verified extraction, run once:
 
-  sudo ./scripts/install-controller.sh --gui-setup
+  sudo ./scripts/install-controller.sh
+
+The installer detects RHEL or Ubuntu and prepares the supported root-owned
+Python3.9+, local Docker Engine and Composev2 dependencies before opening GUI
+setup. It does not disable existing host firewall protection or change external
+network/DNS/LB access. Conflicting container stacks require operator review.
 
 Open the printed HTTPS /settings URL. On a fresh empty account database, sign in
 with local username admin and temporary password admin. Change the password
@@ -220,6 +284,8 @@ The installer builds images and fetches base images/OS/Python packages, etcd and
 HAProxy. Approved registry/package access is required; this is not an offline
 image bundle. Native/DC/DR and target hardware validation remain separate.
 No keys, real environment file, database, test fixture or agent binary is included.
+
+Created by Pratik Srivastava
 '''.encode('utf-8')
     archive_payload = dict(payload, **{'INSTALL.txt': install, 'MANIFEST.json': (json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False) + '\n').encode('utf-8')})
     with tempfile.TemporaryDirectory(prefix='.prthak-controller-build-', dir=output_dir) as temporary:

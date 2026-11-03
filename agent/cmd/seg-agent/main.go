@@ -40,6 +40,7 @@ func main() {
 	setupOutput := flag.String("setup-output", "", "empty owned 0700 output directory for --prepare-setup")
 	prepareHost := flag.String("prepare-host", "", "explicit GUI setup file for protected OS dependency preparation and private UFW assessment")
 	prepareFamily := flag.String("prepare-family", "", "native OS package family for --prepare-host (rhel or ubuntu)")
+	installDependencies := flag.Bool("install-dependencies", false, "explicit local dependency-install consent for the automatic --prepare-host installer")
 	applyConfiguration := flag.String("apply-configuration", "", "apply an independently approved private endpoint configuration kit locally")
 	rollbackConfiguration := flag.String("rollback-configuration", "", "independent systemd configuration rollback journal")
 	checkConfiguration := flag.String("check-configuration", "", "read-only signature and exact local-config check for a private endpoint configuration kit")
@@ -50,14 +51,20 @@ func main() {
 	releaseBinary := flag.String("release-binary", "", "candidate agent binary path")
 	releaseUnit := flag.String("release-unit", "", "candidate systemd unit path")
 	flag.Parse()
+	dependencyConsentSelected := false
+	flag.Visit(func(value *flag.Flag) {
+		if value.Name == "install-dependencies" {
+			dependencyConsentSelected = true
+		}
+	})
 	if *installationLeaseFD != -1 && (*installationLeaseFD < 3 || !*check && !*checkUpgrade || *checkRoot != "") {
 		log.Fatal("installation lease descriptor is supported only by canonical native installer preflight")
 	}
-	if *prepareHost != "" || *prepareFamily != "" {
+	if *prepareHost != "" || *prepareFamily != "" || dependencyConsentSelected {
 		invalid := flag.NArg() != 0 || *prepareHost == "" || (*prepareFamily != "rhel" && *prepareFamily != "ubuntu") || *releaseManifest == "" || *releaseTrust == "" || *releaseBinary == "" || *releaseUnit == ""
 		flag.Visit(func(value *flag.Flag) {
 			switch value.Name {
-			case "prepare-host", "prepare-family", "release-manifest", "release-trust", "release-binary", "release-unit":
+			case "prepare-host", "prepare-family", "install-dependencies", "release-manifest", "release-trust", "release-binary", "release-unit":
 			default:
 				invalid = true
 			}
@@ -69,7 +76,7 @@ func main() {
 		defer stopSignals()
 		ctx, cancel := context.WithTimeout(signalCtx, 35*time.Minute)
 		defer cancel()
-		if err := agent.PrepareHostFromSetup(ctx, *prepareHost, *prepareFamily, *releaseManifest, *releaseTrust, *releaseBinary, *releaseUnit); err != nil {
+		if err := agent.PrepareHostFromSetupWithDependencies(ctx, *prepareHost, *prepareFamily, *releaseManifest, *releaseTrust, *releaseBinary, *releaseUnit, *installDependencies); err != nil {
 			log.Fatal(err)
 		}
 		fmt.Println("Explicit host preparation complete; UFW and firewall service activation remain unchanged. Private assessment metadata is reported after enrollment.")

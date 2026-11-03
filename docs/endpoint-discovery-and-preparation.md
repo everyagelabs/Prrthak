@@ -1,6 +1,6 @@
 # Endpoint discovery, preparation and health
 
-This describes the 0.11 endpoint changes. Native RHEL 8/9 and Ubuntu 26.04
+This includes the 0.17 automatic installer and the retained 0.11 discovery changes. Native RHEL 8/9 and Ubuntu 26.04
 acceptance, SELinux/polkit checks, real package hooks and DC deployment remain
 deferred. Mocked package commands and isolated Linux sockets do not replace
 those checks.
@@ -79,21 +79,30 @@ create duplicate outage alerts. A resumed valid heartbeat resolves the outage
 and records recovery. An offline agent alone does not prove an application is
 down. Historical listener rows remain visible as last observed data. Alerts use bounded pages with exact filtered totals, so more than 500 newer historical events cannot hide a still-unresolved outage. Use the recovered/resolved toggle to browse history.
 
-## Optional OS preparation in the same installer flow
+## Automatic dependencies in the same installer flow
 
-Both **Install missing OS dependencies** and **Assess/export UFW for migration**
-start unchecked in the GUI. Selecting either produces a strict schema-3
-private setup file; unchanged individual/fleet setups retain schema 1/2.
-Reuse the same fleet file and matching CPU package across your intended hosts.
-No per-host agent generation or manual `.env`/agent JSON editing is required.
+Run `sudo ./scripts/install-agent-auto.sh --setup-file /root/prthak-agent-setup.json`
+from the matching verified CPU release. It detects RHEL 8/9 or Ubuntu 26.04 and
+prepares missing dependencies automatically. The GUI shows automatic OS
+detection and required dependencies; no per-host family selection or dependency
+checkbox is needed. **Assess UFW and export migration data** remains optional
+and off by default. New GUI downloads record dependency preparation in a strict
+schema-3 setup. Reuse the same fleet file across intended hosts; there is no
+per-host agent generation or manual `.env`/JSON editing.
 
-The family wrapper validates the private setup, expiry, hostname binding when
+The wrapper validates the private setup, expiry, hostname binding when
 present, trusted CA material and signed binary/systemd unit before invoking the
 signed host-preparation helper. Enrollment-key revocation and actual controller
 reachability are checked during authenticated bootstrap, not claimed as offline
 validation before package operations.
 
-With explicit dependency consent, the helper installs missing `iproute` or
+The explicit local automatic command also authorizes dependency preparation
+for unchanged schema-1/2 kits, or a kit without the older dependency option.
+It does not rewrite the kit, expand an enrollment scope or enable any firewall
+security opt-in. Existing family entrypoints retain their compatibility
+behavior and explicit kit options.
+
+The helper installs missing `iproute` or
 `iproute2`, `firewalld`, `util-linux` and `ca-certificates` through the native
 approved OS repositories. Native systemd tools must already exist. RHEL needs
 working repository/subscription access. It takes the existing configuration

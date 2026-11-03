@@ -1,18 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1260" height="960" viewBox="0 0 1260 960" role="img" aria-labelledby="title desc">
-<title id="title">Run the matching command on each server</title>
-<desc id="desc">Start in the verified extracted agent folder. Choose the command for that server&#x27;s OS. Created by Pratik Srivastava.</desc>
+<title id="title">One command on RHEL and Ubuntu</title>
+<desc id="desc">Start in the verified extracted agent folder. The OS is detected automatically. Created by Pratik Srivastava.</desc>
 <rect width="1260" height="960" fill="#FFFFFF"/>
 <text x="44" y="28.0" font-family="DejaVu Sans,sans-serif" font-size="17" font-weight="600" fill="#E60012" text-anchor="start" dominant-baseline="text-before-edge">Prṛthak  /  Simple visual guide</text>
-<text x="44" y="66.0" font-family="DejaVu Sans,sans-serif" font-size="35" font-weight="600" fill="#13151C" text-anchor="start" dominant-baseline="text-before-edge">Run the matching command on each server</text>
-<text x="44" y="117.0" font-family="DejaVu Sans,sans-serif" font-size="21" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Start in the verified extracted agent folder. Choose the command for that server&#x27;s OS.</text>
-<text x="48" y="193.0" font-family="DejaVu Sans,sans-serif" font-size="27" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">RHEL 8 or RHEL 9</text>
-<rect x="44" y="242" width="1172" height="134" rx="14" fill="#13151C" stroke="#13151C" stroke-width="1.5"/>
-<text x="70" y="269" font-family="Source Code Pro,DejaVu Sans,monospace" font-size="25" font-weight="400" fill="#FFFFFF" text-anchor="start" dominant-baseline="text-before-edge">sudo ./scripts/install-agent-rhel.sh \</text>
-<text x="70" y="308" font-family="Source Code Pro,DejaVu Sans,monospace" font-size="25" font-weight="400" fill="#FFFFFF" text-anchor="start" dominant-baseline="text-before-edge">  --setup-file /root/prthak-agent-setup.json</text>
-<text x="48" y="419.0" font-family="DejaVu Sans,sans-serif" font-size="27" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Ubuntu 26.04</text>
-<rect x="44" y="468" width="1172" height="134" rx="14" fill="#13151C" stroke="#13151C" stroke-width="1.5"/>
-<text x="70" y="495" font-family="Source Code Pro,DejaVu Sans,monospace" font-size="25" font-weight="400" fill="#FFFFFF" text-anchor="start" dominant-baseline="text-before-edge">sudo ./scripts/install-agent-ubuntu.sh \</text>
-<text x="70" y="534" font-family="Source Code Pro,DejaVu Sans,monospace" font-size="25" font-weight="400" fill="#FFFFFF" text-anchor="start" dominant-baseline="text-before-edge">  --setup-file /root/prthak-agent-setup.json</text>
+<text x="44" y="66.0" font-family="DejaVu Sans,sans-serif" font-size="35" font-weight="600" fill="#13151C" text-anchor="start" dominant-baseline="text-before-edge">One command on RHEL and Ubuntu</text>
+<text x="44" y="117.0" font-family="DejaVu Sans,sans-serif" font-size="21" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Start in the verified extracted agent folder. The OS is detected automatically.</text>
+<text x="48" y="193.0" font-family="DejaVu Sans,sans-serif" font-size="29" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">RHEL 8 / RHEL 9 / Ubuntu 26.04</text>
+<rect x="44" y="250" width="1172" height="150" rx="14" fill="#13151C" stroke="#13151C" stroke-width="1.5"/>
+<text x="70" y="284" font-family="Source Code Pro,DejaVu Sans,monospace" font-size="25" font-weight="400" fill="#FFFFFF" text-anchor="start" dominant-baseline="text-before-edge">sudo ./scripts/install-agent-auto.sh \</text>
+<text x="70" y="323" font-family="Source Code Pro,DejaVu Sans,monospace" font-size="25" font-weight="400" fill="#FFFFFF" text-anchor="start" dominant-baseline="text-before-edge">  --setup-file /root/prthak-agent-setup.json</text>
+<rect x="44" y="448" width="554" height="140" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<line x1="77.25" y1="473.25" x2="77.25" y2="507.75" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="88.5" y1="473.25" x2="88.5" y2="507.75" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="99.75" y1="473.25" x2="99.75" y2="507.75" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<rect x="72.75" y="480.75" width="9.0" height="6.0" rx="1.5" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<rect x="84.0" y="494.25" width="9.0" height="6.0" rx="1.5" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<rect x="95.25" y="485.25" width="9.0" height="6.0" rx="1.5" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
+<text x="127" y="473.0" font-family="DejaVu Sans,sans-serif" font-size="25" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Missing dependencies</text>
+<text x="68" y="533.0" font-family="DejaVu Sans,sans-serif" font-size="21" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Prepared after signature + setup validation</text>
+<rect x="654" y="448" width="562" height="140" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
+<polygon points="698.5,471.0 714.25,477.75 712.0,495.0 706.75,504.0 698.5,510.75 690.25,504.0 685.0,495.0 682.75,477.75" fill="#FFFFFF" stroke="#E60012" stroke-width="2.4"/>
+<line x1="691.0" y1="489.75" x2="697.0" y2="495.75" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<line x1="697.0" y1="495.75" x2="706.75" y2="484.5" stroke="#E60012" stroke-width="2.4" stroke-linecap="round"/>
+<text x="737" y="473.0" font-family="DejaVu Sans,sans-serif" font-size="25" font-weight="600" fill="#202127" text-anchor="start" dominant-baseline="text-before-edge">Existing firewall stays</text>
+<text x="678" y="533.0" font-family="DejaVu Sans,sans-serif" font-size="22" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">UFW / firewalld activity preserved</text>
 <rect x="44" y="664" width="358" height="139" rx="18" fill="#FFFFFF" stroke="#DEE0E6" stroke-width="1.5"/>
 <rect x="67.86666666666666" y="687.4" width="32.266666666666666" height="13.933333333333332" rx="2.933333333333333" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
 <rect x="67.86666666666666" y="707.9333333333333" width="32.266666666666666" height="13.933333333333332" rx="2.933333333333333" fill="#FFFFFF" stroke="#E60012" stroke-width="2.3"/>
@@ -50,6 +61,6 @@
 <text x="1037" y="758.0" font-family="DejaVu Sans,sans-serif" font-size="24" font-weight="400" fill="#686B78" text-anchor="middle" dominant-baseline="text-before-edge">OS, IP and services</text>
 <text x="630" y="838.0" font-family="DejaVu Sans,sans-serif" font-size="23" font-weight="600" fill="#E60012" text-anchor="middle" dominant-baseline="text-before-edge">Installation starts in monitor only mode. Firewall enforcement stays off.</text>
 <line x1="44" y1="888" x2="1216" y2="888" stroke="#DEE0E6" stroke-width="1" stroke-linecap="round"/>
-<text x="44" y="903.0" font-family="DejaVu Sans,sans-serif" font-size="15" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Command illustration • the backslash continues the command on the next line; run one matching command per host.</text>
+<text x="44" y="903.0" font-family="DejaVu Sans,sans-serif" font-size="15" font-weight="400" fill="#686B78" text-anchor="start" dominant-baseline="text-before-edge">Command illustration • one universal installer per host; configuration is supplied by the private GUI setup file.</text>
 <text x="1216" y="930.0" font-family="DejaVu Sans,sans-serif" font-size="14" font-weight="400" fill="#686B78" text-anchor="end" dominant-baseline="text-before-edge">Created by Pratik Srivastava</text>
 </svg>

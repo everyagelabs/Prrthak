@@ -135,6 +135,37 @@ class AgentKitTests(unittest.TestCase):
         self.assertEqual(result["kit"]["schema_version"], 2)
         self.assertNotIn("installation_options", result["kit"])
 
+    def test_auto_family_defaults_to_recorded_dependencies_without_exporting_os_or_enforcement(self):
+        for architecture in ("amd64", "arm64"):
+            for options in (None, {"install_dependencies": True, "ufw_action": "assess"}):
+                body = {**self.body, "family": "auto", "architecture": architecture}
+                if options is not None:
+                    body["installation_options"] = options
+                original = json.dumps(body, sort_keys=True)
+                individual = create_kit(self.app, body, "admin")
+                fleet_body = {key: value for key, value in body.items() if key != "expected_hostname"}
+                fleet = create_fleet_kit(self.app, fleet_body, "admin")["kit"]
+                for kit in (individual, fleet):
+                    self.assertEqual(kit["schema_version"], 3)
+                    self.assertEqual(kit["installation_options"], options or {"install_dependencies": True, "ufw_action": "preserve"})
+                    self.assertNotIn("family", kit)
+                    self.assertNotIn("architecture", kit)
+                    self.assertNotIn("family", kit["config"])
+                    for key in ("enforce", "allow_firewall_changes", "learning_auto_allow", "unexpected_port_monitor_enabled"):
+                        self.assertFalse(kit["config"][key])
+                    self.assertNotIn("PRIVATE KEY", json.dumps(kit))
+                self.assertEqual(json.dumps(body, sort_keys=True), original)
+
+    def test_auto_family_cannot_request_disabled_dependencies_or_an_unsupported_platform(self):
+        fleet_body = {key: value for key, value in self.body.items() if key != "expected_hostname"}
+        for callback, body in ((create_kit, self.body), (create_fleet_kit, fleet_body)):
+            for changes in ({"family": "auto", "installation_options": {"install_dependencies": False, "ufw_action": "assess"}},
+                            {"family": "windows"}, {"family": "debian"}, {"family": "auto", "architecture": "riscv64"}):
+                with self.subTest(callback=callback.__name__, changes=changes), self.assertRaises(ValueError):
+                    callback(self.app, {**body, **changes}, "admin")
+        self.assertEqual(self.store.all("tokens"), [])
+        self.assertEqual(self.store.all("audit"), [])
+
 
 if __name__ == "__main__":
     unittest.main()

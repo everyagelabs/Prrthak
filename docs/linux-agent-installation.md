@@ -2,31 +2,32 @@
 
 New to Linux? Use the [simple agent picture guide](guide/simple/agent-installation.pdf), or its [browser edition with copyable commands](guide/simple/agent-installation.html). The [end-to-end command sheets](installation-commands.md#agent) include safe dependencies, private file transfer, CPU selection, checksum verification, extraction, installation and status checks.
 
-**Preferred 0.16 GUI flow:** download one private **Fleet setup** through **Install
+**Preferred 0.17 GUI flow:** download one private **Fleet setup** through **Install
 agent**, copy the same file to the servers as root-owned 0600 at `/root/prthak-agent-setup.json`, then run
-`sudo ./scripts/install-agent-rhel.sh --setup-file /root/prthak-agent-setup.json`
-or the Ubuntu wrapper on each host. No manual JSON/token/CA editing or per-host
+`sudo ./scripts/install-agent-auto.sh --setup-file /root/prthak-agent-setup.json`
+on either supported Linux family. OS/CPU detection and required dependency
+preparation are automatic. No manual JSON/token/CA editing or per-host
 package generation is needed. Fleet keys default to 24 hours, are revocable in
 the GUI and have no fixed enrollment-count limit. Each host creates its own
 private key/certificate. Optional individual kits remain single-use/15-minute.
 All bootstrap kits are monitor-only. See [fleet enrollment](fleet-enrollment.md)
 and [GUI pilot installation](pilot-gui-installation.md).
-The explicit-config examples below remain compatible advanced workflows. Current payloads are stamped 0.16.0; existing 0.14 endpoints remain protocol-compatible with the controller’s local/SAML human-login addition and need no reinstall solely for it.
+The explicit-config examples below remain compatible advanced workflows. The automatic entrypoint is supplied with the 0.17 payload; it is not retroactively added to retained older archives. Existing 0.14 endpoints remain protocol-compatible with the controller's local/SAML login addition and need no reinstall solely for that human-login feature.
 
-Prṛthak supplies two entrypoints over the same credential/upgrade-safe agent installer:
+Prṛthak supplies one automatic entrypoint over the same credential/upgrade-safe agent installer:
 
 | Target | Entrypoint | Runtime packages |
 | --- | --- | --- |
-| RHEL 8 or 9, amd64/arm64 | `scripts/install-agent-rhel.sh` | `systemd`, `iproute`, `firewalld`, `ca-certificates`, `util-linux` (`flock`) |
-| Ubuntu 26.04, amd64/arm64 | `scripts/install-agent-ubuntu.sh` | `systemd`, `iproute2`, `firewalld`, `ca-certificates`, `util-linux` (`flock`) |
+| RHEL 8 or 9, amd64/arm64 | `scripts/install-agent-auto.sh` | `systemd`, `iproute`, `firewalld`, `ca-certificates`, `util-linux` (`flock`) |
+| Ubuntu 26.04, amd64/arm64 | `scripts/install-agent-auto.sh` | `systemd`, `iproute2`, `firewalld`, `ca-certificates`, `util-linux` (`flock`) |
 
-These entrypoints detect the OS/version and CPU architecture, check required commands, select the bundled binary and call `install-agent.sh`. Endpoint installation needs no Git, Python installation, Go compiler or Go runtime. The controller and endpoint are installed separately.
+The automatic entrypoint detects OS/version and CPU, validates the GUI kit and signed binary/unit, prepares missing packages through the native helper and calls `install-agent.sh`. Genuine systemd and root/sudo must already be available. The agent binary needs no separate Git, Python, Go compiler or Go runtime setup; firewalld uses its normal OS package dependencies. Existing `install-agent-rhel.sh` and `install-agent-ubuntu.sh` entrypoints remain available for compatibility. Controller and endpoint installation are separate.
 
 The scripts have staged/mocked acceptance checks. Native RHEL 8/9 and Ubuntu host testing is deferred to the deployment phase; passing the platform check does not certify kernel, systemd, SELinux/polkit, firewalld or rollback behavior.
 
 ## Prepare the endpoint and release
 
-1. In the GUI, optionally tick **Install missing OS dependencies** and/or **Assess/export UFW for migration**; both start unchecked. The same verified installer command validates the private schema-3 kit, uses bounded native apt/dnf operations with journaled service-start suppression, and preserves UFW and existing firewalld activity. Existing unsafe/uncertain startup overrides block preparation. Without those options, entrypoints only check prerequisites and print missing commands. RHEL requires approved repository/subscription access. UFW migration remains separate. See [preparation safeguards and private receipt](endpoint-discovery-and-preparation.md).
+1. In **Install agent**, choose the CPU package and the common URLs/polling in the GUI. OS detection and required dependency preparation are automatic; no Linux-family choice or dependency checkbox is needed. Optional **Assess UFW and export migration data** starts off. The automatic command validates the kit and signed binary/unit before bounded native apt/dnf operations with journaled service-start suppression. It also accepts older schema-1/2 kits without rewriting them; the explicit local automatic command authorizes dependency preparation only, never enforcement. UFW and existing firewalld activity are preserved. Unsafe/uncertain overrides block preparation. RHEL needs approved repository/subscription access; UFW cutover remains separate. See [preparation safeguards and private receipt](endpoint-discovery-and-preparation.md).
 2. Use the matching `linux-amd64` archive for `uname -m` = `x86_64`/`amd64`, or `linux-arm64` for `aarch64`/`arm64`. An extracted bundle has one `seg-agent` binary; source checkouts select `agent/bin/seg-agent-linux-ARCH`. `--binary FILE` is available for an explicitly reviewed build.
 3. Verify the exact archive's detached Ed25519 signature **before extraction**, using an independently distributed public trust manifest and approved verifier. Downloading a public key next to an untrusted archive does not establish trust. Verification can run on an administration workstation; the static installed agent has no Python dependency. The current local project release key is not an independently approved organizational release authority. See [release signing and trust](policy-signing.md).
 
@@ -35,13 +36,13 @@ An administration-workstation verification example, using approved Python 3.10+ 
 ```sh
 python3 /approved/tools/verify-release.py \
   --public-trust-file /approved/trust/prthak-release-public-trust.json \
-  --signature prthak-agent-0.16.0-linux-amd64.tar.gz.signature.json \
-  prthak-agent-0.16.0-linux-amd64.tar.gz
+  --signature prthak-agent-0.17.0-linux-amd64.tar.gz.signature.json \
+  prthak-agent-0.17.0-linux-amd64.tar.gz
 sudo install -d -o root -g root -m 0755 /opt/prthak/agent-releases
 sudo tar --no-same-owner --no-same-permissions \
-  -xzf /protected/releases/prthak-agent-0.16.0-linux-amd64.tar.gz \
+  -xzf /protected/releases/prthak-agent-0.17.0-linux-amd64.tar.gz \
   -C /opt/prthak/agent-releases
-cd /opt/prthak/agent-releases/prthak-agent-0.16.0-linux-amd64
+cd /opt/prthak/agent-releases/prthak-agent-0.17.0-linux-amd64
 ```
 
 Use the ARM64 filenames on ARM64. Transfer the already verified archive through your protected release path before extraction; execute privileged installers from protected root-owned release files. Obtain the verifier and public pin through the approved independent channel. RHEL 8's default Python 3.6 cannot run this verifier.

@@ -3,6 +3,7 @@ import json
 from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
+import shlex
 import shutil
 import socket
 import subprocess
@@ -26,8 +27,16 @@ class AgentFamilyInstallerTests(unittest.TestCase):
         self.commands = self.base / 'command-calls'
         for path in [self.bundle/'scripts', self.bundle/'agent', self.bundle/'deploy/systemd', self.target/'etc', self.target/'usr/bin', self.fakebin]:
             path.mkdir(parents=True, exist_ok=True)
-        for name in ['install-agent.sh', 'install-agent-linux.sh', 'install-agent-rhel.sh', 'install-agent-ubuntu.sh']:
+        for name in ['install-agent.sh', 'install-agent-linux.sh', 'install-agent-auto.sh', 'install-agent-rhel.sh', 'install-agent-ubuntu.sh']:
             shutil.copy2(PROJECT/'scripts'/name, self.bundle/'scripts'/name)
+        # Behavioral fixtures run fake uname/id/service programs on this host.
+        # Change only their copied wrapper's fixed PATH, never production code.
+        # The unmodified production wrapper is exercised separately below.
+        copied_auto = self.bundle/'scripts/install-agent-auto.sh'
+        fixed_path = 'PATH=/usr/sbin:/usr/bin:/sbin:/bin'
+        self.assertIn(fixed_path, copied_auto.read_text())
+        copied_auto.write_text(copied_auto.read_text().replace(fixed_path,
+            'PATH='+shlex.quote(str(self.fakebin)+':/usr/sbin:/usr/bin:/sbin:/bin')))
         shutil.copy2(PROJECT/'agent/README.md', self.bundle/'agent/README.md')
         shutil.copy2(PROJECT/'deploy/systemd/seg-agent.service', self.bundle/'deploy/systemd/seg-agent.service')
         self.config = self.base/'reviewed configuration.json'
@@ -112,6 +121,46 @@ esac
         self.assertIn('Platform check only',result.stdout)
         self.assertFalse(self.calls.exists());self.assertFalse(self.commands.exists())
         self.assertFalse((self.target/'etc/seg-agent').exists())
+
+    def test_auto_entrypoint_detects_supported_families_and_architectures_read_only(self):
+        self.binary()
+        for distro, version, native, arch in [('rhel','8.10','x86_64','amd64'),
+                                               ('rhel','9.6','aarch64','arm64'),
+                                               ('ubuntu','26.04','x86_64','amd64')]:
+            with self.subTest(distro=distro, version=version, arch=arch):
+                self.release(distro,version)
+                result=self.run_entrypoint('auto','--check-only',config=False,env={'PRTHAK_FAMILY_ARCH':native})
+                self.assertEqual(result.returncode,0,result.stderr)
+                self.assertIn('Platform preflight passed: '+distro+' '+version+', '+arch,result.stdout)
+                self.assertFalse(self.calls.exists());self.assertFalse(self.commands.exists())
+                self.assertFalse((self.target/'etc/seg-agent').exists())
+
+    def test_production_auto_help_ignores_inherited_path_before_any_verification(self):
+        marker=self.base/'inherited-path-program-ran'
+        for name in ['dirname','sh']:
+            self.write_executable(self.fakebin/name,
+                '#!/bin/sh\nprintf "%s\\n" '+shlex.quote(name)+' >> '+shlex.quote(str(marker))+'\nexit 99\n')
+        result=subprocess.run(['/bin/sh',str(PROJECT/'scripts/install-agent-auto.sh'),'--help'],
+                              env={**os.environ,'PATH':str(self.fakebin)},capture_output=True,text=True,timeout=15)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('Usage: install-agent-auto.sh',result.stdout)
+        self.assertFalse(marker.exists())
+        self.assertFalse(self.calls.exists());self.assertFalse(self.commands.exists())
+
+    def test_auto_entrypoint_requires_gui_setup_and_rejects_unsupported_or_executable_os_data(self):
+        self.binary()
+        result=self.run_entrypoint('auto','--no-start','--token-file',str(self.token))
+        self.assertNotEqual(result.returncode,0);self.assertIn('GUI --setup-file',result.stderr)
+        marker=self.base/'auto-os-release-was-executed'
+        for value in ['ID="debian"\nVERSION_ID="13"\n',
+                      'ID="rhel"\nVERSION_ID="10.0"\n',
+                      'ID="ubuntu"\nVERSION_ID="24.04"\n',
+                      'ID="$(touch '+str(marker)+')"\nVERSION_ID="8.10"\n',
+                      'ID="rhel"\nID="ubuntu"\nVERSION_ID="8.10"\n']:
+            (self.target/'etc/os-release').write_text(value)
+            result=self.run_entrypoint('auto','--check-only',config=False)
+            self.assertNotEqual(result.returncode,0)
+            self.assertFalse(marker.exists());self.assertFalse(self.calls.exists());self.assertFalse(self.commands.exists())
 
     def test_missing_dependency_prints_family_package_guidance_before_any_install(self):
         self.binary();(self.target/'usr/bin/firewall-cmd').unlink()
@@ -240,6 +289,73 @@ esac
         self.assertNotIn('--prepare-setup',calls);self.assertNotIn('--prepare-host',calls)
         self.assertNotIn('shared-installer',calls)
 
+    def test_auto_live_dependency_consent_is_after_release_and_kit_checks_without_rewriting_setup(self):
+        # Redirect only OS input in a copied wrapper. Fake every privileged
+        # program, binary and service action; no native package command runs.
+        wrapper=self.bundle/'scripts/install-agent-linux.sh'
+        wrapper.write_text(wrapper.read_text().replace('RELEASE_FILE=$TARGET_ROOT/etc/os-release',
+                                                       'RELEASE_FILE=$PRTHAK_TEST_OS_RELEASE'))
+        self.write_executable(self.fakebin/'id','#!/bin/sh\n[ "$1" = -u ] && echo 0\n')
+        for name in ['systemctl','systemd-run','journalctl','ss','firewall-cmd','flock','dnf','apt-get']:
+            self.write_executable(self.fakebin/name,'#!/bin/sh\nprintf "%s\\n" "'+name+' $*" >> "$PRTHAK_FAMILY_COMMAND_CALLS"\nexit 99\n')
+        self.write_executable(self.bundle/'scripts/install-agent.sh','#!/bin/sh\nprintf "%s\\n" "shared-installer $*" >> "$PRTHAK_FAMILY_AGENT_CALLS"\n')
+        (self.bundle/'deploy/release-public-trust.json').write_text('{}')
+        (self.bundle/'runtime-integrity.json').write_text('{}')
+        setup=self.base/'setup.json';setup.write_text('{"fixture":"private-setup-data-retained"}');setup.chmod(0o600)
+        original=setup.read_bytes()
+        self.write_executable(self.bundle/'seg-agent', '''#!/bin/sh
+set -eu
+printf '%s\\n' "$*" >> "$PRTHAK_FAMILY_AGENT_CALLS"
+case "$1" in
+ --check-release) exit "${PRTHAK_TEST_SIGNATURE_FAILURE:-0}";;
+ --prepare-setup)
+  [ "${PRTHAK_TEST_KIT_FAILURE:-0}" = 0 ] || exit 4
+  cp "$PRTHAK_TEST_CONFIG" "$4/agent.json"
+  cp "$PRTHAK_TEST_CA" "$4/controller-ca.crt"
+  cp "$PRTHAK_TEST_TOKEN" "$4/enrollment-token"
+  if [ "${PRTHAK_TEST_PREPARATION_OPTIONS:-0}" = 1 ]; then
+   printf '%s' '{"install_dependencies":false,"ufw_action":"assess"}' > "$4/preparation-options.json"
+  fi;;
+ --prepare-host) exit "${PRTHAK_TEST_PREPARATION_FAILURE:-0}";;
+ *) exit 99;;
+esac
+''')
+        environment={**self.env,'PRTHAK_TEST_OS_RELEASE':str(self.target/'etc/os-release'),
+                     'PRTHAK_TEST_CONFIG':str(self.config),'PRTHAK_TEST_CA':str(self.ca),
+                     'PRTHAK_TEST_TOKEN':str(self.token)}
+        for distro,version in [('rhel','8.10'),('rhel','9.6'),('ubuntu','26.04')]:
+            self.release(distro,version)
+            for preparation_options in ['0','1']:
+                for no_start in [False,True]:
+                    with self.subTest(distro=distro,version=version,options=preparation_options,no_start=no_start):
+                        result=subprocess.run(['sh',str(self.bundle/'scripts/install-agent-auto.sh'),
+                                               '--setup-file',str(setup),*(['--no-start'] if no_start else [])],
+                                              env={**environment,'PRTHAK_TEST_PREPARATION_OPTIONS':preparation_options},
+                                              capture_output=True,text=True,timeout=15)
+                        self.assertEqual(result.returncode,0,result.stderr)
+                        calls=self.calls.read_text()
+                        self.assertEqual('--prepare-host' in calls,not no_start)
+                        self.assertEqual('--install-dependencies' in calls,not no_start)
+                        if not no_start:
+                            self.assertIn('--prepare-family '+distro,calls)
+                            self.assertLess(calls.index('--check-release'),calls.index('--prepare-setup'))
+                            self.assertLess(calls.index('--prepare-setup'),calls.index('--prepare-host'))
+                            self.assertLess(calls.index('--prepare-host'),calls.index('shared-installer'))
+                        self.assertEqual(setup.read_bytes(),original)
+                        self.assertFalse(self.commands.exists())
+                        self.assertNotIn(self.token.read_text(),calls+result.stdout+result.stderr)
+                        self.calls.unlink()
+        for failure, prior in [('PRTHAK_TEST_SIGNATURE_FAILURE','--check-release'),
+                               ('PRTHAK_TEST_KIT_FAILURE','--prepare-setup'),
+                               ('PRTHAK_TEST_PREPARATION_FAILURE','--prepare-host')]:
+            result=subprocess.run(['sh',str(self.bundle/'scripts/install-agent-auto.sh'),
+                                   '--setup-file',str(setup)],env={**environment,failure:'4'},
+                                  capture_output=True,text=True,timeout=15)
+            self.assertNotEqual(result.returncode,0)
+            calls=self.calls.read_text();self.assertIn(prior,calls)
+            self.assertNotIn('shared-installer',calls);self.assertFalse(self.commands.exists())
+            self.assertEqual(setup.read_bytes(),original);self.calls.unlink()
+
     def test_configuration_transition_refuses_staging_or_bootstrap_inputs_before_any_execution(self):
         self.binary()
         kit=self.base/'private-configuration.json';kit.write_text('{}');kit.chmod(0o600)
@@ -341,6 +457,17 @@ esac
                 self.assertNotIn('cannot open', result.stderr)
                 self.assertNotIn('Private endpoint setup prepared', result.stdout)
 
+    @unittest.skipUnless(os.environ.get('SEG_AGENT_BINARY'), 'Set SEG_AGENT_BINARY for automatic preparation CLI guards')
+    def test_auto_dependency_flag_cannot_be_used_as_an_agent_runtime_or_mixed_mode(self):
+        binary=os.environ['SEG_AGENT_BINARY']
+        for arguments in [['--install-dependencies'],['--install-dependencies=false','--version'],
+                          ['--install-dependencies','--prepare-host','/missing','--prepare-family','rhel','--once'],
+                          ['--install-dependencies','--prepare-setup','/missing','--setup-output','/missing']]:
+            result=subprocess.run([binary,*arguments],capture_output=True,text=True,timeout=15)
+            self.assertNotEqual(result.returncode,0)
+            self.assertIn('host preparation requires only',result.stderr)
+            self.assertNotIn('cannot open',result.stderr)
+
     @unittest.skipUnless(os.environ.get('SEG_AGENT_BINARY'), 'Set SEG_AGENT_BINARY for real invalid setup-file guard')
     def test_expired_or_wrong_recipient_gui_setup_stops_before_install_and_cleans_temp(self):
         shutil.copy2(os.environ['SEG_AGENT_BINARY'],self.bundle/'seg-agent')
@@ -377,7 +504,7 @@ class AgentFamilyPackageTests(unittest.TestCase):
             inputs=['scripts/package-agent.py','agent/internal/agent/types.go','agent/config.example.json','agent/README.md',
                     'docs/managed-enforcement.md','docs/whole-server-default-deny.md','docs/traffic-capture.md','docs/fleet-enrollment.md','docs/endpoint-discovery-and-preparation.md','docs/source-bank-preparation.md','docs/policy-rollout-verification.md','docs/linux-validation.md','docs/scale-validation.md','docs/ipset-enforcement.md',
                     'docs/policy-signing.md','docs/linux-agent-installation.md','docs/pilot-gui-installation.md','docs/authentication.md','deploy/systemd/seg-agent.service',
-                    'scripts/install-agent.sh','scripts/install-agent-linux.sh','scripts/install-agent-rhel.sh','scripts/install-agent-ubuntu.sh',
+                    'scripts/install-agent.sh','scripts/install-agent-linux.sh','scripts/install-agent-auto.sh','scripts/install-agent-rhel.sh','scripts/install-agent-ubuntu.sh',
                     'scripts/prepare-managed-ipsets.py','scripts/verify-release.py']
             for name in inputs:
                 path=target/name;path.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(PROJECT/name,path)
@@ -391,13 +518,14 @@ class AgentFamilyPackageTests(unittest.TestCase):
             for archive in archives:
                 with tarfile.open(archive) as bundle:
                     names={'/'.join(Path(item.name).parts[1:]) for item in bundle.getmembers()}
-                    self.assertEqual(len(names),25)
+                    self.assertEqual(len(names),26)
                     self.assertIn('docs/authentication.md',names)
-                    for name in ['scripts/install-agent-linux.sh','scripts/install-agent-rhel.sh','scripts/install-agent-ubuntu.sh','docs/linux-agent-installation.md','docs/whole-server-default-deny.md','docs/traffic-capture.md','docs/fleet-enrollment.md','docs/endpoint-discovery-and-preparation.md','docs/source-bank-preparation.md','docs/policy-rollout-verification.md']:
+                    for name in ['scripts/install-agent-linux.sh','scripts/install-agent-auto.sh','scripts/install-agent-rhel.sh','scripts/install-agent-ubuntu.sh','docs/linux-agent-installation.md','docs/whole-server-default-deny.md','docs/traffic-capture.md','docs/fleet-enrollment.md','docs/endpoint-discovery-and-preparation.md','docs/source-bank-preparation.md','docs/policy-rollout-verification.md']:
                         self.assertIn(name,names)
                         item=next(item for item in bundle.getmembers() if item.name.endswith('/'+name))
                         self.assertEqual(bundle.extractfile(item).read(),(PROJECT/name).read_bytes())
                     install=next(item for item in bundle.getmembers() if item.name.endswith('/INSTALL.txt'))
                     guidance=bundle.extractfile(install).read().decode()
+                    self.assertIn('install-agent-auto.sh',guidance)
                     self.assertIn('install-agent-rhel.sh',guidance);self.assertIn('install-agent-ubuntu.sh',guidance)
                     self.assertNotIn('enrollment-token-value',guidance)

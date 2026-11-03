@@ -104,6 +104,19 @@ class AgentNativePackageTests(unittest.TestCase):
         plan, _ = self.inspect(self.bundle(version="0.13.0"))
         self.assertIn(package.VERIFICATION_GUIDE, plan["files"])
 
+    def test_automatic_installer_is_required_from_017_without_breaking_retained_archives(self):
+        legacy,_=self.inspect(self.bundle(version="0.16.0",omit=[package.AUTO_INSTALLER]))
+        self.assertNotIn(package.AUTO_INSTALLER,legacy["files"])
+        with self.assertRaisesRegex(ValueError,"missing"):
+            self.inspect(self.bundle(version="0.17.0",omit=[package.AUTO_INSTALLER]))
+        for arch in ("amd64","arm64"):
+            with self.subTest(arch=arch):
+                plan,payload=self.inspect(self.bundle(arch=arch,version="0.17.0"))
+                self.assertIn(package.AUTO_INSTALLER,plan["files"])
+                self.assertEqual((payload/package.AUTO_INSTALLER).read_bytes(),
+                                 ("public fixture "+package.AUTO_INSTALLER+"\n").encode())
+                self.assertEqual((payload/package.AUTO_INSTALLER).stat().st_mode&0o777,0o755)
+
     def test_compressed_expansion_and_entry_bounds_are_enforced(self):
         archive=self.bundle()
         with patch.object(package,"MAX_TAR",512),self.assertRaisesRegex(ValueError,"Expanded"):self.inspect(archive)
@@ -194,6 +207,7 @@ class AgentNativePackageTests(unittest.TestCase):
                         spec=Path(command[-1]);text=spec.read_text()
                         self.assertIn("AutoReqProv: no",text);self.assertIn("_binary_payload w9.gzdio",text)
                         self.assertIn("%global __os_install_post %{nil}",text)
+                        self.assertIn("cp -a /input/payload/. %{buildroot}"+plan["install_prefix"]+"/",text)
                         self.assertNotIn("BuildArch:",text)
                         self.assertIn("_tmppath /tmp",command)
                         for hook in ("%pre\n","%post\n","%preun","%postun","%trigger"):self.assertNotIn(hook,text)

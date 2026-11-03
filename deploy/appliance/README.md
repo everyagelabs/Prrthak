@@ -1,23 +1,27 @@
 # Prṛthak local appliance
 
-Use the same Git checkout and installer on each Linux management host. The
+Use the same verified release or reviewed checkout and installer on each Linux management host. The
 installer builds the controller and PostgreSQL 16/Patroni images, builds the
 pinned etcd security recipe, pulls the pinned HAProxy image, and installs a small root-owned service
 manager. The controller runs as UID 10001 and never receives the Docker socket.
 
 ```sh
-sudo scripts/install-controller.sh --gui-setup
+sudo ./scripts/install-controller.sh
 ```
 
 Configure site, storage, hostname/certificates, public ports and cluster joining
 through the GUI after this one installer command. No manual `.env` creation,
 editing or credential-file retrieval is required for the normal setup flow.
 
-Prerequisites are genuine Linux systemd, a root-owned Python 3.9+ interpreter,
-local Docker Engine, and Compose v2. Install the container runtime from the
-official distribution/vendor instructions first. RHEL and Ubuntu hosts use the
-same container stack; this does not certify their SELinux or native fencing
-configuration. The installer never disables firewalld/UFW or opens host ports.
+The 0.17 automatic installer detects RHEL 9 or Ubuntu 26.04 and prepares a
+protected Python 3.9+ interpreter, Docker Engine and Compose v2 through approved
+repositories before GUI setup. Genuine Linux systemd, root/sudo, approved
+repository/network access, storage and verified root-owned release files remain
+prerequisites. Compatible installations are reused; conflicting container stacks
+block without automatic removal. RHEL and Ubuntu hosts use the same container
+stack; this does not certify their SELinux or native fencing configuration.
+The installer never disables firewalld/UFW or opens host ports. Native acceptance
+on the intended OS versions remains pending.
 
 The initial HTTPS origin defaults to `https://<NODE_IP>:8787`; the installer
 displays the setup URL. Trust its initial certificate through the approved
@@ -38,8 +42,9 @@ Use **Settings** to establish the permanent DNS origin/certificate and unique
 node/site/IP values for the Noida, Pune and cloud hosts. A cluster password does
 not replace TLS identity verification. Reinstallation preserves installed
 identity and GUI-owned settings. `--validate-only`, `--no-start` and
-`--env-file` remain staged/legacy compatibility options; `.env.example` is a
-reference, not a required manual setup step. Move an active DATA_ROOT only
+`--env-file` remain staged/legacy compatibility options. They require a prepared
+host and do not install packages or start Docker automatically. `.env.example`
+is a reference, not a required manual setup step. Move an active DATA_ROOT only
 through the reviewed storage operation.
 
 **Users & access** manages local users, password resets, all three roles and

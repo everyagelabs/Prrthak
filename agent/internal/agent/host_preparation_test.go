@@ -74,6 +74,80 @@ func TestPreparationOptionsRejectNullBooleanIndependently(t *testing.T) {
 	}
 }
 
+func TestAutomaticInstallerDependencyConsentPreservesPrivateKitAndSecurityOptions(t *testing.T) {
+	for _, schema := range []int{1, 2, 3} {
+		t.Run(string(rune('0'+schema)), func(t *testing.T) {
+			kit, _, _, now := setupFixture(t)
+			kit.SchemaVersion = schema
+			if schema == 2 {
+				kit.ExpectedHostname = ""
+				kit.EnrollmentProfileID = "12345678-1234-1234-1234-123456789012"
+				kit.EnrollmentToken = strings.Repeat("a", 64)
+				kit.ExpiresAt = now.Add(2 * time.Hour).Format(time.RFC3339)
+				kit.ControllerCA = setupCA(t, now, true, now.Add(3*time.Hour))
+			}
+			if schema == 3 {
+				kit.InstallationOptions = &HostPreparationOptions{InstallDependencies: false, UFWAction: "assess"}
+			}
+			raw, _ := json.Marshal(kit)
+			c, parsed, err := parseSetup(raw, "endpoint-01", now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			options, err := preparationOptionsForSetup(parsed, true)
+			if err != nil || !options.InstallDependencies {
+				t.Fatalf("automatic dependency consent refused: %#v %v", options, err)
+			}
+			wantAction := "preserve"
+			if schema == 3 {
+				wantAction = "assess"
+			}
+			if options.UFWAction != wantAction {
+				t.Fatal("automatic package consent changed the GUI UFW choice")
+			}
+			if c.Enforce || c.AllowFirewallChanges || c.LearningAutoAllow || c.AllowHostDefaultDeny || c.UnexpectedPortMonitorEnabled {
+				t.Fatal("dependency consent enabled firewall/security instrumentation")
+			}
+			after, _ := json.Marshal(parsed)
+			if string(after) != string(raw) {
+				t.Fatal("automatic dependency consent rewrote private setup data")
+			}
+			_, err = preparationOptionsForSetup(parsed, false)
+			if schema != 3 && err == nil {
+				t.Fatal("legacy entrypoint unexpectedly gained dependency consent")
+			}
+		})
+	}
+}
+
+func TestAutomaticInstallerUsesProtectedPackageSuppressionForOriginalKit(t *testing.T) {
+	kit, _, _, now := setupFixture(t)
+	raw, _ := json.Marshal(kit)
+	_, parsed, err := parseSetup(raw, "endpoint-01", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options, err := preparationOptionsForSetup(parsed, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, family := range []string{"rhel", "ubuntu"} {
+		root, config, runner := preparationFixture(t, family)
+		if err := prepareHostUnder(context.Background(), root, family, config, options, runner, now); err != nil {
+			t.Fatal(err)
+		}
+		receipt := ReadHostPreparationStatus(root + "/var/lib/seg-agent")
+		if receipt == nil || receipt.Status != "prepared" || !receipt.InstallDependencies || !receipt.DependenciesChanged {
+			t.Fatalf("automatic dependency result not recorded: %#v", receipt)
+		}
+		for _, call := range runner.calls {
+			if strings.Contains(call, " start ") || strings.Contains(call, " stop ") || strings.Contains(call, "ufw disable") {
+				t.Fatalf("automatic installer changed firewall activation: %s", call)
+			}
+		}
+	}
+}
+
 type preparationFake struct {
 	root              string
 	calls             []string

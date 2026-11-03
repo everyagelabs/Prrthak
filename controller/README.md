@@ -1,6 +1,28 @@
-# Prṛthak · पृथक् controller development baseline
+# Prṛthak · पृथक् controller
 
-The 0.6 controller uses Python 3.10+, local SQLite or shared PostgreSQL, and the controller requirements. The installed serving path is bounded Gunicorn HTTPS; the explicit development backend is for fixtures. Install `controller/requirements.txt` even when starting a fresh CLI runtime. OpenSSL supports development CA issuance. Run commands from the repository root. The appliance image supplies its pinned runtime/dependencies.
+The 0.17.0 implementation uses Python 3.10+, local SQLite or shared PostgreSQL, and the controller requirements. Release validation is in progress. The installed serving path is bounded Gunicorn HTTPS; the explicit development backend is for fixtures. The appliance image supplies its pinned runtime/dependencies.
+
+## Install and configure through the GUI
+
+From an independently verified, extracted root-owned release on RHEL 9 or
+Ubuntu 26.04, run:
+
+```sh
+sudo ./scripts/install-controller.sh
+```
+
+The installer detects the OS and prepares protected Python 3.9+, Docker Engine
+and Compose v2, then opens normal GUI setup. Genuine systemd, root/sudo,
+approved repositories/network access, storage and trusted release files are
+required. Compatible container installations are reused; conflicts block
+without removing the existing stack. The installer never opens host firewall
+ports or disables firewalld/UFW. Configure application settings, users, SSO,
+certificates and cluster settings in the GUI; no `.env` editing is required.
+Native OS/DC acceptance remains pending. See [controller installation](../docs/controller-installation.md).
+
+The remaining commands are development or prepared-host compatibility interfaces.
+Install `controller/requirements.txt` even for a fresh CLI runtime. OpenSSL
+supports development CA issuance. Run commands from the repository root.
 
 ## Local synthetic dashboard
 
