@@ -1344,3 +1344,28 @@ test('demo preview stays synthetic when public status also describes installed l
 test('SAML trust updates bind the form-open revision and preserve a rejected stale draft without adopting newer trust',async()=>{
  const status={local:{enabled:true},saml:{revision:7,enabled:true,configured:true,origin:'https://controller.example.test',sp_entity_id:'pilot',idp_entity_id:'https://idp.example.test'}},env=await localWorkspace('access',{responses:{'GET /api/v1/auth/providers':status,'PUT /api/v1/auth/providers/saml':{responseStatus:409,data:{error:'Provider configuration changed'}}}});await new Promise(setImmediate);await env.click('access-saml-edit');const before=env.element('#modal-content').innerHTML;assert.match(before,/<form id="access-saml-form" data-revision="7"/);env.run('state.accessProviders.saml.revision=8');env.element('#saml-metadata').value='Keep my public XML draft';await env.submit('access-saml-form',{enabled:'on',origin:'https://controller.example.test',sp_entity_id:'pilot',idp_metadata_xml:'New reviewed XML'});const request=mutations(env)[0];assert.equal(JSON.parse(request.options.body).expected_revision,7);assert.equal(env.element('#modal').open,true);assert.equal(env.element('#modal-content').innerHTML,before);assert.equal(env.element('#saml-metadata').value,'Keep my public XML draft');assert.match(env.element('#form-error').textContent,/Close this draft, refresh Users & access/);assert.equal(env.run('state.accessProviders'),null);assert.equal(mutations(env).length,1);
 });
+
+
+// Built-in identity protection is flagged by the controller, never guessed from a username.
+test('built-in admin row offers password changes only while ordinary accounts remain editable',async()=>{
+ const builtin={...localPerson().user,protected_account:true,enabled:true},ordinary={...localUserFixture,username:'admin',protected_account:false};
+ const env=await localWorkspace('access',{identity:{...localPerson(),user:builtin},responses:{'GET /api/v1/access/users':{items:[builtin,ordinary]}}});
+ const html=env.element('#view-content').innerHTML,builtinRow=html.match(/<tr><td><strong>Local Administrator[\s\S]*?<\/tr>/)[0];
+ assert.match(builtinRow,/Built-in admin/);assert.match(builtinRow,/Password changes only/);assert.match(builtinRow,/data-action="account-password"/);assert.doesNotMatch(builtinRow,/access-user-edit|access-user-reset-review|access-user-delete/);
+ assert.match(html,/data-action="access-user-edit" data-id="realm:analyst"/);await env.click('account-password');assert.match(env.element('#modal-content').innerHTML,/id="local-password-form"/);
+ await env.click('access-user-edit',{id:builtin.id});const modal=env.element('#modal-content').innerHTML;assert.match(modal,/cannot be deleted, disabled, renamed or assigned another role/);assert.doesNotMatch(modal,/access-user-form|name="role"|name="enabled"/);assert.equal(mutations(env).length,0);
+ await env.click('access-user-edit',{id:ordinary.id});assert.match(env.element('#modal-content').innerHTML,/id="access-user-form"/);
+});
+test('another Super Admin may reset built-in password but cannot submit a stale access edit',async()=>{
+ const builtin={...localPerson().user,protected_account:true,enabled:true},identity={...localPerson(),user:{...localPerson().user,id:'second-super',username:'second-super'}};
+ const env=await localWorkspace('access',{identity,responses:{'GET /api/v1/access/users':{items:[builtin]}}});
+ const html=env.element('#view-content').innerHTML;assert.match(html,/access-user-reset-review/);assert.doesNotMatch(html,/data-action="access-user-edit"/);
+ await env.click('access-user-reset-review',{id:builtin.id});assert.match(env.element('#modal-content').innerHTML,/id="access-password-reset-form"/);
+ env.run('state.accessUsers[0].protected_account=false');await env.click('access-user-edit',{id:builtin.id});
+ const form=renderedForm(env,'access-user-form',{display_name:'Replacement',email:'replacement@example.test',role:'read_only',enabled:'false'});env.run('state.accessUsers[0].protected_account=true');
+ await submitRendered(env,form);assert.equal(mutations(env).length,0);assert.match(env.element('#form-error').textContent,/only its password can be changed/);
+});
+test('built-in admin profile states immutable access and retains own password action',async()=>{
+ const person=localPerson();person.user.protected_account=true;const env=await localWorkspace('servers',{identity:person});await env.click('account-profile');
+ const html=env.element('#modal-content').innerHTML;assert.match(html,/Built-in admin · Password changes only/);assert.match(html,/cannot be deleted, disabled, renamed or assigned another role/);assert.match(html,/data-action="account-password"/);
+});

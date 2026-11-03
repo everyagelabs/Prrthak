@@ -54,6 +54,20 @@ def main():
     if password == old_password:
         raise RuntimeError("The disposable test needs a different target credential")
     mutations = []
+    # Use the actual shared disposable issuing authority and one synchronization
+    # seed, matching production material. The real Vault encrypts each copy;
+    # neither private keys nor plaintext credentials enter shared metadata.
+    from cryptography import x509
+    from cryptography.hazmat.primitives import serialization
+    ca = first["pki"]["ca"]
+    ca_key = (root / "fixture-authority/ca-key.pem").read_text()
+    certificate = x509.load_pem_x509_certificate(ca.encode())
+    issuing_key = serialization.load_pem_private_key(ca_key.encode(), None)
+    assert certificate.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo) == issuing_key.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    assert all(value["pki"]["ca"] == ca and value["secrets"] == first["secrets"] for value in manifests)
+    shared_material = {"ca": ca, "ca_key": ca_key, "controller_ca": first.get("controller_ca", ca),
+                       "pki_purpose": "internal-database-v1", "sync_key": secrets.token_hex(32),
+                       "secrets": {kind: first["secrets"][kind] for kind in ("admin", "metadata", "traffic", "replication")}}
 
     def rpc(node_root, payload):
         manifest = native.load(node_root / "config/manifest.json")
@@ -120,11 +134,12 @@ def main():
         api = Appliance(platform, client=Bridge(manager))
         _private_json(platform.root / "appliance-local.json", {"site": node["site"], "node_ip": node["ip"]})
         public = bootstrap._public_key(bootstrap._keys(api))
-        members.append({key: node[key] for key in ("id", "site", "ip", "role")} | {"transport_public_key": public})
-        # This driver tests rotation, not CA issuance. Private role material is
-        # encrypted by the real Vault and never inserted in the shared registry.
-        bootstrap._save_material(api, {"pki_purpose": "internal-database-v1", "sync_key": secrets.token_hex(32), "secrets": copy.deepcopy(value["secrets"])})
+        runtime = api._database_runtime()
+        bootstrap.require_database_runtime(runtime)
+        members.append({key: node[key] for key in ("id", "site", "ip", "role")} | {"transport_public_key": public} | runtime)
+        bootstrap._save_material(api, copy.deepcopy(shared_material))
         apis.append(api)
+    assert all(bootstrap._material(api) == shared_material for api in apis)
     config = {"id": "appliance_cluster", "revision": 1, "deployment_id": deployment,
               "cluster_name": "Disposable coordinator acceptance", "controller_origin": first["controller_origin"],
               "bootstrap_seed_id": members[0]["id"], "members": members,

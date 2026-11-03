@@ -148,6 +148,36 @@ class LocalHTTPSAuthenticationTests(unittest.TestCase):
         self.api('GET', 'overview', headers=fresh)
         self.api('DELETE', 'policies/' + policy['id'], headers=super_headers)
 
+    def test_builtin_admin_cannot_be_deleted_or_changed_by_another_super_admin(self):
+        original = self.bootstrap()
+        admin = self.api('GET', 'auth', headers=original)['user']
+        self.assertTrue(admin['protected_account'])
+        _, other = self.local_user(original, 'second-super', 'super_admin')
+        path = 'access/users/' + quote(admin['id'], safe='')
+        before = self.store.get('auth_users', admin['id'])
+        for changes in ({'enabled': False}, {'role': 'admin'}, {'display_name': 'Replacement'}, {'email': 'other@example.test'}):
+            with self.subTest(changes=changes):
+                error = self.api('PATCH', path, changes, other, 409)
+                self.assertIn('only its password can be changed', error['error'])
+        # Identity fields are immutable for all users, including the built-in.
+        for changes in ({'username': 'replacement'}, {'provider': 'saml'}, {'protected_account': False}):
+            with self.subTest(changes=changes):
+                self.api('PATCH', path, changes, other, 400)
+        # User deletion is intentionally not an API operation: even a direct
+        # authenticated DELETE cannot remove the retained protected identity.
+        self.api('DELETE', path, headers=other, expected=405)
+        self.assertEqual(self.store.get('auth_users', admin['id']), before)
+        self.api('GET', 'overview', headers=original)
+        temporary = 'Protected-admin-recovery-015!'
+        reset = self.api('POST', path + '/reset-password', {'password': temporary, 'confirm_password': temporary}, other)
+        self.assertTrue(reset['protected_account'])
+        self.api('GET', 'auth', headers=original, expected=401)
+        limited, headers, _ = self.login('admin', temporary)
+        self.assertTrue(limited['password_change_required'])
+        changed, _ = self.change(headers, temporary)
+        self.assertTrue(changed['user']['protected_account'])
+        self.assertEqual(changed['role'], 'super_admin')
+
     def test_login_origin_json_and_session_csrf_are_enforced(self):
         self.api('POST', 'auth/local', {'username': 'admin', 'password': 'admin'}, {'Origin': 'https://outside.example'}, 403)
         status, _, _, _ = self.http('POST', 'auth/local', {'username': 'admin', 'password': 'admin'}, form=True)

@@ -216,4 +216,4 @@ See [endpoint discovery, preparation and health](../docs/endpoint-discovery-and-
 
 ## Local and SSO controller users
 
-The current endpoint payload is stamped 0.15.0. Local, Entra OIDC and SAML user roles are managed by the controller; human passwords are never sent to endpoints. Existing 0.14 agents remain protocol-compatible with this login addition and do not need reinstallation solely for it. See [current authentication](../docs/local-and-saml-login.md).
+The current endpoint payload is stamped 0.16.0. Local, Entra OIDC and SAML user roles are managed by the controller; human passwords are never sent to endpoints. Existing 0.14 agents remain protocol-compatible with this login addition and do not need reinstallation solely for it. See [current authentication](../docs/local-and-saml-login.md).

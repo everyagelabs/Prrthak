@@ -1,0 +1,30 @@
+{
+  "kind": "prthak-etcd-security-build-v1",
+  "upstream_version": "3.6.16",
+  "upstream_commit": "0b065e61c679ea81f6862bb24c9815f7fc673966",
+  "upstream_source": "https://codeload.github.com/etcd-io/etcd/tar.gz/0b065e61c679ea81f6862bb24c9815f7fc673966",
+  "upstream_source_sha256": "393a9f8bd53093b5553111778ab5c7d251605460ed74bf8bc447110f180c38a6",
+  "builder": "golang:1.27.3-alpine3.24@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb",
+  "runtime": "alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a",
+  "dependency_changes": [
+    {
+      "module": "golang.org/x/net",
+      "before": "v0.61.0",
+      "after": "v0.62.0",
+      "advisories": ["CVE-2026-78661", "CVE-2026-97045"],
+      "references": ["https://pkg.go.dev/golang.org/x/net@v0.62.0"]
+    },
+    {
+      "module": "golang.org/x/crypto",
+      "before": "v0.58.0",
+      "after": "v0.58.1-0.20261009181718-2f1f834330b2",
+      "advisories": ["GO-2026-5932"],
+      "references": ["https://pkg.go.dev/vuln/GO-2026-5932", "https://go.googlesource.com/crypto/+/2f1f834330b2d36ab3db8bfb33aaa1ac16794588"]
+    }
+  ],
+  "runtime_package_policy": "Upgrade the pinned Alpine 3.24 branch and retain its package database; install current CA certificates and timezone data. No scanner exclusions or vulnerability metadata removal.",
+  "binaries": ["/usr/local/bin/etcd", "/usr/local/bin/etcdctl", "/usr/local/bin/etcdutl"],
+  "user": "10002:10002",
+  "data_directory": "/etcd-data",
+  "health_check": "The host manager verifies the HTTPS /health endpoint using the node's actual IP, trusted CA and client certificate."
+}

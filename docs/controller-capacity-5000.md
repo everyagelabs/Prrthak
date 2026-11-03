@@ -1,6 +1,23 @@
 # 5,000-server controller capacity
 
-## Current 0.15 Local / SAML acceptance - 2 November 2026
+## Current 0.16 actual Alpine-image acceptance - 3 November 2026
+
+The final signed controller image (`fb9cf66d…1fe5`, Python 3.14.10 / Alpine 3.24.3) and database image (`35cb4850…86f7`, PostgreSQL 16.15) passed the 60-second ordinary delivery target with 5,000 virtual mTLS endpoint identities. Both runs retained 100 expired full-fleet sessions / 500,000 memberships before timing and checked every endpoint's current Local or SAML Admin authority and signed passive observation lease in each phase.
+
+| Provider | Initial delivery | Policy edit + complete 30 s poll window | Mixed discovery / observations |
+| --- | ---: | ---: | ---: |
+| Local | 36.432 s | **45.476 s** | 20.079 s |
+| SAML | 40.744 s | **53.021 s** | 25.787 s |
+
+Publication took 6.041 s and 6.028 s respectively and is included in the changed-policy totals, including response completion after the full polling window. Both runs had **zero final failures**, exact updated matrices for all 5,000 identities, 5,000 connection plus 5,000 denied-packet observations and no pending batches. Bounded transient retries were Local 4 policy / 6 report and SAML 2 policy / 4 report.
+
+The generator and two Gunicorn workers (32 threads each, 64 clients, pools 8/2) shared a 3-GiB container; PostgreSQL had a 1.5-GiB limit. Both shared the actual 4-vCPU / 5.77-GiB ARM64 Docker VM. PostgreSQL checksums, fsync, full_page_writes, synchronous_commit and wal_log_hints were on; shared_buffers was 128 MB and max_connections 100. The isolated network published no host ports or Docker socket. Twenty-three 10-second samples across the complete pair observed approximately 479.4 MiB / 230.08% of one CPU core for controller **plus generator**, and 313.9 MiB / 76.79% for PostgreSQL. These are sampled combined peaks, not continuous peaks, per-provider measurements or production sizing recommendations.
+
+Public records: [Local](../output/capacity/controller-5000-0.16-local-container-result.json) and [SAML](../output/capacity/controller-5000-0.16-saml-container-result.json). They bind the exact images, signed runtime `2fb15f93…6114`, original 525-file measured source manifest `18a56cb8…d812`, unchanged public workload and explicit private launcher adapter retaining signed startup plus the production session-only gate. A later controller README edit is recorded as documentation-only publication equivalence; measurement hashes are preserved. All four owned databases, both containers, both volumes, the internal network and temporary password file were removed. Three earlier harness startup failures performed zero timed workloads and are recorded separately; the successful measured pair was not retried.
+
+Certificates/inventory/history and canonical human sessions were prepared before phase timers. Real password login and locally signed SAML exchanges are exercised separately by the HTTPS suite. This workload is not 5,000 agent processes, native firewall witnesses, an IdP/MFA or enrollment storm, WAN latency, physical HA/replication or endurance acceptance. Its disposable database connection used private TCP/SCRAM without TLS; separate composite tests exercise TLS and replication. The public workload is `scripts/benchmark-mtls-fleet.py`; the recorded private container/launcher adapter is not part of the runtime installer. Use the [VM requirements](controller-vm-requirements.md) for deployment planning and validate the actual fleet/network during the deferred pilot.
+
+## Previous 0.15 Local / SAML acceptance - 2 November 2026
 
 Both new human account sources retain the 60-second ordinary policy-delivery target on the isolated profile below. Each uses 5,000 virtual mTLS endpoint identities and 100 expired full-fleet learning sessions: 19,533,300 canonical bytes / 500,000 indexed memberships seeded before timing.
 

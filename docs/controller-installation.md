@@ -1,6 +1,6 @@
 # Install the controller from a verified release
 
-**Preferred 0.15.0 pilot flow:** after prerequisites and verified extraction, run
+**Preferred 0.16.0 pilot flow:** after prerequisites and verified extraction, run
 `sudo ./scripts/install-controller.sh --gui-setup` once and complete configuration
 through the GUI. At the trusted HTTPS URL, a fresh empty account database uses
 local **admin** / **admin** as Super Admin and requires a password change before
@@ -20,15 +20,19 @@ Use the [VM sizing and layout requirements](controller-vm-requirements.md) for t
 - Local Docker Engine and the **Compose v2** plugin, prepared through your approved OS/vendor procedure. Remote Docker endpoints are not accepted by the fixed manager. No Node.js or Go compiler is required on the controller VM.
 - A dedicated persistent `DATA_ROOT`, such as `/var/lib/prthak` or `/mnt/prthak`, with protected root-owned ancestors. The installer rejects symlinks, traversal, unsafe roots and unrelated contents. Docker image/build/log storage remains in Docker's configured storage location.
 - Reserved UID/GID **10001** for the locked no-login `prthak-controller` host identity. The installer creates it when safe and rejects collisions, aliases or unrelated group members. The application container runs as UID10001 and never receives the Docker socket.
-- Approved registry and package access: the installer builds images using PostgreSQL/Debian bases and OS/Python packages, and pulls the configured etcd and HAProxy images. An approved mirror can be part of the deployment environment. This source archive is **not an offline image installer**, and an unattended offline-image import workflow is not supplied.
+- Approved registry and package access: the installer builds images using pinned PostgreSQL 16/Alpine bases and OS/Python packages, builds the pinned etcd source with its reviewed dependency fixes, and pulls the configured HAProxy image. The etcd builder fetches a checksum-verified upstream archive from `codeload.github.com` and verified Go modules through the Go module/checksum services over HTTPS. These are build-time downloads inside Docker; Git and Go are not required on the host. An approved mirror can be part of the deployment environment. This source archive is **not an offline image installer**, and an unattended offline-image import workflow is not supplied.
 
 Installation does not disable UFW/firewalld or open host firewall ports. Arrange DNS, TLS, LB routing, approved access paths and native OS behavior in your deployment phase. Local code/fixture tests do not certify RHEL/Ubuntu, SELinux/polkit, hardware watchdogs or physical DC/DR failover.
 
 RHEL 8's default Python3.6 is insufficient for this host manager. Prepare an approved root-owned Python3.9+ interpreter without replacing the OS Python. If it is not the `python3` selected by root's PATH, set `PRTHAK_INSTALL_PYTHON` to its absolute path when invoking the installer, for example `/usr/bin/python3.11` if that approved interpreter is installed.
 
+## Existing PostgreSQL appliances
+
+This candidate changes the database libc/runtime profile. **Create and download a verified logical backup in the old GUI before upgrading.** Use fresh appliance/storage and GUI Recovery; do not reuse Debian/glibc physical PGDATA with Alpine/musl. The manager preserves and rejects incompatible storage, and database-voter admission requires matching authenticated runtime profiles. See [image hardening and logical migration](appliance-image-hardening-0.16.md). The fresh 20-server pilot uses the new runtime directly.
+
 ## Obtain and verify a release
 
-The source archive is named `prthak-controller-0.15.0.tar.gz`. It contains public runtime Python modules, browser assets, Dockerfiles, fixed local manager/helpers, `.env.example`, installer/verifier and these guides. It excludes tests, populated environment files, keys, certificates, databases, private state and agent binaries.
+The source archive is named `prthak-controller-0.16.0.tar.gz`. It contains public runtime Python modules, browser assets, Dockerfiles, fixed local manager/helpers, `.env.example`, installer/verifier and these guides. It excludes tests, populated environment files, keys, certificates, databases, private state and agent binaries.
 
 Top-level public Markdown runbooks and `agent/README.md` are included to preserve installation and operational references. The unchanged illustrated 0.14.0 HTML/PDF baseline is included under docs/guide; use [Local/SAML login](local-and-saml-login.md) for the new authentication screens. Source-local evidence links can also refer to private assessment artifacts, generated capacity results, historical illustrated guides or development fixtures; those historical/private artifacts are not part of this runtime installation archive. Obtain the separately retained assessment/source evidence when reviewing those historical measurements. Agent installers and binaries are distributed in their separate verified endpoint packages.
 
@@ -37,8 +41,8 @@ Before extraction, use an independently approved copy of `verify-release.py`, a 
 ```sh
 python3 /approved/tools/verify-release.py \
   --public-trust-file /approved/trust/prthak-release-public-trust.json \
-  --signature prthak-controller-0.15.0.tar.gz.signature.json \
-  prthak-controller-0.15.0.tar.gz
+  --signature prthak-controller-0.16.0.tar.gz.signature.json \
+  prthak-controller-0.16.0.tar.gz
 ```
 
 Use an approved administration tool environment supporting Ed25519 verification. Python3.10+ with the compatible `cryptography` requirement is recommended; the running installed endpoint needs neither. A public key downloaded next to an untrusted archive does not establish authenticity. The included `deploy/release-public-trust.json` describes the current **local project** public authority; it is not independent organizational approval.
@@ -48,9 +52,9 @@ Place the verified archive and extracted release in protected root-owned locatio
 ```sh
 sudo install -d -o root -g root -m 0755 /opt/prthak/releases
 sudo tar --no-same-owner --no-same-permissions \
-  -xzf /protected/releases/prthak-controller-0.15.0.tar.gz \
+  -xzf /protected/releases/prthak-controller-0.16.0.tar.gz \
   -C /opt/prthak/releases
-cd /opt/prthak/releases/prthak-controller-0.15.0
+cd /opt/prthak/releases/prthak-controller-0.16.0
 sudo ./scripts/install-controller.sh --gui-setup
 ```
 
@@ -69,7 +73,7 @@ On a fresh empty account database, sign in as local **admin** with temporary
 password **admin** and complete the mandatory **12–256-character** password
 change. Until then the session cannot read inventory or perform workspace
 operations. Bootstrap is durable and never repeated on restart, SSO activation
-or later account changes. Existing estates retain their users; their enabled
+or later account changes. The built-in admin cannot be deleted, disabled, renamed or demoted; its password can be changed or reset. Existing estates retain their users; their enabled
 Super Admin creates any additional local accounts explicitly.
 
 Use **Settings** for node/site/IP, data root, stable HTTPS origin, approved

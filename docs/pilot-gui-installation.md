@@ -1,4 +1,4 @@
-# GUI-configured 20-server pilot (0.15.0)
+# GUI-configured 20-server pilot (0.16.0)
 
 Use the unchanged [0.14 illustrated PDF](guide/prthak-pilot-0.14.0.pdf) or [HTML guide](guide/prthak-pilot-0.14.0.html) as the installation/operations baseline. They have not been regenerated for the new login screens. This runbook and [Local/SAML login](local-and-saml-login.md) describe current authentication; older illustrated exports remain historical.
 
@@ -54,7 +54,7 @@ flowchart LR
 
 ## 2. Stage the verified release and run one controller installer
 
-Obtain `prthak-controller-0.15.0.tar.gz` and its detached `.signature.json`.
+Obtain `prthak-controller-0.16.0.tar.gz` and its detached `.signature.json`.
 Verify exact archive bytes **before extraction/execution**, using an independently
 approved public release-signing pin and verifier. A public key downloaded beside
 an unknown archive does not establish trust. The project signing authority is
@@ -120,6 +120,8 @@ add local accounts. Local credentials use salted scrypt hashes in the shared
 database. Password and role management need no `.env`/JSON edit or token-file
 retrieval. See [the detailed login procedure](local-and-saml-login.md).
 
+The built-in `admin` is permanent and displays **Password changes only**. It cannot be deleted, disabled, renamed or demoted, including by another Super Admin. Ordinary local/SSO users retain normal Super Admin management; password change/reset and session revocation remain available.
+
 ### Optional SAML SSO
 
 Remain signed in as a fully authenticated Super Admin and open **Users & access
@@ -176,8 +178,8 @@ disables UFW or migrates existing rules. Unsupported administrator overrides or
 uncertain package state block automatic preparation; native acceptance is pending.
 See [endpoint preparation](endpoint-discovery-and-preparation.md).
 
-Stage and independently verify `prthak-agent-0.15.0-linux-amd64.tar.gz` or
-`prthak-agent-0.15.0-linux-arm64.tar.gz`, then extract to a protected root-owned
+Stage and independently verify `prthak-agent-0.16.0-linux-amd64.tar.gz` or
+`prthak-agent-0.16.0-linux-arm64.tar.gz`, then extract to a protected root-owned
 release directory. Use its signed runtime manifest and independently approved
 public trust. The static Go endpoint needs no Git, Python or Go compiler/runtime. Existing 0.14 agents remain protocol-compatible with the human-login addition; they need no reinstall solely to enable local/SAML accounts.
 

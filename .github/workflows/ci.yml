@@ -98,6 +98,7 @@ jobs:
           docker build -f deploy/Dockerfile.controller -t prthak-controller:appliance-base .
           docker build -f deploy/appliance/Dockerfile.controller -t prthak-ci-controller deploy/appliance
           docker build -f deploy/appliance/Dockerfile.database -t prthak-ci-database deploy/appliance
+          docker build -f deploy/appliance/Dockerfile.etcd -t prthak-ci-etcd deploy/appliance
       - name: Verify signed startup before application imports
         run: printf '{}\n' | docker run --rm -i --network none --read-only prthak-ci-controller --validate-initial-env
       - name: Scan all appliance images without exposing the Docker socket
@@ -105,18 +106,15 @@ jobs:
           PRTHAK_SCANNER: aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
         run: |
           mkdir -p .local/ci/images
-          docker pull haproxy:3.2-trixie@sha256:de853dd229e0f13e0104b288a487e1e12eb3965618f9b88f49ef8d5a6d83c001
-          docker pull gcr.io/etcd-development/etcd:v3.6.16@sha256:b29d816b546a1966fe7034a33b34e231fa98c47ce4d2883f70b0555020b22132
-          docker tag haproxy:3.2-trixie@sha256:de853dd229e0f13e0104b288a487e1e12eb3965618f9b88f49ef8d5a6d83c001 prthak-ci-router
-          docker tag gcr.io/etcd-development/etcd:v3.6.16@sha256:b29d816b546a1966fe7034a33b34e231fa98c47ce4d2883f70b0555020b22132 prthak-ci-etcd
+          docker pull haproxy:3.2-alpine3.24@sha256:5893840576071e6217cd52ebdcc14f454c6f7a631056fa6f4e0f40d3cac4215b
+          docker tag haproxy:3.2-alpine3.24@sha256:5893840576071e6217cd52ebdcc14f454c6f7a631056fa6f4e0f40d3cac4215b prthak-ci-router
           for component in controller database router etcd; do
             docker image save -o ".local/ci/images/$component.tar" "prthak-ci-$component"
             docker run --rm -v "$PWD/.local/ci/images:/scan" "$PRTHAK_SCANNER" image --no-progress --scanners vuln --format json --output "/scan/$component.json" --input "/scan/$component.tar"
             rm ".local/ci/images/$component.tar"
           done
-      - name: Fail on available high or critical fixes while retaining unfixed advisories
-        run: |
-          python3 -c 'import glob,json; rows=[(p,v) for p in glob.glob(".local/ci/images/*.json") for r in json.load(open(p)).get("Results",[]) for v in (r.get("Vulnerabilities") or [])]; pending=[(p,v["VulnerabilityID"]) for p,v in rows if v.get("Severity") in ("HIGH","CRITICAL") and v.get("FixedVersion")]; print("All advisories:",len(rows),"Available high/critical fixes:",len(pending)); assert not pending,pending'
+      - name: Reject every appliance vulnerability finding and incomplete scan evidence
+        run: python3 scripts/check-appliance-advisories.py .local/ci/images
       - name: Preserve complete appliance advisories
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4

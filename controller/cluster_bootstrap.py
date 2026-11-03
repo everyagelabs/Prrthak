@@ -31,6 +31,39 @@ from .platform import _private_json, _read_json
 from .store import digest, now, parse_time, stamp
 
 
+DATABASE_RUNTIME_PROFILE = "postgres16-alpine3.24-musl-v1"
+
+
+def require_database_runtime(report):
+    if (not isinstance(report, dict)
+            or report.get("database_runtime_profile") != DATABASE_RUNTIME_PROFILE
+            or report.get("database_storage_compatible") is not True):
+        raise ValueError("Database voters require the same verified Alpine PostgreSQL runtime and compatible storage. "
+                         "Legacy or unreported database runtimes cannot join or activate. "
+                         "Use GUI logical backup and recovery into fresh compatible appliances.")
+
+
+def _assert_database_voters(config, *, own_id=None, own_runtime=None, complete=False):
+    """Fence physical replication using authenticated enrollment, not manifests."""
+    voters = config.get("voters", [])
+    if complete and len(voters) != 3:
+        raise ValueError("Database activation requires three compatible authenticated voters")
+    members = {member["id"]: member for member in config.get("members", [])}
+    voter_ids = [voter.get("id") for voter in voters]
+    if len(voter_ids) != len(set(voter_ids)):
+        raise ValueError("Each authenticated database voter must be distinct")
+    if own_id and members.get(own_id, {}).get("role") == "database_voter":
+        require_database_runtime(own_runtime)
+        if own_id not in voter_ids:
+            raise ValueError("The local database runtime is missing its voter membership")
+    for voter in voters:
+        member = members.get(voter.get("id"), {})
+        if (member.get("role") != "database_voter"
+                or any(voter.get(key) != member.get(key) for key in ("id", "site", "ip"))):
+            raise ValueError("A database voter is missing its authenticated runtime identity")
+        require_database_runtime(member)
+
+
 @contextmanager
 def _private_lifecycle_lock(api,name):
     # No Store/database locks are acquired while holding this local lock.
@@ -398,7 +431,8 @@ def apply(api, body, actor):
         identity = plan["identity"]
         server_name, web_ca = _web_identity(api)
         payload = {"action": "password-bootstrap", "node_id": identity["id"], "site": identity["site"], "node_ip": identity["ip"],
-                   "cluster_password": private["password"], "transport_public_key": _public_key(key), "tls_server_name": server_name, "controller_ca": web_ca}
+                   "cluster_password": private["password"], "transport_public_key": _public_key(key), "tls_server_name": server_name, "controller_ca": web_ca,
+                   **api._database_runtime()}
         sealed = api.manager._peer_request(plan["peer_url"], private["ca"], payload)
         enrolled = api.manager._unseal(sealed, key, identity["id"])
         _install_enrollment(api, enrolled, plan["peer_url"], private["ca"], actor)
@@ -414,6 +448,9 @@ def _install_enrollment(api, enrolled, peer, peer_ca, actor):
     config = enrolled.get("configuration")
     if not isinstance(config, dict) or not any(member["id"] == identity["id"] and member["ip"] == identity["ip"] and member["site"] == identity["site"] for member in config.get("members", [])):
         raise ValueError("The peer response did not authorize this installed node identity")
+    own = next(member for member in config["members"] if member["id"] == identity["id"])
+    if own.get("role") == "database_voter":
+        _assert_database_voters(config, own_id=identity["id"], own_runtime=api._database_runtime())
     _save_material(api, enrolled["material"])
     local = api._local()
     def retain(reference, value):
@@ -443,6 +480,7 @@ def enroll(api, body, peer_ip):
         sync_completed_material(api)
     node_id, site, node_ip = api.manager._join_identity(body)
     action = body.get("action")
+    own_runtime = api._database_runtime()
     with api.app.store.lock, api.app.store.meta() as db:
         from .provider_lifecycle import assert_join_current
         assert_join_current(api.app, db)
@@ -490,8 +528,13 @@ def enroll(api, body, peer_ip):
                 if any(member["ip"] == node_ip for member in existing):
                     raise PermissionError("This management IP is already registered")
                 role = "database_voter" if len(config.get("voters", [])) < 3 and not any(member["site"].casefold() == site.casefold() and member.get("role") == "database_voter" for member in existing) else "management"
+                if role == "database_voter":
+                    require_database_runtime(body)
+                    _assert_database_voters(config, own_id=api._identity()["id"], own_runtime=own_runtime)
                 member = {"id": node_id, "site": site, "ip": node_ip, "origin": "https://" + ("[" + node_ip + "]" if ":" in node_ip else node_ip) + ":8787", "role": role,
-                          "state": "registered", "transport_public_key": public_text, "sync_method": "hmac-sha256-v1", "created_at": stamp()}
+                          "state": "registered", "transport_public_key": public_text, "sync_method": "hmac-sha256-v1", "created_at": stamp(),
+                          "database_runtime_profile": body.get("database_runtime_profile"),
+                          "database_storage_compatible": body.get("database_storage_compatible") is True}
                 material = _material(api)
                 sync_secret = _sync_secret(material, config["deployment_id"], member)
                 member["sync_hash"] = hashlib.sha256(sync_secret.encode()).hexdigest()
@@ -517,6 +560,13 @@ def enroll(api, body, peer_ip):
             sync_secret = supplied
         else:
             raise PermissionError("Unknown appliance enrollment operation")
+        if member.get("role") == "database_voter":
+            require_database_runtime(body)
+            _assert_database_voters(config, own_id=api._identity()["id"], own_runtime=own_runtime)
+        # This is accepted only after the member's password/key or persistent
+        # sync-secret authentication. GUI/imported membership cannot set it.
+        member.update(database_runtime_profile=body.get("database_runtime_profile"),
+                      database_storage_compatible=body.get("database_storage_compatible") is True)
         if "tls_server_name" in body or "controller_ca" in body:
             # Only an authenticated member may advertise its own public HTTPS
             # identity. Never accept keys or an arbitrary trust-only blob.
@@ -543,11 +593,13 @@ def manifest(api):
     from cryptography import x509
     from cryptography.hazmat.primitives import serialization
     config, local, identity = api._config(), api._local(), api._identity()
-    material = _material(api)
-    key = _keys(api)
     member = next((member for member in config.get("members", []) if member["id"] == identity["id"]), None)
     if not member:
         raise ValueError("The installed controller is not registered in this cluster")
+    if member.get("role") == "database_voter":
+        _assert_database_voters(config, own_id=identity["id"], own_runtime=api._database_runtime())
+    material = _material(api)
+    key = _keys(api)
     cert = _cached_certificate(api, material, member, key.public_key(), config["controller_origin"])
     config=api._config()
     server_name, local_web_ca = _web_identity(api)
@@ -572,6 +624,7 @@ def reconcile(api):
         if reconcile_rotation(api):
             return
     local, identity = api._local(), api._identity()
+    runtime = api._database_runtime()
     server_name, web_ca = _web_identity(api)
     from .application_port import advertised_origin
     local_origin = advertised_origin(api.manager, identity["ip"])
@@ -580,14 +633,16 @@ def reconcile(api):
             current = api._config(db)
             own = next((member for member in current.get("members", []) if member["id"] == identity["id"]), None)
             if own:
-                updates = {"tls_server_name": server_name, "controller_ca": web_ca}
+                if own.get("role") == "database_voter":
+                    require_database_runtime(runtime)
+                updates = {"tls_server_name": server_name, "controller_ca": web_ca, **runtime}
                 if local_origin:
                     updates["origin"] = local_origin
                 if any(own.get(key) != value for key, value in updates.items()):
                     own.update(updates)
                     api.app.store._put(db, "maintenance_settings", current)
     if local.get("authorized_join") and local.get("seed_origin") and not api.app.store.ha:
-        request = {"action": "node-sync", "node_id": identity["id"], "site": identity["site"], "node_ip": identity["ip"], "sync_secret": api.manager.vault.get(local["sync_secret_ref"]), "tls_server_name": server_name, "controller_ca": web_ca}
+        request = {"action": "node-sync", "node_id": identity["id"], "site": identity["site"], "node_ip": identity["ip"], "sync_secret": api.manager.vault.get(local["sync_secret_ref"]), "tls_server_name": server_name, "controller_ca": web_ca, **runtime}
         response = api.manager._peer_request(local["seed_origin"], api.manager.vault.get(local["peer_ca_ref"]), request)
         enrolled = api.manager._unseal(response, _keys(api), identity["id"])
         _install_enrollment(api, enrolled, local["seed_origin"], api.manager.vault.get(local["peer_ca_ref"]), local["authorized_join_actor"])
@@ -647,6 +702,7 @@ def reconcile(api):
 
 def _activate_source(api, config, local):
     """Only the original authority imports its stopped SQLite state once."""
+    _assert_database_voters(config, own_id=api._identity()["id"], own_runtime=api._database_runtime(), complete=True)
     from psycopg import connect
     from psycopg.conninfo import make_conninfo
     from .maintenance import backup_create

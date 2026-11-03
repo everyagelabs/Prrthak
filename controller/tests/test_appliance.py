@@ -22,6 +22,7 @@ class RecordingClient:
         self.requests = []
         self.result = {"status": "completed", "result": {"status": "completed"}}
         self.state = {"revision": 7, "data_root": "/srv/actual-persistent", "services": [{"id": "controller", "name": "Controller", "state": "running", "enabled": True, "private_password": "not-public"}], "routing": {"failover_state": "preferred", "pools": []}, "secret": "not-public"}
+        self.state.update(database_runtime_profile="postgres16-alpine3.24-musl-v1", database_storage_compatible=True)
 
     def status(self):
         return copy.deepcopy(self.state)

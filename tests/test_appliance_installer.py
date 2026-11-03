@@ -47,6 +47,25 @@ class FakeEngine:
 
 
 class ApplianceConfigurationTests(unittest.TestCase):
+    def test_database_runtime_only_marks_empty_storage_and_preserves_legacy_physical_data(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);settings={'node_id':'test'}
+            prepared=appliance.database_runtime_settings(root,settings)
+            self.assertEqual(prepared['database_runtime'],appliance.DATABASE_RUNTIME)
+            self.assertNotIn('database_runtime',settings)
+            self.assertFalse((root/'database').exists())
+            (root/'database').mkdir();(root/'database/PG_VERSION').write_bytes(b'16\n')
+            with self.assertRaisesRegex(appliance.Blocked,'logical backup in GUI'):
+                appliance.database_runtime_settings(root,settings)
+            self.assertEqual((root/'database/PG_VERSION').read_bytes(),b'16\n')
+            self.assertEqual(appliance.database_runtime_settings(root,prepared),prepared)
+            with self.assertRaises(appliance.Blocked):
+                appliance.database_runtime_settings(root,{**prepared,'database_runtime':'unknown-platform'})
+    def test_database_runtime_rejects_a_symlink_even_with_a_current_marker(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);(root/'foreign').mkdir();(root/'database').symlink_to(root/'foreign')
+            with self.assertRaises(appliance.Blocked):
+                appliance.database_runtime_settings(root,{'database_runtime':appliance.DATABASE_RUNTIME})
     def test_env_is_parsed_without_shell_and_private_values_are_not_printed(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);sentinel=root/'MUST_NOT_EXIST';env=root/'.env'
@@ -162,6 +181,29 @@ class ApplianceManagerTests(unittest.TestCase):
         self.assertEqual(compose['services']['database']['profiles'],['database'])
         self.assertTrue(all('/var/run/docker.sock' not in json.dumps(value) for value in compose['services'].values()))
         self.assertEqual(compose['services']['controller']['user'],'10001:10001')
+    def test_fresh_runtime_marker_survives_restart_and_etcd_uses_recorded_immutable_image(self):
+        settings=appliance.load(self.root/'config/installed.json')
+        self.assertEqual(settings['database_runtime'],appliance.DATABASE_RUNTIME)
+        settings['images']={'etcd':'sha256:'+'a'*64};appliance.atomic(self.root/'config/installed.json',settings)
+        (self.root/'database/PG_VERSION').write_text('16\n')
+        reloaded=appliance.Manager(self.root,self.parent/'pointer',self.factory,self.parent)
+        reloaded.render()
+        compose=json.loads((self.root/'runtime/compose.json').read_text())
+        self.assertEqual(compose['services']['etcd']['image'],settings['images']['etcd'])
+        self.assertEqual((self.root/'database/PG_VERSION').read_text(),'16\n')
+    def test_unmarked_legacy_pgdata_blocks_render_and_start_before_any_service_action(self):
+        manifest=self.full();manifest['local_node']['role']='database_voter'
+        appliance.atomic(self.root/'config/manifest.json',manifest)
+        (self.root/'database/PG_VERSION').write_text('16\n')
+        self.manager.installed.pop('database_runtime')
+        appliance.atomic(self.root/'config/installed.json',self.manager.installed)
+        before=(self.root/'runtime/compose.json').read_bytes()
+        with self.assertRaises(appliance.Blocked):self.manager.render()
+        with self.assertRaises(appliance.Blocked):self.manager.operate('start','all')
+        self.assertEqual(self.shared['calls'],[])
+        self.assertEqual((self.root/'runtime/compose.json').read_bytes(),before)
+        self.assertEqual((self.root/'database/PG_VERSION').read_text(),'16\n')
+        self.assertTrue(any('logical backup in GUI' in item for item in self.manager.status()['blockers']))
     def test_partial_manifest_waits_without_starting_db_and_management_count_is_not_three(self):
         manifest=self.partial()
         manifest['controller_members'] += [{'id':'management-'+str(i),'site':'Pune','ip':'10.240.1.'+str(i+1)} for i in range(20)]

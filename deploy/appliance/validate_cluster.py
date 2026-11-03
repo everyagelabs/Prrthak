@@ -15,7 +15,7 @@ import uuid
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--context',required=True)
     parser.add_argument('--controller-image',default='prthak-appliance-controller-test');parser.add_argument('--database-image',default='prthak-appliance-database-test')
-    parser.add_argument('--etcd-image',default='gcr.io/etcd-development/etcd:v3.6.16');mode=parser.add_mutually_exclusive_group();mode.add_argument('--rotation',action='store_true');mode.add_argument('--coordinator',action='store_true');mode.add_argument('--internal-tls',action='store_true');mode.add_argument('--restore',action='store_true');args=parser.parse_args()
+    parser.add_argument('--etcd-image',default='prthak-appliance-etcd-test');mode=parser.add_mutually_exclusive_group();mode.add_argument('--rotation',action='store_true');mode.add_argument('--coordinator',action='store_true');mode.add_argument('--internal-tls',action='store_true');mode.add_argument('--restore',action='store_true');args=parser.parse_args()
     prefix='prthak-quorum-smoke-'+uuid.uuid4().hex[:10];volume=prefix+'-state';network=prefix+'-network'
     subnet='10.249.'+str(secrets.randbelow(200)+20);ips=[subnet+'.'+str(index+11) for index in range(3)]
     dcs=[prefix+'-etcd-'+str(index) for index in range(3)];databases=[prefix+'-db-'+str(index) for index in range(3)]
@@ -35,7 +35,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID,ExtendedKeyUsageOID
 ips=json.loads(sys.argv[1]);root=Path('/var/lib/prthak');now=datetime.now(timezone.utc)
 key=ec.generate_private_key(ec.SECP256R1());name=x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,'Private disposable cluster CA')])
-ca=x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-timedelta(days=1)).not_valid_after(now+timedelta(days=3650)).add_extension(x509.BasicConstraints(ca=True,path_length=None),True).sign(key,hashes.SHA256())
+ca=x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-timedelta(days=1)).not_valid_after(now+timedelta(days=3650)).add_extension(x509.BasicConstraints(ca=True,path_length=None),True).add_extension(x509.KeyUsage(digital_signature=False,content_commitment=False,key_encipherment=False,data_encipherment=False,key_agreement=False,key_cert_sign=True,crl_sign=True,encipher_only=None,decipher_only=None),True).add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()),False).add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(key.public_key()),False).sign(key,hashes.SHA256())
 n.atomic(root/'fixture-authority/ca-key.pem',key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()).decode())
 voters=[{'id':'private-node-'+str(i),'site':'site-'+str(i),'ip':address,'tls_server_name':'private-node-'+str(i)} for i,address in enumerate(ips)]
 passwords={kind:secrets.token_urlsafe(36) for kind in ('admin','replication','metadata','traffic','rotation_test')};deployment=str(uuid.uuid4())
@@ -44,7 +44,7 @@ class E:
  def states(self):return {}
 for i,node in enumerate(voters):
  data=root/str(i);local={'appliance_id':uuid.uuid4().hex,'node_id':node['id'],'site':node['site'],'node_ip':node['ip'],'bind_ip':node['ip'],'controller_port':8787,'controller_backend_port':8786,'database_router_port':5433,'controller_origin':'https://'+node['ip']+':8787','existing_node_ip':''}
- leafkey=ec.generate_private_key(ec.SECP256R1());leaf=x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,node['id'])])).issuer_name(name).public_key(leafkey.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-timedelta(days=1)).not_valid_after(now+timedelta(days=2)).add_extension(x509.BasicConstraints(ca=False,path_length=None),True).add_extension(x509.SubjectAlternativeName([x509.DNSName(node['id']),x509.DNSName('localhost'),x509.IPAddress(ipaddress.ip_address(node['ip'])),x509.IPAddress(ipaddress.ip_address('127.0.0.1'))]),False).add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH,ExtendedKeyUsageOID.SERVER_AUTH]),False).sign(key,hashes.SHA256())
+ leafkey=ec.generate_private_key(ec.SECP256R1());leaf=x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,node['id'])])).issuer_name(name).public_key(leafkey.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-timedelta(days=1)).not_valid_after(now+timedelta(days=2)).add_extension(x509.BasicConstraints(ca=False,path_length=None),True).add_extension(x509.SubjectAlternativeName([x509.DNSName(node['id']),x509.DNSName('localhost'),x509.IPAddress(ipaddress.ip_address(node['ip'])),x509.IPAddress(ipaddress.ip_address('127.0.0.1'))]),False).add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH,ExtendedKeyUsageOID.SERVER_AUTH]),False).add_extension(x509.KeyUsage(digital_signature=True,content_commitment=False,key_encipherment=False,data_encipherment=False,key_agreement=False,key_cert_sign=False,crl_sign=False,encipher_only=None,decipher_only=None),True).add_extension(x509.SubjectKeyIdentifier.from_public_key(leafkey.public_key()),False).add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(key.public_key()),False).sign(key,hashes.SHA256())
  pki={'ca':ca.public_bytes(serialization.Encoding.PEM).decode(),'certificate':leaf.public_bytes(serialization.Encoding.PEM).decode(),'private_key':leafkey.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()).decode()}
  manifest=n.validate_manifest({'schema_version':1,'deployment_id':deployment,'generation':1,'cluster_name':'private-disposable-cluster','controller_origin':local['controller_origin'],'controller_ca':pki['ca'],'controller_tls_server_name':node['id'],'local_node':{**node,'role':'database_voter'},'voters':voters,'controller_members':voters,'pki':pki,'secrets':passwords,'watchdog':{'required':True,'approved':False}},local)
  n.atomic(data/'config/installed.json',local);n.atomic(data/'config/manifest.json',manifest)
@@ -72,7 +72,9 @@ for address in json.loads(sys.argv[1]):
 print(json.dumps(results))
 '''
     try:
-        run(['pull',args.etcd_image]);run(['network','create','--internal','--subnet',subnet+'.0/24',network]);run(['volume','create',volume])
+        # Validate the explicitly built candidate, never silently pull an older
+        # upstream etcd image in place of its reviewed dependency-patched build.
+        run(['image','inspect',args.etcd_image]);run(['network','create','--internal','--subnet',subnet+'.0/24',network]);run(['volume','create',volume])
         print(run(['run','--rm','--network','none','--user','0','--entrypoint','python3','-i','--mount','type=volume,source='+volume+',target=/var/lib/prthak',args.controller_image,'-',json.dumps(ips)],fixture).strip(),flush=True)
         for index,name in enumerate(dcs):
             run(['run','-d','--name',name,'--network',network,'--ip',ips[index],'--read-only','--cap-drop','ALL','--security-opt','no-new-privileges:true','--user','10002:10002','--tmpfs','/tmp:rw,noexec,nosuid,size=16m','--mount','type=volume,source='+volume+',target=/config,volume-subpath='+str(index)+'/config/etcd,readonly','--mount','type=volume,source='+volume+',target=/etcd-data,volume-subpath='+str(index)+'/etcd',args.etcd_image,'/usr/local/bin/etcd','--config-file=/config/etcd.json'])

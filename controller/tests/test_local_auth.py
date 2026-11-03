@@ -89,6 +89,117 @@ class LocalAuthenticationTests(unittest.TestCase):
         self.assertNotIn(record["password_hash"]["salt"], exposed)
         self.assertNotEqual(hash_password(PASSWORD), hash_password(PASSWORD))
 
+    def test_builtin_admin_has_durable_protected_identity_and_only_password_changes(self):
+        principal = self.super()
+        admin_id = principal["user"]["id"]
+        self.assertTrue(principal["user"]["protected_account"])
+        self.assertEqual(self.store.get("maintenance_settings", REALM_ID)["bootstrap_user_id"], admin_id)
+        other = self.create(principal, "second-super", "super_admin")
+        second = self.complete(self.login(other["username"], TEMP_PASSWORD), TEMP_PASSWORD, SECOND_PASSWORD)["principal"]
+        before = self.store.get("auth_users", admin_id)
+        for changes in ({"enabled": False}, {"role": "read_only"}, {"role": "admin"},
+                        {"display_name": "Replacement"}, {"email": "replacement@example.test"},
+                        {"role": "super_admin", "enabled": True}):
+            with self.subTest(changes=changes), self.assertRaisesRegex(AuthConflict, "built-in admin account is protected"):
+                self.auth.update_user(admin_id, changes, second)
+        for changes in ({"username": "replacement"}, {"provider": "saml"}, {"protected_account": False}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.auth.update_user(admin_id, changes, second)
+        self.assertEqual(self.store.get("auth_users", admin_id), before)
+        self.assertTrue(next(user for user in self.auth.list_users(second)["items"] if user["id"] == admin_id)["protected_account"])
+        # The protection is specific to the seeded account, not every Super Admin.
+        self.auth.update_user(other["id"], {"display_name": "Second administrator"}, principal)
+        self.assertEqual(self.store.get("auth_users", other["id"])["display_name"], "Second administrator")
+
+    def test_prior_seeded_install_backfills_protection_without_changing_credentials(self):
+        principal = self.super()
+        identifier = principal["user"]["id"]
+        original = self.store.get("auth_users", identifier)
+        with self.store.meta() as db:
+            realm = self.store._get(db, "maintenance_settings", REALM_ID)
+            realm.pop("bootstrap_user_id")
+            self.store._put(db, "maintenance_settings", realm)
+            user = self.store._get(db, "auth_users", identifier)
+            user.pop("protected_account")
+            self.store._put(db, "auth_users", user)
+        restarted = Authentication(self.store, entra=EntraAuth(self.store, EntraConfig()), origin=ORIGIN)
+        migrated = self.store.get("auth_users", identifier)
+        self.assertEqual(migrated, {**original, "protected_account": True})
+        self.assertEqual(self.store.get("maintenance_settings", REALM_ID)["bootstrap_user_id"], identifier)
+        self.assertTrue(restarted.local_login({"username": "admin", "password": PASSWORD}, self.headers)["principal"]["user"]["protected_account"])
+        with self.assertRaises(AuthDenied):
+            restarted.local_login({"username": "admin", "password": "admin"}, self.headers)
+
+    def test_builtin_protection_uses_durable_identity_not_public_annotation_or_legacy_seed_flag(self):
+        principal = self.super()
+        other = self.create(principal, "independent-super", "super_admin")
+        second = self.complete(self.login(other["username"], TEMP_PASSWORD), TEMP_PASSWORD, SECOND_PASSWORD)["principal"]
+        identifier = principal["user"]["id"]
+        with self.store.meta() as db:
+            user = self.store._get(db, "auth_users", identifier)
+            user.pop("protected_account")
+            self.store._put(db, "auth_users", user)
+            realm = self.store._get(db, "maintenance_settings", REALM_ID)
+            realm["seeded"] = False
+            self.store._put(db, "maintenance_settings", realm)
+        with self.assertRaisesRegex(AuthConflict, "built-in admin account is protected"):
+            self.auth.update_user(identifier, {"role": "read_only", "enabled": False}, second)
+        retained = self.store.get("auth_users", identifier)
+        self.assertEqual(retained["role"], "super_admin")
+        self.assertTrue(retained["enabled"])
+
+    def test_builtin_password_reset_remains_available_and_keeps_protection(self):
+        principal = self.super()
+        other = self.create(principal, "recovery-super", "super_admin")
+        second = self.complete(self.login(other["username"], TEMP_PASSWORD), TEMP_PASSWORD, SECOND_PASSWORD)["principal"]
+        result = self.auth.reset_password(principal["user"]["id"],
+                                          {"password": TEMP_PASSWORD, "confirm_password": TEMP_PASSWORD}, second)
+        self.assertTrue(result["protected_account"])
+        self.assertTrue(result["password_change_required"])
+        changed = self.complete(self.login("admin", TEMP_PASSWORD), TEMP_PASSWORD, PASSWORD)
+        self.assertTrue(changed["principal"]["user"]["protected_account"])
+        self.assertEqual(changed["principal"]["role"], "super_admin")
+        self.assertFalse(changed["principal"]["password_change_required"])
+        with self.store.read_meta() as db, self.assertRaises(AuthDenied):
+            validate_current_principal(self.store, db, principal)
+
+    def test_unseeded_same_named_local_account_is_not_treated_as_builtin(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(directory)
+            auth = Authentication(store, entra=EntraAuth(store, EntraConfig()), origin=ORIGIN, bootstrap=False)
+            # An existing directory estate may explicitly provision an ordinary
+            # local user named admin. No seeded identity exists in this realm.
+            record = auth.local.prepare_user({"provider": "local", "username": "admin", "password": TEMP_PASSWORD,
+                                               "role": "super_admin"})
+            with store.meta() as db:
+                store._put(db, "auth_users", record)
+            auth = Authentication(store, entra=EntraAuth(store, EntraConfig()), origin=ORIGIN)
+            initial = auth.local_login({"username": "admin", "password": TEMP_PASSWORD}, self.headers)
+            signed = auth.change_password({"current_password": TEMP_PASSWORD, "new_password": PASSWORD}, initial["principal"],
+                                          {**self.headers, "X-CSRF-Token": initial["principal"]["csrf_token"]})
+            self.assertFalse(signed["principal"]["user"]["protected_account"])
+            result = auth.update_user(record["id"], {"display_name": "Directory fallback"}, signed["principal"])
+            self.assertEqual(result["display_name"], "Directory fallback")
+            self.assertNotIn("bootstrap_user_id", store.get("maintenance_settings", REALM_ID))
+
+    def test_missing_builtin_is_not_recreated_or_replaced_with_new_default_credentials(self):
+        principal = self.super()
+        other = self.create(principal, "remaining-super", "super_admin")
+        second = self.complete(self.login(other["username"], TEMP_PASSWORD), TEMP_PASSWORD, SECOND_PASSWORD)["principal"]
+        # Simulate an out-of-band deletion in an old snapshot. A new controller
+        # must preserve the bootstrap decision, never restore admin/admin.
+        with self.store.meta() as db:
+            db.execute("DELETE FROM auth_users WHERE id=?", (principal["user"]["id"],))
+        restarted = Authentication(self.store, entra=EntraAuth(self.store, EntraConfig()), origin=ORIGIN)
+        with self.assertRaises(KeyError):
+            self.store.get("auth_users", principal["user"]["id"])
+        with self.assertRaises(AuthDenied):
+            restarted.local_login({"username": "admin", "password": "admin"}, self.headers)
+        with self.assertRaisesRegex(AuthConflict, "built-in admin identity is reserved"):
+            restarted.create_user({"provider": "local", "username": "admin", "password": TEMP_PASSWORD, "role": "admin"}, second)
+        with self.assertRaises(KeyError):
+            self.store.get("auth_users", principal["user"]["id"])
+
     def test_bootstrap_is_not_recreated_after_password_change_restart_or_disabled_account(self):
         principal = self.super()
         original = self.store.get("auth_users", principal["user"]["id"])

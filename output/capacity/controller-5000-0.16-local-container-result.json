@@ -1,0 +1,404 @@
+{
+  "actual_agent_processes": 0,
+  "actual_container_images": {
+    "controller": "sha256:fb9cf66d61b556dda3f6c087929aab4cf2fb888ac14667f9c449cc731dea1fe5",
+    "database": "sha256:35cb48501725da7ae284593ba53c87d3cf5973d84e04dd03f2cdb306ca3f86f7"
+  },
+  "actual_image_environment": {
+    "machine": "aarch64",
+    "os_release": "NAME=\"Alpine Linux\"\nID=alpine\nVERSION_ID=3.24.3\nPRETTY_NAME=\"Alpine Linux v3.24\"\nHOME_URL=\"https://alpinelinux.org/\"\nBUG_REPORT_URL=\"https://gitlab.alpinelinux.org/alpine/aports/-/issues\"\n",
+    "platform": "Linux-6.8.0-117-generic-aarch64-with-musl1",
+    "python": "3.14.10 (main, Oct 27 2026, 09:35:01) [GCC 15.2.0]"
+  },
+  "actual_image_id": "sha256:fb9cf66d61b556dda3f6c087929aab4cf2fb888ac14667f9c449cc731dea1fe5",
+  "actual_image_validation_receipt_sha256": "911d76d1700d49916e9a5870f232b3612bb461f919218e3837cf62ea186c68dd",
+  "actual_midrun_policy_edit": true,
+  "administrative_identity_fixture": "Persisted canonical local Admin session; strong-password preparation and completed-change state seeded outside timing",
+  "all_cycle_targets_met": true,
+  "all_http_cycles_succeeded": true,
+  "approved_sources_per_service": 20,
+  "authentication_preparation_seconds": 0.35,
+  "authentication_prepared_before_phase_timers": true,
+  "authentication_provider": "local",
+  "authorization_mode": "single-admin",
+  "backend": "postgresql",
+  "boundaries": [
+    "Virtual identities are not Linux agent processes",
+    "No firewall/enforcement/SSH/systemd tests",
+    "Certificates, inventory and administrative identity/password/provider preparation precede measurement; enrollment/sign-in storms excluded",
+    "No WAN latency, site failover or long-duration soak",
+    "Flow/discovery payloads are explicitly synthetic",
+    "PostgreSQL mode uses two private databases on one instance; replication and synchronous WAN commits are not exercised",
+    "Load generator and Gunicorn share the actual controller container and DockerVM CPU/memory budget",
+    "The disposable PostgreSQL fixture uses private internal-network TCP/SCRAM; database TLS, replication and site/WAN latency are not exercised",
+    "The unchanged public workload uses an explicit private launcher adapter to retain signed startup and the production session-only gate"
+  ],
+  "cadence": "adaptive",
+  "changed_policy_poll_window_seconds": 30.0,
+  "concurrent_virtual_clients": 64,
+  "configured_control_interval_seconds": 30,
+  "control_interval_target_seconds": 60,
+  "controller_sources_unchanged_during_run": true,
+  "cycles_per_identity": 3,
+  "development_fixture_result_sha256": "76137e4181e3fe41ec733e712df01fed926c42dc21ea759bf7868f1880fe0d98",
+  "environment": {
+    "logical_cpus": 4,
+    "machine": "aarch64",
+    "openssl": "OpenSSL 3.5.9 29 Sep 2026",
+    "python": "3.14.10",
+    "shared_development_host": true,
+    "system": "Linux"
+  },
+  "failure_count": 0,
+  "failures": [],
+  "fixture_cleanup": {
+    "all_cleanup_checked_against_exact_owning_labels": true,
+    "ephemeral_password_file_removed": true,
+    "fixture_pair_containers_removed": 2,
+    "fixture_pair_internal_network_removed": true,
+    "fixture_pair_volumes_removed": 2,
+    "no_existing_database_reused": true,
+    "owned_databases_created": 2,
+    "owned_databases_dropped": 2,
+    "per_provider_cleanup_receipt_sha256": "60ef5a3ec5a538959038bc6d6e8345453d85a6211240a2de31c60b2a7ce1d51e",
+    "preexisting_databases_preserved": true,
+    "preexisting_roles_preserved": true
+  },
+  "fixture_launch_adapter": {
+    "controller_argv_shape": [
+      "python3",
+      "/opt/prthak-integrity/launch.py",
+      "<unchanged public fixture controller arguments>"
+    ],
+    "enforced_environment": {
+      "PRTHAK_APPLIANCE": "1",
+      "PRTHAK_REQUIRE_INTEGRITY": "1"
+    },
+    "host_driver_sha256": "836e71af3996ecb577022776ad140712c08b115afd75f0fa10002d81667b2fae",
+    "no_signed_runtime_bootstrap_or_PYTHONPATH_changes": true,
+    "sha256": "ef9df0ad5d916f2edd22eb40c46af6ec14d8e5019334f767748db2b2bfc5b5dc",
+    "unchanged_public_fixture_sha256": "e2c674f25cc4ec4fab7b346ffa1101380968d3508a9ed83008d1e7c276b9605a"
+  },
+  "fixture_resource_profile": {
+    "container_limits": {
+      "clients": 64,
+      "container_cpu_cap_each": 4,
+      "controller_and_clients_memory_bytes": 3221225472,
+      "database_memory_bytes": 1610612736,
+      "docker_socket_mounted": false,
+      "host_ports_published": false,
+      "network_internal_only": true,
+      "no_packages_installed_in_test_images": true,
+      "threads_each": 32,
+      "workers": 2
+    },
+    "continuous_peak_measurement": false,
+    "docker_vm": {
+      "Architecture": "aarch64",
+      "KernelVersion": "6.8.0-117-generic",
+      "MemTotal": 6198632448,
+      "NCPU": 4,
+      "OSType": "linux",
+      "ServerVersion": "29.5.2"
+    },
+    "sample_interval_target_seconds": 10,
+    "sample_scope": "Peaks sampled across the complete sequential Local/SAML fixture pair; client generator shares controller resources",
+    "sampled_resources": {
+      "controller_and_generator": {
+        "sample_count": 23,
+        "sampled_peak_cpu_percent_of_one_core": 230.08,
+        "sampled_peak_memory_bytes": 502687334
+      },
+      "database": {
+        "sample_count": 23,
+        "sampled_peak_cpu_percent_of_one_core": 76.79,
+        "sampled_peak_memory_bytes": 329148006
+      }
+    }
+  },
+  "fixture_sha256": "e2c674f25cc4ec4fab7b346ffa1101380968d3508a9ed83008d1e7c276b9605a",
+  "flow_batches_pending_after_drain": 0,
+  "frozen_runtime_sources_unchanged_during_run": true,
+  "frozen_source_file_count": 525,
+  "frozen_source_manifest_sha256": "18a56cb8a8cfb41dcda07714bd84d3910c37b24244900efb2e9b29fe6045d812",
+  "harness_preflight": {
+    "all_preflight_resources_cleaned": true,
+    "attempts": [
+      {
+        "all_owned_resources_cleaned": true,
+        "private_harness_correction": "Private readiness probe changed to the explicitly configured/tmp Unix socket",
+        "production_source_or_image_changed": false,
+        "receipt_sha256": "4edbf3763a682af96c48a009b97e913a38aea76ad2029e26f1b887a4a23db43c",
+        "timed_workloads_started": 0
+      },
+      {
+        "all_owned_resources_cleaned": true,
+        "private_harness_correction": "Disposable initdb HBA gained SCRAM authentication for the exact owned internal subnet",
+        "production_source_or_image_changed": false,
+        "receipt_sha256": "86c5820d3aec85b82e95171ae7af0332ad88ad1bce325e8970f370ae317ee81d",
+        "timed_workloads_started": 0
+      },
+      {
+        "all_owned_resources_cleaned": true,
+        "private_harness_correction": "Private locale metadata query changed from unsupported SHOW to pg_database catalog fields",
+        "production_source_or_image_changed": false,
+        "receipt_sha256": "4e3c161d97ae9c73495af70a6393ec96a549bd395d97d84deadeb130e04c3740",
+        "timed_workloads_started": 0
+      }
+    ],
+    "failed_startup_only_attempts": 3,
+    "measured_workloads_retried": false,
+    "same_final_runtime_and_image_ids": true,
+    "timed_workloads_in_failed_attempts": 0
+  },
+  "http_threads_per_worker": 32,
+  "http_workers": 2,
+  "human_auth_boundary": "The policy PUT uses actual HTTPS cookie/session/CSRF authorization against the seeded local Admin; password login/first-change and IdP/MFA exchanges are outside this benchmark",
+  "kernel_traffic_collected": false,
+  "live_inventory_count": 5000,
+  "native_verification_witnesses_generated": false,
+  "operations": {
+    "flow_ingest": {
+      "count": 100,
+      "p50_ms": 1163.061,
+      "p95_ms": 2309.793,
+      "p99_ms": 2466.197
+    },
+    "learning_setup": {
+      "count": 1,
+      "p50_ms": 138.833,
+      "p95_ms": 138.833,
+      "p99_ms": 138.833
+    },
+    "policy": {
+      "count": 15000,
+      "p50_ms": 66.563,
+      "p95_ms": 296.5,
+      "p99_ms": 345.499
+    },
+    "policy_update": {
+      "count": 1,
+      "p50_ms": 6040.268,
+      "p95_ms": 6040.268,
+      "p99_ms": 6040.268
+    },
+    "polling_profile_setup": {
+      "count": 1,
+      "p50_ms": 1936.812,
+      "p95_ms": 1936.812,
+      "p99_ms": 1936.812
+    },
+    "report": {
+      "count": 25000,
+      "p50_ms": 171.367,
+      "p95_ms": 301.61,
+      "p99_ms": 496.797
+    }
+  },
+  "phase_results": [
+    {
+      "covers_60_second_cycle_target": true,
+      "cycle": 1,
+      "cycles_per_second": 137.24,
+      "discovery_reports": 0,
+      "identities": 5000,
+      "seconds": 36.432,
+      "successful_cycles": 5000,
+      "synthetic_flow_events": 0,
+      "verified_authentication_provider": "local",
+      "verified_current_direct_authorities": 5000,
+      "verified_passive_observation_leases": 5000
+    },
+    {
+      "actual_policy_edit": true,
+      "covers_60_second_cycle_target": true,
+      "cycle": 2,
+      "cycles_per_second": 109.95,
+      "discovery_reports": 0,
+      "exact_source_matrices_verified": true,
+      "identities": 5000,
+      "poll_window_seconds": 30.0,
+      "publication_seconds": 6.041,
+      "seconds": 45.476,
+      "successful_cycles": 5000,
+      "synthetic_flow_events": 0,
+      "verified_authentication_provider": "local",
+      "verified_current_direct_authorities": 5000,
+      "verified_passive_observation_leases": 5000,
+      "verified_updated_identities": 5000
+    },
+    {
+      "covers_60_second_cycle_target": true,
+      "cycle": 3,
+      "cycles_per_second": 249.02,
+      "discovery_reports": 100,
+      "identities": 5000,
+      "seconds": 20.079,
+      "successful_cycles": 5000,
+      "synthetic_flow_events": 10000,
+      "verified_authentication_provider": "local",
+      "verified_current_direct_authorities": 5000,
+      "verified_passive_observation_leases": 5000
+    }
+  ],
+  "policy_actor_role": "admin",
+  "policy_services": 2,
+  "postgres_worker_pool": {
+    "metadata_max": 8,
+    "traffic_max": 2,
+    "wait_seconds": 5
+  },
+  "postgresql_settings": {
+    "data_checksums": "on",
+    "fsync": "on",
+    "full_page_writes": "on",
+    "lc_collate": "en_US.utf8",
+    "lc_ctype": "en_US.utf8",
+    "max_connections": "100",
+    "server_version": "16.15",
+    "shared_buffers": "128MB",
+    "synchronous_commit": "on",
+    "wal_level": "replica",
+    "wal_log_hints": "on"
+  },
+  "private_adapter_sha256": "ef9df0ad5d916f2edd22eb40c46af6ec14d8e5019334f767748db2b2bfc5b5dc",
+  "private_launch_adapter_used": true,
+  "private_setup_seconds": 19.278,
+  "production_child_PRTHAK_APPLIANCE": true,
+  "public_preview_revision": 3,
+  "publication_provenance": {
+    "measurement_fields_changed": false,
+    "original_public_safe_preview_sha256": "caf20259aec23ad4ec9a2151e74e8776e022d978660f161800248113464545f1",
+    "post_measurement_source_equivalence": {
+      "all_changes_are_non_runtime_documentation": true,
+      "benchmark_rerun": false,
+      "measured_source_manifest_sha256": "18a56cb8a8cfb41dcda07714bd84d3910c37b24244900efb2e9b29fe6045d812",
+      "post_measurement_changes": [
+        {
+          "measured_sha256": "7bb7c3d754ee97506c402ec2d892d04cd3295ad46465f408eac15b8c62ef50b1",
+          "path": "controller/README.md",
+          "publication_sha256": "a98652af8e328f923d27263a240dd901720104b5884c55a7ac9c152d7872c130"
+        }
+      ],
+      "runtime_files_and_binaries_unchanged": true,
+      "signed_runtime_manifest_sha256": "2fb15f937bbc7b279ecd5d3b23f22be6df4d9efdbefd52b5ead9901c6aea6114"
+    }
+  },
+  "release_candidate": "v0.16.0-pilot.1",
+  "release_version": "0.16.0",
+  "request_statuses": {
+    "200": 39155,
+    "201": 1,
+    "202": 100,
+    "304": 847
+  },
+  "retained_learning_history": {
+    "canonical_bytes": 19533300,
+    "endpoint_memberships": 500000,
+    "expired_sessions": 100,
+    "seeded_before_phase_timers": true
+  },
+  "retries": {
+    "policy": 4,
+    "report": 6
+  },
+  "signed_runtime_file_count": 137,
+  "signed_runtime_manifest_sha256": "2fb15f937bbc7b279ecd5d3b23f22be6df4d9efdbefd52b5ead9901c6aea6114",
+  "software": {
+    "cryptography": "50.0.2",
+    "gunicorn": "25.3.0"
+  },
+  "source_files_sha256_at_launch": {
+    "controller/__init__.py": "00f2c0f9592fd7aeee505e341149c53424569809647a81a98fae94c6c630528f",
+    "controller/__main__.py": "582ddd19b8d4ade192c155d52eff82eb0f9e43a04572fbf54850f71dbd59e61f",
+    "controller/agent_installation.py": "5ed71dec6c2fc559266a7ec238089ebeac780733feb10d5ce3c43632480a0b50",
+    "controller/agent_settings.py": "c5c8ca291b474177c213f0fd108541da54efe853a54791092a7365d28d35c0a8",
+    "controller/alert_views.py": "cbab4ca67e97cbd55a856471bdd9b1393379b88d18c88ba99d262b0b9f9a200e",
+    "controller/app.py": "acc0228f56c7b7754b78ef529d33d7afdf705e97d5fdabac5ff861fd4aabfe2f",
+    "controller/appliance.py": "b4dd6c54dc7aa4527aea2054c96311798f28862c2a49fb0b9bfac0ef578ac0ae",
+    "controller/application_groups.py": "8798579228e16351eb2a27b447737d5c15487f26df7ab90f133a3416d908056c",
+    "controller/application_port.py": "994e690afc2bb215f575cc616d19b8a92e29418c7c8c2e9d20add7339a1ecc68",
+    "controller/approval_settings.py": "f9e05b7176d7cb997105b943f384543a4f56da92edc99bdd656333df369d9297",
+    "controller/approval_views.py": "cadce64221c029e0d5d51bbe16aea335f0ec622a310e5ff386aa24676833bc38",
+    "controller/approvals.py": "213708d83c8aebc93258c7f23b9acd917ed0a49058b3ba95cd960a455cc2256d",
+    "controller/audit_views.py": "f3b48fa7b19675abf30bfc894a52f0a816d2fa273e5ef3c857dec215d77c4947",
+    "controller/auth.py": "8d7a9aa64f4197b7c4275afd9e2fa04573d95a2ff3e6f853e2dd4c7752ef6f0d",
+    "controller/auth_providers.py": "cbcffee9b1b93147e2a96547da2c71ade5f6b429e2d20b25b1df6de37e681dbe",
+    "controller/authentication.py": "507ab3364f239a6c71a8d7a2994d911284ba2df435f7f56048e301e85cb4b9ec",
+    "controller/backup_schedule.py": "68189f80262c48781ad25f04b96b62989a1556d2de45ab5690dff470e9c5362e",
+    "controller/certificate_validation.py": "22f5c0a2d4708742d0513a719d291ede052e56910c1d007af1183b8baf7aea1b",
+    "controller/certificates.py": "147e85efa3dfd008c80e2ced1ddc01e02d3a39ee68712c604ba0949549fe3ad8",
+    "controller/channels.py": "c93ce26fbd829aae35042eff096d8d3c440e3c2216aa9b87a73b6ea28debe964",
+    "controller/cluster_bootstrap.py": "897a0d8942e8d8c7e1cb05cb7a62d4cfd400f6e71db1a225faa97c87f377a1b4",
+    "controller/endpoint_certificates.py": "847af6291cd8510ea1b6e12b66fb5b87c010eff6541dca2c0f8cb9fbdf7b78a2",
+    "controller/endpoint_configuration.py": "7ef517bd6e998670ef6fd31f5a422f6054eb62316413ae0638dbc162c97f3121",
+    "controller/endpoint_diagnostics.py": "f5c8bd1b28c1feef720b9f61cea75e43e7ad5801e581d143cc9bf20267731ec8",
+    "controller/evidence_views.py": "c9c31afac27b4a3eb13c7fe80baf3c6ac943dbdcc6c5bda584c088ade38c84cf",
+    "controller/firewall.py": "4fefc066d01d8d827e64709773bb4caae6447f5e09309a902e22f11d16b8ec89",
+    "controller/firewall_authorization.py": "84bffa3406dd85a3a852fed3d4bd427f89dae57c9c52e8e87bf0ba7afabaab28",
+    "controller/firewall_views.py": "d807cc3d4000c14e6db2abdf05ef586ce891be9e1898fc9decbdb851fc3c0c8a",
+    "controller/fleet_enrollment.py": "584a90373ab4d00d3a030dccef02243f264871f546fbdaf37ef61b965aa0f169",
+    "controller/gui_setup.py": "1a0386484e7d2ac320b00663c26744b5ada2c171f8610df83e807aeaa024b6af",
+    "controller/gunicorn_worker.py": "9a079ebe5e86035ed872174129c0a97cb605d57444fd6f48d09792ef747926d5",
+    "controller/ha_setup.py": "7a5a5aca36a21597fcfb9f7bb741f748b149affb540c595d19a7ce4897111276",
+    "controller/hit_monitoring.py": "e964e77e73e1eb1a27e5f341314f4ace3a2c4ae75e9c353e86d9358d8a053863",
+    "controller/host_default_deny.py": "8e97d58115e9d64d757b1ab0513502dd715a6a2797645e41faff9fb7974430f2",
+    "controller/http_limits.py": "64ccd3aba0c14dcb9caa9b0395bc8047de8762b3ee5999f5a4e87d3ccba10924",
+    "controller/internal_certificates.py": "c52e70f5447ed6845a31f4c89583ffa8cc0d177369e4e22928b66d287a2e7424",
+    "controller/inventory_views.py": "6ee99c08150c8159a33927b2476a789a4161f6b10338418fd48469a556ac4e43",
+    "controller/learning.py": "460aa1891ea785c7081066849dad7a925f148b8828a6c3f296bd3d5a2ab61c8a",
+    "controller/learning_policies.py": "8362b42714aaa5f4be16071552dd2fe9ec3b35e96522205ab33c065788fdaf29",
+    "controller/learning_targets.py": "99e8b91fd471334393a13295433755f814d25c4de7d3a16779d8f12447f70c1f",
+    "controller/listener_address.py": "bb3b1f43d6701c4e579af6f94f562d887ba2f839c0664277346a315e0c6e7d04",
+    "controller/local_auth.py": "65f403ce5544f78d35e7a652a89cb796a05f54c433d70e43317c9a9288a15acc",
+    "controller/locations.py": "3da74451e01aa104c385cf716d0d68e40a4034b8c2d7fcc5d68da7b42d38acdb",
+    "controller/maintenance.py": "e825b1c3261467fa5beecd30e0df42f0b5d0735d1341d57f80608e53be93a0de",
+    "controller/managed.py": "d3fc2303787343a39aa497999f1f8239b3877702b0ee0c3d85f598e37419aab8",
+    "controller/managed_views.py": "5f4e38bbc8f63553a00915a5c858bea84a1d7131a1eb9dda6d47769a0aecc546",
+    "controller/management_health.py": "51173e443dc70aa99bb9ed46615b947484fe42296e8134692444e6c3c163fc9c",
+    "controller/metadata.py": "27f0d5a5bbe4a15f165d260c238f3f2396a86a2ed549841befa7b55395b0fe18",
+    "controller/metadata_csv.py": "a895678929aa12e147cf6bea44989958cea76b733895ea376dcdb6ac6f0fec45",
+    "controller/network_addresses.py": "533409e451ef826e61d8dd8bc4e149e876f36d331e81b3bfd76e284ab42e004f",
+    "controller/notifications.py": "e6fcfd1df9b9633337cf423db06679d4c43b69f54c186e1eccc82f184f2c07c8",
+    "controller/pg_pool.py": "6c3f6298644a7223ab5d32bcbceeefc63ba9f23acb3647fc77c082d2a3b8b45d",
+    "controller/pilot_polling.py": "bbbf5edc6642ee4784ffa0b5ad2d5c53e659559a9abaa8dd2aada79ac229ec28",
+    "controller/pki.py": "28aa9d2261940c0f9e1decfbfa1657ad3dc8798f4a3a0df3b7cc053a0e65a739",
+    "controller/platform.py": "2a457769483c971928606f200c19508d628e79b94243bc70eef85f31b1705095",
+    "controller/platform_runtime.py": "aac05c80ffc430262b7490b692b20ed379ab5fac25f84341b054ee4dce3eec8d",
+    "controller/policy_deployments.py": "ee4ad05ce19534db8917e2169b6381f5e9c6427cda4e535243a510e33c087f1a",
+    "controller/policy_signing.py": "f2150ae3596a35a64abb05f6290c5d29724faeeaae4532c2d97e0a616fc4a1c4",
+    "controller/policy_views.py": "a1b05dac6f85adbe0be9d6acf61871f9a00158184007176019e66af942244f7e",
+    "controller/postgres.py": "f83201bb01a5e00eefeb0528aac0f91bb5df235b246d643b579a77bbe67da84c",
+    "controller/production_http.py": "10c5d44cbf75fbf7237d8fcaf83d1e8bf27974397de7820700f42dd674bc4c87",
+    "controller/provider_lifecycle.py": "907f63805f2576e565f7b4e11ea6c55b5ed7296f18e0ad4500cae88c3de6e90e",
+    "controller/recovery.py": "52e7aa7d727e40d4ca626c56cb5409a7960f16328148400b6a691147f6a9d6e4",
+    "controller/replication_rotation.py": "bc66dd0f924e95a234d5525985b2f279e836c1569995e56f8bc9a3be9e59a890",
+    "controller/review_limits.py": "3018c3b2f46f72a5e9ab6a1c69cf9dc6206b946ce62a312078e51b96a99d751d",
+    "controller/risky_ports.py": "4f837407c2c5a713df7d1c9e793b7cedaf5b63deee096bd158761191c4692e98",
+    "controller/runtime_integrity.py": "b3d0f4ed2a2e1ec3d96b06785e198316821184cca32d947cd078c42ca0282a42",
+    "controller/saml_auth.py": "41e1830e4c0f4985b33a28ee622625cd535ca2a7e4ea6c2cc6055f1df7b4c59b",
+    "controller/security.py": "6d2d02ae45a008f0ef44878ba52995c9639bd25fc41dc1ac3ff9f9f8ff6b7a3d",
+    "controller/seed.py": "183abf6d74cbdc2aac3c1d17127aabbb304d6718811c182c72cf83dbe9479236",
+    "controller/server_management.py": "f4f6999176950ac3a420b1cbe3e8758b2d0edd37d47958eaf0b5226c7d54e6d2",
+    "controller/service_groups.py": "fc49bafaed25003f44bcf96a7f8626edb19524fa85624292aeaeeeb924eff5b1",
+    "controller/service_health.py": "13aabf6732bf13311cc02fea2b7faca98cd14952ce429e1f05715d3064dd037b",
+    "controller/session_views.py": "65bb50f09145c7ed1211a631e10e9f928f4cf831edcbd64899e3df46039b3fef",
+    "controller/source_banks.py": "318fc7687f82977709dfdc926f2af1c2da78b82facc89eac2d4461d7394508c1",
+    "controller/store.py": "1fa89bff8af51809335f3f892e78bf20d3f480830e799ab98af926980c3365d0",
+    "controller/traffic_capture.py": "d2c2feb3834612bea757fda1c4513afe3b1f3b653fbec50e483248e13f2d0c9f",
+    "controller/traffic_correlation.py": "a9006d21e7042c09b7e4040776ce41c35838f8387391b953a99cb565e343dede",
+    "controller/traffic_views.py": "7014b370ed82c62c75e689cd615d15584450d5a6ff894e4d52ede8f2b6216370"
+  },
+  "source_signature_verified_before_after": true,
+  "synthetic_capture_format": "traffic_capture_v1_dual_stack_mixed_units",
+  "synthetic_counts_by_unit": {
+    "connections": 5000,
+    "packets": 5000
+  },
+  "synthetic_event_count_retained": 10000,
+  "synthetic_flow_rows_retained": 10000,
+  "transport": "Gunicorn bounded gthread, real TLS and unique registered mTLS certificates",
+  "verification_lease_delivery": true,
+  "virtual_identities": 5000,
+  "worker_class": "controller.gunicorn_worker.BoundedThreadWorker"
+}

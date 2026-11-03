@@ -52,7 +52,8 @@ def public_user(value):
         "created_at", "updated_at", "last_login_at")}
     result["provider"] = value.get("provider", "entra")
     if result["provider"] == "local":
-        result.update(username=value["username"], password_change_required=bool(value.get("password_change_required")))
+        result.update(username=value["username"], password_change_required=bool(value.get("password_change_required")),
+                      protected_account=value.get("protected_account") is True)
     elif result["provider"] == "saml":
         result["subject"] = value.get("subject", "")
     return result
@@ -162,14 +163,39 @@ class LocalAuth:
                 value = {"id": REALM_ID, "realm_id": realm,
                          "fingerprint": _sha("prthak-local-password-v1\n" + realm),
                          "bootstrap_done": True, "seeded": bool(empty and bootstrap), "created_at": stamp()}
-                store._put(db, "maintenance_settings", value)
                 if empty and bootstrap:
                     user = self._new_user({"username": "admin", "role": "super_admin", "display_name": "Initial Super Admin"},
                                           realm, initial_hash)
+                    value["bootstrap_user_id"] = user["id"]
+                    user["protected_account"] = True
                     store._put(db, "auth_users", user)
                     store.audit("access.local.bootstrapped", "system:local-bootstrap",
                                 {"user_id": user["id"], "after": public_user(user), "password_change_required": True}, db)
+                store._put(db, "maintenance_settings", value)
             self.realm_id, self.fingerprint = local_fingerprint(store, db)
+            # The original 0.15 bootstrap stored the durable seeded decision but
+            # not its account ID. Its deterministic identity permits an in-place
+            # backfill without creating credentials or matching a display name.
+            protected_id = self.protected_identifier(db)
+            if protected_id:
+                if value.get("bootstrap_user_id") is None:
+                    value["bootstrap_user_id"] = protected_id
+                    store._put(db, "maintenance_settings", value)
+                user = store._get(db, "auth_users", protected_id)
+                if user and user.get("provider") == "local" and user.get("protected_account") is not True:
+                    user["protected_account"] = True
+                    store._put(db, "auth_users", user)
+
+    def protected_identifier(self, db):
+        """Return only the original seeded account's immutable local identity."""
+        value = self.store._get(db, "maintenance_settings", REALM_ID)
+        if not value or (value.get("seeded") is not True and "bootstrap_user_id" not in value):
+            return None
+        realm, _ = local_fingerprint(self.store, db)
+        expected = realm + ":" + str(uuid.uuid5(uuid.UUID(realm), "admin"))
+        if value.get("bootstrap_user_id", expected) != expected:
+            raise AuthDenied("The built-in administrator identity is unavailable")
+        return expected
 
     @staticmethod
     def _origin(value):

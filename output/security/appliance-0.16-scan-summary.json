@@ -1,0 +1,98 @@
+{
+  "kind": "prthak-appliance-assessment-v1",
+  "candidate": "v0.16.0-pilot.1",
+  "assessment_date": "2026-11-03",
+  "scanner": {
+    "image": "aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c",
+    "version": "0.76.1",
+    "vulnerability_database": {
+      "Version": 2,
+      "NextUpdate": "2026-11-04T01:30:30.031564131Z",
+      "UpdatedAt": "2026-11-03T01:30:30.031564361Z",
+      "DownloadedAt": "2026-11-03T03:31:55.285994469Z"
+    }
+  },
+  "signed_runtime_manifest_sha256": "2fb15f937bbc7b279ecd5d3b23f22be6df4d9efdbefd52b5ead9901c6aea6114",
+  "baseline": {
+    "candidate": "v0.15.0-pilot.2",
+    "advisory_rows": 1102,
+    "high_rows": 218,
+    "critical_rows": 2
+  },
+  "images": [
+    {
+      "component": "controller",
+      "docker_export_input_index_id": "sha256:fb9cf66d61b556dda3f6c087929aab4cf2fb888ac14667f9c449cc731dea1fe5",
+      "scanned_image_config_id": "sha256:6cb91b3dda3d57876220b3fc9aebff073d6cfa9f870cf0cac8a6f76e2e5dc068",
+      "index_to_config_graph_and_rootfs_verified": true,
+      "architecture": "arm64",
+      "os": {
+        "Family": "alpine",
+        "Name": "3.24.3"
+      },
+      "advisory_rows": 0,
+      "package_inventory_rows": 71,
+      "full_report_sha256": "dbdc2d985b5c9b48d35a82d3065301786466cc6db4b96edfcaacd5b8c3b67394"
+    },
+    {
+      "component": "database",
+      "docker_export_input_index_id": "sha256:35cb48501725da7ae284593ba53c87d3cf5973d84e04dd03f2cdb306ca3f86f7",
+      "scanned_image_config_id": "sha256:5f51c3a2439a7804ec23c508a396a1a018e9d5a713c582b46b94f85112b9cae8",
+      "index_to_config_graph_and_rootfs_verified": true,
+      "architecture": "arm64",
+      "os": {
+        "Family": "alpine",
+        "Name": "3.24.3"
+      },
+      "advisory_rows": 0,
+      "package_inventory_rows": 74,
+      "full_report_sha256": "00553c28a43e35f5f84401db8f8b391a137c55dafa24a7625d41c7f62eadd739"
+    },
+    {
+      "component": "router",
+      "docker_export_input_index_id": "sha256:5893840576071e6217cd52ebdcc14f454c6f7a631056fa6f4e0f40d3cac4215b",
+      "scanned_image_config_id": "sha256:fa4ece6d5e60bb41134ffdec498117a910313671ebca3fd8f5ea517ef8856a75",
+      "index_to_config_graph_and_rootfs_verified": true,
+      "architecture": "arm64",
+      "os": {
+        "Family": "alpine",
+        "Name": "3.24.3"
+      },
+      "advisory_rows": 0,
+      "package_inventory_rows": 24,
+      "full_report_sha256": "66365136dc6ec000007da637f50a70f2904883b873f1ef68f84e22f313af09e7"
+    },
+    {
+      "component": "etcd",
+      "docker_export_input_index_id": "sha256:57739f6949dc9412caebc682d38e7e924ae895f0655b8d938155e881e408e643",
+      "scanned_image_config_id": "sha256:f2d4d82d36e317316f9c77145c79ed17f0652ab889d6b527ae0a7bb192768ace",
+      "index_to_config_graph_and_rootfs_verified": true,
+      "architecture": "arm64",
+      "os": {
+        "Family": "alpine",
+        "Name": "3.24.3"
+      },
+      "advisory_rows": 0,
+      "package_inventory_rows": 166,
+      "full_report_sha256": "690e5e2ea3c5592f3507296b41e81cdbaf90369aa5f6f48957116534792c6fae"
+    }
+  ],
+  "total_advisory_rows": 0,
+  "policy": {
+    "all_four_reports_required": true,
+    "all_severities_rejected": true,
+    "unfixed_rows_rejected": true,
+    "ignore_rules": false,
+    "vex_overrides": false,
+    "package_and_go_build_metadata_retained": true,
+    "scanner_has_no_docker_socket": true
+  },
+  "scope": "Four exact ARM64 production images, current scanner/database recorded above; Docker OCI index digests are linked to scanned configuration digests and identical filesystem diff IDs. AMD64 tagged-build CI performs its own fresh scan. Does not establish absence of unknown/future vulnerabilities, native RHEL/Ubuntu/DC behavior or a physical cluster migration.",
+  "build_recipe_sha256": {
+    "deploy/Dockerfile.controller": "3f72a0674a35764a3d5ecfab5dfac5511182a95639bb96ff1d147da0fd632c13",
+    "deploy/appliance/Dockerfile.controller": "6aceaf8e036bd53aff64e6f1b33c9be5bc4f2ed70be733eb572fb3db276c95d2",
+    "deploy/appliance/Dockerfile.database": "5ac7322c4b2ef3a8f0238bce2df62009e3e7ac40516fcf910abaa4ff378d5152",
+    "deploy/appliance/Dockerfile.etcd": "d8a8ae955eb03356ee961618b3e6184b5de65f0b5d0560cd1df4e45c610503e1",
+    "deploy/appliance/etcd-build-inputs.json": "2c975a4a001f77bcab6da5b81f5eed7ad84dec9a8f8e17f3008743d4e825fe83"
+  }
+}

@@ -34,9 +34,13 @@ def main():
             for filename in extras:shutil.copyfile(release/'deploy/appliance'/filename,target/filename)
             text+='\nCOPY '+' '.join(extras)+' /opt/prthak/\n'
             (target/'Dockerfile').write_text(text);build(target,tag)
+        etcd=root/'etcd';etcd.mkdir()
+        shutil.copyfile(release/'deploy/appliance/Dockerfile.etcd',etcd/'Dockerfile')
+        shutil.copyfile(release/'deploy/appliance/etcd-build-inputs.json',etcd/'etcd-build-inputs.json')
+        build(etcd,args.prefix+'-etcd-test')
         router=root/'router-action';router.mkdir()
         for filename in ('node_manager.py','web_tls_fixture.py'):shutil.copyfile(release/'deploy/appliance'/filename,router/filename)
-        (router/'Dockerfile').write_text('FROM haproxy:3.2-trixie@sha256:de853dd229e0f13e0104b288a487e1e12eb3965618f9b88f49ef8d5a6d83c001\nUSER root\nRUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends python3 python3-cryptography && rm -rf /var/lib/apt/lists/*\nCOPY node_manager.py web_tls_fixture.py /opt/prthak/\nENTRYPOINT ["python3", "/opt/prthak/web_tls_fixture.py"]\n')
+        (router/'Dockerfile').write_text('FROM haproxy:3.2-alpine3.24@sha256:5893840576071e6217cd52ebdcc14f454c6f7a631056fa6f4e0f40d3cac4215b\nUSER root\nRUN apk upgrade --no-cache && apk add --no-cache python3 py3-cryptography\nCOPY node_manager.py web_tls_fixture.py /opt/prthak/\nENTRYPOINT ["python3", "/opt/prthak/web_tls_fixture.py"]\n')
         build(router,args.prefix+'-router-action-test')
 
 

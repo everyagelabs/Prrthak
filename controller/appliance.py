@@ -146,6 +146,20 @@ class Appliance:
     def _installed(self):
         return os.environ.get("PRTHAK_APPLIANCE") == "1" and not bool(self.app and self.app.demo)
 
+    def _database_runtime(self):
+        """Read host-owned compatibility over the authenticated private socket.
+
+        GUI settings, environment claims and imported manifests never supply
+        this value. Management-only members may lack database compatibility.
+        """
+        if not self._installed():
+            return {}
+        state = self.client.status()
+        if not isinstance(state, dict):
+            raise ManagerUnavailable("The private manager did not report its database runtime")
+        return {"database_runtime_profile": state.get("database_runtime_profile"),
+                "database_storage_compatible": state.get("database_storage_compatible") is True}
+
     def status(self):
         config, local, identity = self._config(), self._local(), self._identity()
         from .replication_rotation import status as rotation_status
@@ -175,6 +189,8 @@ class Appliance:
         return {"revision": config["revision"], "installed": self._installed(), "manager_available": bool(node), "error": error,
                 "demo": bool(self.app and self.app.demo), "identity": identity,
                 "data_root": node.get("data_root") or os.environ.get("PRTHAK_APPLIANCE_DATA_ROOT") or (str(self.manager.data_dir) if self.manager else ""),
+                "database_runtime_profile": node.get("database_runtime_profile"),
+                "database_storage_compatible": node.get("database_storage_compatible") is True,
                 "cluster": {"configured": bool(self.app and self.app.store.ha), "settings_saved": bool(config.get("deployment_id")), "status": node.get("cluster", {}).get("status", "not_connected"), "name": config.get("cluster_name", ""),
                             "origin": config.get("controller_origin", ""), "deployment_id": config.get("deployment_id"),
                             "nodes": public_members,
@@ -193,6 +209,7 @@ class Appliance:
         allowed = {"expected_revision", "cluster_name", "site", "node_ip", "controller_origin", "cluster_password", "replication_password", "preferred_controller_url", "fallback_controller_url", "watchdog_approved"}
         if not isinstance(body, dict) or set(body) - allowed:
             raise ValueError("Provide only supported appliance settings")
+        runtime = self._database_runtime()
         with self.manager.lock, self.app.store.lock, self.app.store.meta() as db:
             old = self._config(db)
             if isinstance(body.get("expected_revision"), bool) or body.get("expected_revision") != old["revision"]:
@@ -246,6 +263,10 @@ class Appliance:
                 raise ValueError("Replacing a registered controller IP or site requires a reviewed membership replacement; its shared identity was not changed")
             identity = {**existing, **identity, "state": existing.get("state", "registered")}
             identity["role"] = existing.get("role", "database_voter" if len(old.get("voters", [])) < 3 and not any(member["site"].casefold() == identity["site"].casefold() and member.get("role") == "database_voter" for member in members) else "management")
+            if identity["role"] == "database_voter" and self._installed():
+                from .cluster_bootstrap import require_database_runtime
+                require_database_runtime(runtime)
+            identity.update(runtime)
             members.append(identity)
             updated.update(id=CONFIG_ID, revision=old["revision"] + (0 if cached_joiner else 1), cluster_name=cluster_name.strip(), controller_origin=controller_origin,
                            deployment_id=old.get("deployment_id") or str(uuid.uuid4()), members=members,

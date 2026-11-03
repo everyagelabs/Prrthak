@@ -246,6 +246,8 @@ class Authentication:
                 raise AuthDenied("SAML configuration changed; review the new account again")
             if self.store._get(db, "auth_users", user["id"]):
                 raise AuthConflict("This user already has a Prṛthak access record")
+            if user["id"] == self.local.protected_identifier(db):
+                raise AuthConflict("The built-in admin identity is reserved and cannot be recreated")
             self.store._put(db, "auth_users", user)
             if provider == "local":
                 clear_attempts(self.store, db, user["username"])
@@ -270,6 +272,8 @@ class Authentication:
             user = self.store._get(db, "auth_users", identifier)
             if user is None:
                 raise KeyError(identifier)
+            if identifier == self.local.protected_identifier(db):
+                raise AuthConflict("The built-in admin account is protected; only its password can be changed")
             before = public_user(user)
             after = {**user, **edited}
             changed = after["role"] != user["role"] or after["enabled"] != user["enabled"]

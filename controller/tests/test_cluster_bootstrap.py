@@ -30,7 +30,8 @@ class BootstrapFixture(ApplianceFixture):
     def enrollment(self, identifier="node-2", site="site-2", address="10.70.0.2", key=None, password=None):
         key = key or self.key()
         body = {"action": "password-bootstrap", "node_id": identifier, "site": site, "node_ip": address,
-                "cluster_password": self.cluster_password if password is None else password, "transport_public_key": bootstrap._public_key(key)}
+                "cluster_password": self.cluster_password if password is None else password, "transport_public_key": bootstrap._public_key(key),
+                **self.api._database_runtime()}
         return key, body
 
     def enroll(self, **kwargs):
@@ -51,6 +52,121 @@ class BootstrapFixture(ApplianceFixture):
 
 @unittest.skipUnless(importlib.util.find_spec("cryptography"), "Bootstrap tests require real vault/cryptography dependencies")
 class ClusterBootstrapTests(BootstrapFixture, unittest.TestCase):
+
+    def test_local_runtime_is_manager_owned_and_gui_cannot_claim_a_profile(self):
+        before = self.api._config()
+        with self.assertRaises(ValueError):
+            self.save(self.api, database_runtime_profile=bootstrap.DATABASE_RUNTIME_PROFILE)
+        self.api.client.state["database_storage_compatible"] = False
+        with self.assertRaisesRegex(ValueError, "verified Alpine"):
+            self.save(self.api, cluster_password="", replication_password="")
+        self.assertEqual(self.api._config(), before)
+
+    def test_missing_legacy_or_incompatible_voter_cannot_create_authority_or_membership(self):
+        _, valid = self.enrollment()
+        before = self.api._config()
+        for profile, compatible in ((None, True), ("postgres16-debian-glibc", True),
+                                    (bootstrap.DATABASE_RUNTIME_PROFILE, False),
+                                    (bootstrap.DATABASE_RUNTIME_PROFILE, "true")):
+            with self.subTest(profile=profile, compatible=compatible):
+                body = {**valid, "database_runtime_profile": profile, "database_storage_compatible": compatible}
+                with patch.object(bootstrap, "_material") as material:
+                    with self.assertRaisesRegex(ValueError, "verified Alpine"):
+                        bootstrap.enroll(self.api, body, "192.0.2.9")
+                    material.assert_not_called()
+                self.assertEqual(self.api._config(), before)
+
+    def test_current_source_manager_drift_is_not_hidden_by_cached_member_profile(self):
+        _, body = self.enrollment()
+        before = self.api._config()
+        self.api.client.state["database_storage_compatible"] = False
+        with self.assertRaisesRegex(ValueError, "verified Alpine"):
+            bootstrap.enroll(self.api, body, "192.0.2.9")
+        self.assertEqual(self.api._config(), before)
+        with patch.object(bootstrap, "_material") as material:
+            with self.assertRaisesRegex(ValueError, "verified Alpine"):
+                bootstrap.manifest(self.api)
+            material.assert_not_called()
+        with self.assertRaisesRegex(ValueError, "verified Alpine"):
+            bootstrap.reconcile(self.api)
+        self.assertEqual(self.api.client.requests, [])
+
+    def test_legacy_retained_voter_blocks_new_physical_replica_despite_fresh_claim(self):
+        _, body = self.enrollment()
+        with self.api.app.store.meta() as db:
+            config = self.api._config(db)
+            config["members"][0].pop("database_runtime_profile")
+            self.api.app.store._put(db, "maintenance_settings", config)
+        before = self.api._config()
+        with self.assertRaisesRegex(ValueError, "verified Alpine"):
+            bootstrap.enroll(self.api, body, "192.0.2.9")
+        self.assertEqual(self.api._config(), before)
+
+    def test_sync_requires_current_authenticated_runtime_report_without_fallback(self):
+        response, key, body = self.enroll()
+        sync = {"action": "node-sync", "node_id": body["node_id"], "site": body["site"],
+                "node_ip": body["node_ip"], "sync_secret": response["sync_secret"]}
+        before = self.api._config()
+        with self.assertRaisesRegex(ValueError, "verified Alpine"):
+            bootstrap.enroll(self.api, sync, "192.0.2.9")
+        self.assertEqual(self.api._config(), before)
+        accepted = self.api.manager._unseal(bootstrap.enroll(
+            self.api, {**sync, **self.api._database_runtime()}, "192.0.2.9"), key, body["node_id"])
+        self.assertEqual(accepted["configuration"]["members"][-1]["database_runtime_profile"], bootstrap.DATABASE_RUNTIME_PROFILE)
+
+    def test_legacy_sealed_voter_reply_is_refused_before_private_material_install(self):
+        response, _, _ = self.enroll()
+        joining = self.make_api("node-2", "site-2")
+        self.save(joining)
+        before = joining._config()
+        response["configuration"]["members"][0].pop("database_runtime_profile")
+        with patch.object(bootstrap, "_save_material") as material:
+            with self.assertRaisesRegex(ValueError, "verified Alpine"):
+                bootstrap._install_enrollment(joining, response, "https://seed.example", "public-ca", "super_admin")
+            material.assert_not_called()
+        self.assertEqual(joining._config(), before)
+        self.assertNotIn("authorized_join", joining._local())
+
+    def test_management_only_member_needs_no_database_runtime_or_physical_clone(self):
+        key, body = self.enrollment(site="site-1")
+        body.pop("database_runtime_profile")
+        body.pop("database_storage_compatible")
+        response = self.api.manager._unseal(bootstrap.enroll(self.api, body, "192.0.2.9"), key, body["node_id"])
+        member = response["configuration"]["members"][-1]
+        self.assertEqual(member["role"], "management")
+        joining = self.install_joiner(response, site="site-1", key=key)
+        joining.client.state.pop("database_runtime_profile")
+        joining.client.state["database_storage_compatible"] = False
+        self.assertEqual(bootstrap.manifest(joining)["local_node"]["role"], "management")
+
+    def test_activation_rechecks_all_three_voters_before_any_database_or_backup(self):
+        self.enroll()
+        self.enroll(identifier="node-3", site="site-3", address="10.70.0.3")
+        config = self.api._config()
+        self.assertTrue(all(member["database_runtime_profile"] == bootstrap.DATABASE_RUNTIME_PROFILE
+                            for member in config["members"]))
+        config["members"][-1]["database_runtime_profile"] = "postgres16-debian-glibc"
+        with patch("psycopg.connect") as connect, patch.object(bootstrap, "_material") as material:
+            with self.assertRaisesRegex(ValueError, "verified Alpine"):
+                bootstrap._activate_source(self.api, config, self.api._local())
+            connect.assert_not_called()
+            material.assert_not_called()
+
+    def test_runtime_evidence_is_bound_to_distinct_voter_id_site_and_ip(self):
+        original = self.api._config()
+        invalid = []
+        swapped = copy.deepcopy(original)
+        swapped["voters"][0]["ip"] = "10.70.0.99"
+        invalid.append(swapped)
+        duplicate = copy.deepcopy(original)
+        duplicate["voters"] *= 3
+        invalid.append(duplicate)
+        omitted = copy.deepcopy(original)
+        omitted["voters"] = []
+        invalid.append(omitted)
+        for config in invalid:
+            with self.subTest(voters=config["voters"]), self.assertRaises(ValueError):
+                bootstrap._assert_database_voters(config, own_id="node-1", own_runtime=self.api._database_runtime())
 
     def test_committed_public_port_refreshes_only_own_peer_origin(self):
         original = self.api._config()
@@ -74,7 +190,7 @@ class ClusterBootstrapTests(BootstrapFixture, unittest.TestCase):
         revision = self.api._config()["revision"]
         certificate = (self.pki / "controller.pem").read_text()
         request = {"action": "node-sync", "node_id": "node-2", "site": "site-2", "node_ip": "10.70.0.2", "sync_secret": response["sync_secret"],
-                   "tls_server_name": "localhost", "controller_ca": certificate}
+                   "tls_server_name": "localhost", "controller_ca": certificate, **self.api._database_runtime()}
         updated = self.api.manager._unseal(bootstrap.enroll(self.api, request, "192.0.2.9"), key, "node-2")
         member = next(value for value in updated["configuration"]["members"] if value["id"] == "node-2")
         self.assertEqual(member["tls_server_name"], "localhost")
@@ -239,7 +355,7 @@ class ClusterBootstrapTests(BootstrapFixture, unittest.TestCase):
         new_key, new_body = self.enrollment(identifier="node-3", site="site-3", address="10.70.0.3")
         with self.assertRaisesRegex(PermissionError, "original bootstrap"):
             bootstrap.enroll(joined, new_body, "192.0.2.10")
-        sync = {"action": "node-sync", "node_id": "node-2", "site": "site-2", "node_ip": "10.70.0.2", "sync_secret": response["sync_secret"]}
+        sync = {"action": "node-sync", "node_id": "node-2", "site": "site-2", "node_ip": "10.70.0.2", "sync_secret": response["sync_secret"], **self.api._database_runtime()}
         updated = self.api.manager._unseal(bootstrap.enroll(self.api, sync, "192.0.2.9"), key, "node-2")
         self.assertEqual(updated["node_certificate"], response["node_certificate"])
         for change in ({"sync_secret": "wrong"}, {"site": "wrong"}, {"node_ip": "10.70.0.9"}):
@@ -370,7 +486,7 @@ class SharedBootstrapPostgresTests(BootstrapFixture, unittest.TestCase):
         self.assertEqual(first["sync_secret"], retry["sync_secret"])
         self.assertEqual(first["node_certificate"], retry["node_certificate"])
         self.assertEqual(first["configuration"]["revision"], retry["configuration"]["revision"])
-        sync = {"action": "node-sync", "node_id": "node-3", "site": "site-3", "node_ip": "10.70.0.3", "sync_secret": first["sync_secret"]}
+        sync = {"action": "node-sync", "node_id": "node-3", "site": "site-3", "node_ip": "10.70.0.3", "sync_secret": first["sync_secret"], **self.api._database_runtime()}
         update = self.other.manager._unseal(bootstrap.enroll(self.other, sync, "192.0.2.9"), key, "node-3")
         self.assertEqual(update["node_certificate"], first["node_certificate"])
         registry = self.api._config()

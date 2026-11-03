@@ -27,6 +27,7 @@ class GUISetupManagerTests(unittest.TestCase):
             'environment':{'PRTHAK_APPLIANCE':'1','PRTHAK_APPLIANCE_NODE_ID':self.fixture.local['node_id']}}
         n.atomic(self.root/'config/controller/settings.json',self.initial,owner=10001)
         self.manager.render()
+        self.initial_installed=copy.deepcopy(self.manager.installed)
         self.initial=n.load(self.root/'config/controller/settings.json')
         n.atomic(self.root/'config/controller/initial-admin-token','PRIVATE-BOOTSTRAP-TOKEN',owner=10001)
         self.manager.engine.validate_initial_environment=entrypoint.validate_initial_environment
@@ -61,7 +62,7 @@ class GUISetupManagerTests(unittest.TestCase):
         before=copy.deepcopy(self.shared['calls'])
         self.assertTrue(self.manager.controller_configuration(body)['applied']);self.assertEqual(before,self.shared['calls'])
         self.assertEqual((self.root/'config/controller/initial-admin-token').read_text(),'PRIVATE-BOOTSTRAP-TOKEN')
-        self.assertEqual(n.load(self.root/'config/installed.json'),self.fixture.local)
+        self.assertEqual(n.load(self.root/'config/installed.json'),self.initial_installed)
         self.assertNotIn('PRIVATE-BOOTSTRAP-TOKEN',json.dumps(job))
 
     def test_candidate_binding_matches_controller_for_empty_and_present_secret(self):
@@ -203,7 +204,7 @@ class GUISetupManagerTests(unittest.TestCase):
         self.manager.engine.compose=raced
         value=self.fixture.partial();value['controller_origin']='https://controller.example:8787'
         with self.assertRaises(n.Blocked):self.manager.configure({'expected_revision':0,'configuration':value})
-        self.assertEqual(self.manager.installed,self.fixture.local)
+        self.assertEqual(self.manager.installed,self.initial_installed)
         self.assertEqual(n.load(self.root/'config/controller/settings.json'),self.initial)
         self.assertEqual(n.load(self.root/'manager/origin-bootstrap.json')['phase'],'rolled_back')
         with sqlite3.connect(database) as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM servers').fetchone()[0],1)

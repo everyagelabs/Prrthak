@@ -42,10 +42,11 @@ from datetime import datetime,timezone
 
 SERVICES = ('controller', 'database', 'etcd', 'router')
 ACTIONS = ('status', 'start', 'stop', 'restart', 'configure', 'controller-config', 'storage-review', 'storage-move', 'rotate-replication', 'web-tls', 'internal-tls', 'restore-databases', 'public-port')
-ETCD_IMAGE = 'gcr.io/etcd-development/etcd:v3.6.16@sha256:b29d816b546a1966fe7034a33b34e231fa98c47ce4d2883f70b0555020b22132'
-ROUTER_IMAGE = 'haproxy:3.2-trixie@sha256:de853dd229e0f13e0104b288a487e1e12eb3965618f9b88f49ef8d5a6d83c001'
+ETCD_IMAGE = 'prthak-etcd:appliance-base'
+ROUTER_IMAGE = 'haproxy:3.2-alpine3.24@sha256:5893840576071e6217cd52ebdcc14f454c6f7a631056fa6f4e0f40d3cac4215b'
 CONTROLLER_IMAGE = 'prthak-controller:appliance'
 DATABASE_IMAGE = 'prthak-database:appliance'
+DATABASE_RUNTIME = 'postgres16-alpine3.24-musl-v1'
 ENV_KEYS = {'DATA_ROOT', 'NODE_ID', 'SITE', 'NODE_IP', 'CONTROLLER_ORIGIN', 'CONTROLLER_BIND_IP',
     'CONTROLLER_PORT', 'CONTROLLER_BACKEND_PORT', 'DATABASE_ROUTER_PORT', 'EXISTING_NODE_IP',
     'CLUSTER_PASSWORD', 'SUPER_ADMIN_TOKEN', 'WATCHDOG_APPROVED', 'WATCHDOG_DEVICE',
@@ -360,6 +361,22 @@ def installation_identity(root,local):
         private_dir(root);private_dir(root/'config');identity={**public,'appliance_id':uuid.uuid4().hex}
         atomic(path,{'schema_version':1,'data_root':str(root),'settings_digest':digest(public),'identity':identity})
     return {**identity,'cluster_password':local.get('cluster_password',''),'super_admin_token':local.get('super_admin_token','')}
+
+
+def database_runtime_settings(root,settings):
+    """Never reuse unmarked glibc PGDATA with the musl database runtime.
+
+    The marker is installer-owned state outside PGDATA, so initdb still receives
+    an empty directory. It survives restarts, reviewed storage moves and backups.
+    Only an empty data directory can acquire the marker automatically.
+    """
+    data=Path(root)/'database'
+    if data.is_symlink() or (data.exists() and not data.is_dir()):
+        raise Blocked('Database storage must be a real managed directory')
+    if settings.get('database_runtime')==DATABASE_RUNTIME:return settings
+    if settings.get('database_runtime') is not None or (data.exists() and any(data.iterdir())):
+        raise Blocked('Existing PostgreSQL physical data is incompatible with the Alpine runtime. Keep the previous appliance running, create a logical backup in GUI Backups, and restore it into a fresh appliance/storage using GUI Recovery. No existing database files were changed.')
+    return {**settings,'database_runtime':DATABASE_RUNTIME}
 
 
 def origin(value):
@@ -692,6 +709,9 @@ class Manager:
         try:states=self.engine.states()
         except Blocked:states={};blockers.append('Local Docker/Compose status is unavailable')
         manifest=self.manifest();desired=self.desired();state=self.state();settings=self.installed
+        database_compatible=True
+        try:database_runtime_settings(self.root,settings)
+        except Blocked as error:database_compatible=False;blockers.append(str(error))
         cluster='configured' if manifest else 'waiting_for_voters' if desired else 'bootstrap'
         health=copy.deepcopy(self.health_snapshot);rotation=load(self.root/'manager/rotation.json')
         if health.get('checked_at',0)<time.time()-45:health.update(status='stale' if health.get('checked_at') else 'unverified',database_ready=False,quorum_healthy=False)
@@ -703,13 +723,17 @@ class Manager:
             except (OSError,ValueError,Blocked):drift=True
         public=load(self.root/'manager/public-port.json',{})
         committed_port=public.get('previous',{}).get('installed',settings)['controller_port'] if public.get('phase') not in (None,'committed','aborted') else settings['controller_port']
-        return {'schema_version':1,'installed':True,'appliance_id':settings['appliance_id'],'revision':state['revision'],'capabilities':['internal_tls_v1','restore_databases_v1','public_port_v1','controller_config_v1','separated_agent_channels_v1'],'controller_configuration':self.controller_configuration_status(),'agent_channel_ports':self.channel_ports(),'public_port':committed_port,'bind_address':settings['bind_ip'],'public_listener':{'committed_port':committed_port,'candidate_port':public.get('binding',{}).get('new_port') if public.get('phase') not in (None,'committed','aborted') else None,'phase':public.get('phase'),'operation_id':public.get('id'),'binding_digest':public.get('binding_digest'),'container_port':8787,'backend_port':settings['controller_backend_port'],'origin_mode':'preserve','allowed_min':1,'allowed_max':65535},'internal_tls':{'fingerprint':fingerprint,'phase':internal.get('phase'),'desired_fingerprint':internal.get('fingerprint'),'runtime_verified':internal.get('runtime_verified',False) and not drift,'not_after':internal.get('info',{}).get('not_after'),'drift':drift},'identity':{'id':settings['node_id'],'site':settings['site'],'ip':settings['node_ip']},'data_root':str(self.root),
+        return {'schema_version':1,'installed':True,'appliance_id':settings['appliance_id'],'revision':state['revision'],'database_runtime_profile':DATABASE_RUNTIME,'database_storage_compatible':database_compatible,'capabilities':['internal_tls_v1','restore_databases_v1','public_port_v1','controller_config_v1','separated_agent_channels_v1'],'controller_configuration':self.controller_configuration_status(),'agent_channel_ports':self.channel_ports(),'public_port':committed_port,'bind_address':settings['bind_ip'],'public_listener':{'committed_port':committed_port,'candidate_port':public.get('binding',{}).get('new_port') if public.get('phase') not in (None,'committed','aborted') else None,'phase':public.get('phase'),'operation_id':public.get('id'),'binding_digest':public.get('binding_digest'),'container_port':8787,'backend_port':settings['controller_backend_port'],'origin_mode':'preserve','allowed_min':1,'allowed_max':65535},'internal_tls':{'fingerprint':fingerprint,'phase':internal.get('phase'),'desired_fingerprint':internal.get('fingerprint'),'runtime_verified':internal.get('runtime_verified',False) and not drift,'not_after':internal.get('info',{}).get('not_after'),'drift':drift},'identity':{'id':settings['node_id'],'site':settings['site'],'ip':settings['node_ip']},'data_root':str(self.root),
             'cluster':{'configured':bool(manifest),'status':cluster,'deployment_id':(manifest or desired or {}).get('deployment_id'),'generation':(manifest or desired or {}).get('generation'), 'origin':(manifest or desired or {}).get('controller_origin',settings['controller_origin']),'nodes':[{key:m.get(key) for key in ('id','site','ip','role')} for m in (manifest or desired or {}).get('controller_members',[])], 'voters':[{key:m[key] for key in ('id','site','ip')} for m in (manifest or desired or {}).get('voters',[])], 'cluster_password_configured':bool((self.root/'config/controller/cluster-password').exists()),'replication_password_configured':bool((manifest or {}).get('secrets',{}).get('replication'))},
             'services':[{'id':name,'name':{'database':'PostgreSQL 16 / Patroni','etcd':'etcd quorum','router':'TLS router','controller':'Prṛthak controller'}[name],'state':states.get(name,'stopped'),'enabled':name in self.enabled(),'can_restart':True,'can_stop':True} for name in SERVICES],
             'routing':{'mode':'site_affinity','preferred_controller_url':routing.get('preferred_controller_url',settings['controller_origin']),'fallback_controller_url':routing.get('fallback_controller_url'),'site':settings['site'],'failover_state':'unverified','pools':[(m.get('id'),m.get('site')) for m in routing.get('controller_members',[])]},
             'health':health,'replication_state':'rotation_pending' if rotation and rotation['phase'] not in ('finalized','aborted') else 'configured' if manifest else 'not_configured','replication_rotation':{key:rotation[key] for key in ('id','phase','role_change_intent','generation') if key in rotation} if rotation else None,'pending_changes':state.get('pending_changes',[]),'configuration_pending':bool(state.get('configuration_pending')),'blockers':blockers,'acceptance_gate':'Native watchdog reset, quorum/site partitions and real site-loss recovery remain required before production'}
     def render(self,router_only=False):
         root=self.root;settings=self.installed;manifest=self.manifest();routing=manifest or self.desired() or {};role=(manifest or {}).get('local_node',{}).get('role','management')
+        if not router_only:
+            prepared=database_runtime_settings(root,settings)
+            if prepared!=settings:
+                atomic(root/'config/installed.json',prepared);self.installed=settings=prepared
         channels=self.channel_ports()
         private_dir(root/'runtime')
         for name,uid in ((('router',10003),) if router_only else (('controller',10001),('database',999),('etcd',10002),('router',10003))):
@@ -764,7 +788,7 @@ class Manager:
         compose={'services':{
             'controller':{**common,'image':settings.get('images',{}).get('controller',CONTROLLER_IMAGE),'user':'10001:10001','ports':[settings['bind_ip']+':'+str(settings['controller_backend_port'])+':8787',settings['bind_ip']+':8796:8788',settings['bind_ip']+':8797:8789'],'volumes':[bind(root/'controller','/data'),bind(root/'config/controller','/run/prthak-bootstrap',True),bind('/run/prthak-appliance','/run/prthak-appliance',True)],'read_only':True},
             'router':{**common,'image':ROUTER_IMAGE,'user':'10003:10003','command':['haproxy','-W','-db','-f','/config/haproxy.cfg'],'ports':[settings['bind_ip']+':'+str(settings['controller_port'])+':8787',settings['bind_ip']+':'+str(channels['control'])+':8788',settings['bind_ip']+':'+str(channels['discovery'])+':8789',settings['bind_ip']+':'+str(settings['database_router_port'])+':5433'],'volumes':[bind(root/'config/router','/config',True)],'read_only':True},
-            'etcd':{**common,'image':ETCD_IMAGE,'user':'10002:10002','profiles':['database'],'command':['/usr/local/bin/etcd','--config-file=/config/etcd.json'],'ports':[settings['bind_ip']+':2379:2379',settings['bind_ip']+':2380:2380'],'volumes':[bind(root/'etcd','/etcd-data'),bind(root/'config/etcd','/config',True)],'read_only':True},
+            'etcd':{**common,'image':settings.get('images',{}).get('etcd',ETCD_IMAGE),'user':'10002:10002','profiles':['database'],'command':['/usr/local/bin/etcd','--config-file=/config/etcd.json'],'ports':[settings['bind_ip']+':2379:2379',settings['bind_ip']+':2380:2380'],'volumes':[bind(root/'etcd','/etcd-data'),bind(root/'config/etcd','/config',True)],'read_only':True},
             'database':{**common,'image':settings.get('images',{}).get('database',DATABASE_IMAGE),'user':'999:999','profiles':['database'],'ports':[settings['bind_ip']+':5432:5432',settings['bind_ip']+':8008:8008'],'volumes':[bind(root/'database','/var/lib/postgresql/data'),bind(root/'config/database','/config',True)],'devices':['/dev/watchdog0:/dev/watchdog0:rwm'],'stop_grace_period':'90s','read_only':True}}}
         atomic(root/'runtime/compose.json',compose)
     def _watchdog(self):
@@ -1492,6 +1516,10 @@ class Manager:
         if action!='stop' and self.state().get('configuration_pending'):raise Blocked('Interrupted configuration must be recovered before starting services')
         names=self.enabled() if service=='all' else [service]
         if action!='stop' and any(name not in self.enabled() for name in names):raise Blocked('This member is not an authorized database/quorum voter')
+        if action in ('start','restart') and 'database' in names:
+            prepared=database_runtime_settings(self.root,self.installed)
+            if prepared!=self.installed:
+                atomic(self.root/'config/installed.json',prepared);self.installed=prepared
         if action in ('start','restart') and 'etcd' in names:self.engine.compose(['up','-d','--no-deps','etcd'])
         if action in ('start','restart') and 'database' in names:self._watchdog();self._quorum()
         if action=='stop':self.engine.compose(['stop','--timeout','90',*names],timeout=120)
@@ -1823,10 +1851,11 @@ def install(args):
     if pointer.exists() and pointer.read_text().strip()!=str(root):raise Blocked('DATA_ROOT differs from the committed active pointer; use reviewed GUI storage migration')
     installed=load(root/'config/installed.json')
     local=installation_identity(root,local)
+    local=database_runtime_settings(root,local)
     private_dir(root);private_dir(root/'config');private_dir(root/'manager/jobs');private_dir(root/'manager/reviews')
     project='prthak-'+local['appliance_id'][:12];engine=Engine(root,project);engine.check()
     release=Path(args.release_root).resolve();build=root/'runtime/build'
-    for name in ('base','controller','database'):private_dir(build/name)
+    for name in ('base','controller','database','etcd'):private_dir(build/name)
     for name in ('controller','dashboard'):
         destination=build/'base'/name
         if destination.exists():shutil.rmtree(destination)
@@ -1840,11 +1869,13 @@ def install(args):
         shutil.copyfile(release/'deploy/appliance'/('Dockerfile.'+name),build/name/'Dockerfile');shutil.copyfile(release/'deploy/appliance'/filename,build/name/filename)
     shutil.copyfile(release/'deploy/appliance/rotation_helper.py',build/'database/rotation_helper.py')
     shutil.copyfile(release/'deploy/appliance/restore_helper.py',build/'database/restore_helper.py')
+    shutil.copyfile(release/'deploy/appliance/Dockerfile.etcd',build/'etcd/Dockerfile')
+    shutil.copyfile(release/'deploy/appliance/etcd-build-inputs.json',build/'etcd/etcd-build-inputs.json')
     engine.run(['build','-t','prthak-controller:appliance-base',str(build/'base')],timeout=1800)
-    for name,image in (('controller',CONTROLLER_IMAGE),('database',DATABASE_IMAGE)):engine.run(['build','-t',image,str(build/name)],timeout=1800)
-    engine.run(['pull',ETCD_IMAGE],timeout=600);engine.run(['pull',ROUTER_IMAGE],timeout=600)
+    for name,image in (('controller',CONTROLLER_IMAGE),('database',DATABASE_IMAGE),('etcd',ETCD_IMAGE)):engine.run(['build','-t',image,str(build/name)],timeout=1800)
+    engine.run(['pull',ROUTER_IMAGE],timeout=600)
     images={}
-    for name,image in (('controller',CONTROLLER_IMAGE),('database',DATABASE_IMAGE)):
+    for name,image in (('controller',CONTROLLER_IMAGE),('database',DATABASE_IMAGE),('etcd',ETCD_IMAGE)):
         identifier=engine.run(['image','inspect','--format','{{.Id}}',image]).strip()
         if not re.fullmatch(r'sha256:[a-f0-9]{64}',identifier):raise Blocked('A locally built immutable image identity is required')
         images[name]=identifier

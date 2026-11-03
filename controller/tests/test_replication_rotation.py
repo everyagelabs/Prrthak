@@ -27,7 +27,8 @@ class RotationClient:
         self.disconnect_phase = None
 
     def status(self):
-        return {"revision": self.revision, "health": {"status": "observed", "checked_at": self.lab["checked_at"] or now().timestamp(),
+        return {"revision": self.revision, "database_runtime_profile": bootstrap.DATABASE_RUNTIME_PROFILE,
+            "database_storage_compatible": True, "health": {"status": "observed", "checked_at": self.lab["checked_at"] or now().timestamp(),
             "quorum_healthy": True, "all_voters_healthy": self.lab["healthy"], "primary_count": 1, "database_ready": True,
             "nodes": [{"id": "node-" + str(i), "ip": "10.70.0." + str(i), "etcd_healthy": self.lab["healthy"], "postgres_running": True,
                        "role": "primary" if "node-" + str(i) == self.lab["primary"] else "replica"} for i in range(1, 4)]}}

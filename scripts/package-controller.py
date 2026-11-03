@@ -27,6 +27,8 @@ FIXED_FILES = (
     'deploy/verify_runtime_entrypoint.py',
     'deploy/appliance/Dockerfile.controller',
     'deploy/appliance/Dockerfile.database',
+    'deploy/appliance/Dockerfile.etcd',
+    'deploy/appliance/etcd-build-inputs.json',
     'deploy/appliance/node_manager.py',
     'deploy/appliance/controller_entrypoint.py',
     'deploy/appliance/bootstrap_roles.py',

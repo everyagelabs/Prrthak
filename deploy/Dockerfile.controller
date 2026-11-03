@@ -1,18 +1,14 @@
-# The official PostgreSQL 16 image supplies matching pg_dump/pg_restore clients.
-# Its Debian Trixie Python meets the controller's Python 3.10+ requirement.
+# The supported Alpine base avoids the unfixed Debian runtime package findings.
+# Official PostgreSQL 16 supplies matching pg_dump/pg_restore clients.
 # The controller entrypoint below does not run the inherited database entrypoint.
-FROM postgres:16-trixie@sha256:1beaa3084eee2676f20a9cd9928f0bf2c5bf674f8e49f81017912183d377c61c
-RUN apt-get update \
-    && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends python3 python3-venv openssl openssh-client ca-certificates \
-    && apt-mark manual postgresql-client-16 libpq5 tzdata \
-    && apt-get purge -y postgresql-16 \
-    && apt-get autoremove -y --purge \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd --uid 10001 --create-home segment \
-    && python3 -m venv /opt/prthak/venv \
-    && rm -f /usr/local/bin/gosu
-ENV PATH="/opt/prthak/venv/bin:/usr/lib/postgresql/16/bin:${PATH}" \
+FROM postgres:16.15-alpine3.24@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
+RUN rm -f /usr/local/bin/gosu \
+    && apk upgrade --no-cache \
+    && apk add --no-cache python3 py3-pip openssl openssh-client ca-certificates \
+    && addgroup -g 10001 segment \
+    && adduser -D -u 10001 -G segment segment \
+    && python3 -m venv /opt/prthak/venv
+ENV PATH="/opt/prthak/venv/bin:/usr/local/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PRTHAK_REQUIRE_INTEGRITY=1
@@ -20,7 +16,7 @@ WORKDIR /app
 COPY controller/requirements.txt /app/controller/requirements.txt
 RUN python3 -m pip install --no-cache-dir --disable-pip-version-check --upgrade 'pip==26.2.2' 'setuptools==84.1.0' \
     && python3 -m pip install --no-cache-dir --disable-pip-version-check -r controller/requirements.txt \
-    && python3 -c 'import cryptography, jwt, psycopg' \
+    && python3 -c 'import cryptography, jwt, psycopg, xmlsec, lxml.etree; from onelogin.saml2.auth import OneLogin_Saml2_Auth' \
     && pg_dump --version \
     && pg_restore --version \
     && ssh -V
@@ -33,6 +29,7 @@ COPY deploy/release-public-trust.json /opt/prthak-integrity/public-trust.json
 COPY controller/runtime_integrity.py /opt/prthak-integrity/runtime_verify.py
 COPY deploy/verify_runtime_entrypoint.py /opt/prthak-integrity/launch.py
 RUN python3 -m pip uninstall -y pip setuptools wheel \
+    && apk del --no-cache py3-pip \
     && python3 -c 'import importlib.util, controller.app, cryptography, jwt, psycopg, gunicorn; assert all(importlib.util.find_spec(name) is None for name in ("pip", "setuptools", "wheel"))' \
     && python3 -m controller --help > /dev/null
 RUN mkdir -p /data && chown segment:segment /data

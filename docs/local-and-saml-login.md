@@ -1,6 +1,6 @@
 # Local accounts and SAML SSO
 
-This is the operator guide for Local + SSO authentication in controller **0.15.0**, candidate **v0.15.0-pilot.2**. The current source supports **Local** accounts and **SSO** through either Microsoft Entra OIDC or SAML 2.0. Every account receives one of the same three application roles. The installer remains one command; all account, password and sign-in-provider configuration is done in the GUI.
+This is the operator guide for Local + SSO authentication in controller **0.16.0**, candidate **v0.16.0-pilot.1**. The current source supports **Local** accounts and **SSO** through either Microsoft Entra OIDC or SAML 2.0. Every account receives one of the same three application roles. The installer remains one command; all account, password and sign-in-provider configuration is done in the GUI.
 
 The [0.14 illustrated pilot guide](guide/prthak-pilot-0.14.0.html) remains an unchanged installation/operations baseline. Its older sign-in screens do not illustrate this addition. Current authentication steps are below and in [authentication](authentication.md). Native RHEL/Ubuntu, DC deployment and live organization IdP/MFA acceptance remain separate work.
 
@@ -24,7 +24,9 @@ The installer prepares protected platform configuration and displays the setup U
 
 The initial `admin` username receives **Super Admin** so it can create users and configure SSO. Until its password changes, the account has a restricted change-only session: it cannot read inventory or perform policy, user or platform operations. Closing a dialog or making a direct API request does not bypass that restriction.
 
-The default account is created **once, only when the retained account database is empty**. Its durable bootstrap marker prevents recreation after a restart, later deletion or SSO activation. Any retained account, including a disabled one, identifies an existing estate. Upgrading an existing Entra installation therefore does not add `admin`/`admin`; sign in with an existing enabled Super Admin and explicitly create a local account if required.
+This built-in account is permanent: it cannot be deleted, disabled, renamed, demoted or have its profile/sign-in source edited, even by another Super Admin. The GUI labels it **Built-in admin · Password changes only**. Its stable bootstrap identity is protected in the API as well as the GUI. Change its own password through **Account → Change password**, or have another Super Admin reset its temporary password. Session revocation remains available. These protections also apply to an existing account created by the earlier local bootstrap; an unrelated user named `admin` is not mistaken for that identity.
+
+The default account is created **once, only when the retained account database is empty**. Its durable bootstrap marker prevents recreation after a restart or SSO activation. A missing or disabled legacy account is never recreated or reactivated by this upgrade. Any retained account, including a disabled one, identifies an existing estate. Upgrading an existing Entra installation therefore does not add `admin`/`admin`; sign in with an existing enabled Super Admin and explicitly create a local account if required.
 
 ## Account sources and roles
 
