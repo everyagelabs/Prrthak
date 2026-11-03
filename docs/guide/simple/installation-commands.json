@@ -1,0 +1,206 @@
+{
+  "release": "0.16.0",
+  "controller": [
+    {
+      "title": "Prepare a fresh RHEL 9 controller",
+      "subtitle": "Command sheet 1 of 4  |  Choose this page OR the Ubuntu page",
+      "items": [
+        {
+          "kind": "text",
+          "value": "<b>Run on the new RHEL 9 controller VM.</b> Sign in with your Linux account and sudo access. Use a dedicated systemd VM with approved repositories, fixed IP/DNS, correct time and mounted persistent storage. Keep SELinux enabled. Your server team provides this login and SSH host identity. Run the dependency commands below inside the resulting SSH window."
+        },
+        {
+          "kind": "command",
+          "label": "On your laptop first - replace YOUR_USER and CONTROLLER_IP",
+          "value": "ssh YOUR_USER@CONTROLLER_IP"
+        },
+        {
+          "kind": "command",
+          "label": "RHEL 9 only - prepare Python and Docker",
+          "value": "set -eu\nsudo dnf install -y python3 tar curl ca-certificates dnf-plugins-core\nsudo dnf config-manager --add-repo \\\n  https://download.docker.com/linux/rhel/docker-ce.repo\nsudo dnf install -y docker-ce docker-ce-cli containerd.io \\\n  docker-buildx-plugin docker-compose-plugin\nsudo systemctl enable --now docker\npython3 --version\nsudo docker version\nsudo docker compose version"
+        },
+        {
+          "kind": "text",
+          "value": "Python must be <b>3.9 or newer</b>; Compose must be <b>v2</b>. If packages conflict with an existing container stack, stop and ask your server team. Do not remove working services to force installation."
+        },
+        {
+          "kind": "text",
+          "value": "Allow approved browser access to <b>8787</b> and agent access to <b>8788/8789</b>. Ask the network team to restrict Docker-published ports and private backends; do not assume ordinary host firewall rules alone protect published container ports. Native RHEL acceptance remains pending."
+        }
+      ]
+    },
+    {
+      "title": "Prepare a fresh Ubuntu controller",
+      "subtitle": "Command sheet 2 of 4  |  Ubuntu 26.04 only",
+      "items": [
+        {
+          "kind": "text",
+          "value": "<b>Run on the new Ubuntu 26.04 controller VM.</b> Skip this page if you used RHEL. Use a dedicated systemd VM, sudo access and approved download access. The commands add Docker's official package repository. Your server team provides this login and SSH host identity. Run the dependency commands below inside the resulting SSH window."
+        },
+        {
+          "kind": "command",
+          "label": "On your laptop first - replace YOUR_USER and CONTROLLER_IP",
+          "value": "ssh YOUR_USER@CONTROLLER_IP"
+        },
+        {
+          "kind": "command",
+          "label": "Ubuntu 26.04 only - prepare Python and Docker",
+          "value": "set -eu\nsudo apt-get update\nsudo apt-get install -y python3 tar ca-certificates curl\nsudo install -m 0755 -d /etc/apt/keyrings\nsudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg \\\n  -o /etc/apt/keyrings/docker.asc\nsudo chmod a+r /etc/apt/keyrings/docker.asc\n. /etc/os-release\nPRTHAK_DOCKER_ARCH=$(dpkg --print-architecture)\nsudo tee /etc/apt/sources.list.d/docker.sources >/dev/null <<EOF\nTypes: deb\nURIs: https://download.docker.com/linux/ubuntu\nSuites: $VERSION_CODENAME\nComponents: stable\nArchitectures: $PRTHAK_DOCKER_ARCH\nSigned-By: /etc/apt/keyrings/docker.asc\nEOF\nsudo apt-get update\nsudo apt-get install -y docker-ce docker-ce-cli containerd.io \\\n  docker-buildx-plugin docker-compose-plugin\nsudo systemctl enable --now docker\npython3 --version\nsudo docker version\nsudo docker compose version"
+        },
+        {
+          "kind": "text",
+          "value": "If an existing container installation conflicts, stop for review. Keep current firewall protection enabled. Restrict public <b>8787/8788/8789</b> and private backends through approved network/Docker controls. Native Ubuntu acceptance remains pending."
+        }
+      ]
+    },
+    {
+      "title": "Copy the controller release to the VM",
+      "subtitle": "Command sheet 3 of 4  |  Same process for RHEL and Ubuntu",
+      "items": [
+        {
+          "kind": "text",
+          "value": "First obtain <b>prthak-controller-0.16.0.tar.gz</b> from your release administrator. They must approve its signature using independently trusted release identity before transfer. A Git source ZIP is not this installation archive; no GitHub release download URL is assumed."
+        },
+        {
+          "kind": "command",
+          "label": "On your laptop - replace YOUR_USER and CONTROLLER_IP",
+          "value": "ssh YOUR_USER@CONTROLLER_IP"
+        },
+        {
+          "kind": "command",
+          "label": "In that controller SSH window - create a private upload folder",
+          "value": "mkdir -p \"$HOME/prthak-media\"\nchmod 0700 \"$HOME/prthak-media\""
+        },
+        {
+          "kind": "command",
+          "label": "In a SECOND laptop terminal - replace the file path and address",
+          "value": "scp \"/PATH/TO/prthak-controller-0.16.0.tar.gz\" \\\n  YOUR_USER@CONTROLLER_IP:prthak-media/"
+        },
+        {
+          "kind": "text",
+          "value": "An approved graphical file-transfer tool can do the same copy. Keep the original archive name. Return to the first SSH window for the next page. You do not need Git on the controller."
+        }
+      ]
+    },
+    {
+      "title": "Check the bytes and install the controller",
+      "subtitle": "Command sheet 4 of 4  |  Run in the controller SSH window",
+      "items": [
+        {
+          "kind": "text",
+          "value": "These checks apply only to the signed <b>0.16.0</b> archive supplied with this guide. The checksum detects changed bytes; it does not replace independent signature/publisher approval. Stop if the check does not print <b>OK</b>."
+        },
+        {
+          "kind": "command",
+          "label": "RHEL 9 or Ubuntu 26.04 - protect, check, extract and install",
+          "value": "set -eu\nsudo install -d -o root -g root -m 0700 /var/tmp/prthak-media\nsudo install -o root -g root -m 0600 \\\n  \"$HOME/prthak-media/prthak-controller-0.16.0.tar.gz\" \\\n  /var/tmp/prthak-media/prthak-controller-0.16.0.tar.gz\nPRTHAK_SUM=56742a9c77bbef803e6a17bfd048494070db37b8f35d19cdb21bd8995a2f92bb\nprintf '%s  %s\\n' \"$PRTHAK_SUM\" \\\n  /var/tmp/prthak-media/prthak-controller-0.16.0.tar.gz \\\n  | sudo sha256sum -c -\nsudo install -d -o root -g root -m 0755 /opt/prthak/releases\nsudo tar --no-same-owner --no-same-permissions \\\n  -xzf /var/tmp/prthak-media/prthak-controller-0.16.0.tar.gz \\\n  -C /opt/prthak/releases\ncd /opt/prthak/releases/prthak-controller-0.16.0\nsudo ./scripts/install-controller.sh --gui-setup\nsudo systemctl status prthak-appliance-manager.service --no-pager\nsudo docker ps"
+        },
+        {
+          "kind": "text",
+          "value": "Open the printed <b>HTTPS setup URL</b> after verifying certificate trust. A fresh empty installation uses <b>admin / admin</b> and forces a password change. Finish settings in the GUI; no manual .env file is needed. Initial setup uses SQLite; PostgreSQL HA is a separate later stage."
+        }
+      ]
+    }
+  ],
+  "agent": [
+    {
+      "title": "Prepare the endpoint and copy the files",
+      "subtitle": "Command sheet 1 of 4  |  RHEL 8/9 or Ubuntu 26.04",
+      "items": [
+        {
+          "kind": "text",
+          "value": "In the controller GUI, choose <b>Fleet setup · reusable</b> and tick <b>Install missing OS dependencies</b> BEFORE downloading the private setup. This authorizes the signed helper to install firewalld/network packages while preserving existing firewall activity. Existing UFW stays active; no firewall cutover occurs."
+        },
+        {
+          "kind": "command",
+          "label": "On your laptop - open the endpoint SSH session",
+          "value": "ssh YOUR_USER@SERVER_IP"
+        },
+        {
+          "kind": "command",
+          "label": "In the endpoint SSH window - prepare tar and a private upload folder",
+          "value": "set -eu\n. /etc/os-release\ncase \"$ID:$VERSION_ID\" in\n  rhel:8|rhel:8.*|rhel:9|rhel:9.*) sudo dnf install -y tar ;;\n  ubuntu:26.04)\n    sudo apt-get update\n    sudo apt-get install -y tar ;;\n  *) printf '%s\\n' 'Unsupported endpoint OS'; exit 1 ;;\nesac\nmkdir -p \"$HOME/prthak-media\"\nchmod 0700 \"$HOME/prthak-media\""
+        },
+        {
+          "kind": "command",
+          "label": "In a SECOND laptop terminal - copy the approved files",
+          "value": "scp \"/PATH/TO/prthak-agent-0.16.0-linux-amd64.tar.gz\" \\\n  \"/PATH/TO/prthak-agent-0.16.0-linux-arm64.tar.gz\" \\\n  \"/PATH/TO/prthak-agent-setup.json\" \\\n  YOUR_USER@SERVER_IP:prthak-media/"
+        },
+        {
+          "kind": "text",
+          "value": "The release administrator must verify both archive signatures before transfer. Copying both CPU archives lets the next page choose automatically; unused archive bytes are not installed. The GUI supplies JSON only, not the agent binary. Keep this setup private and use an unexpired profile."
+        }
+      ]
+    },
+    {
+      "title": "Select the CPU and check the agent package",
+      "subtitle": "Command sheet 2 of 4  |  Run in the endpoint SSH window",
+      "items": [
+        {
+          "kind": "text",
+          "value": "Use the exact <b>0.16.0</b> archives from this guide. The block detects the CPU, protects the matching package and checks its bytes. It also protects the private setup. Checksum approval is separate from the release administrator's signature/publisher approval."
+        },
+        {
+          "kind": "command",
+          "label": "Choose and verify automatically - same commands on RHEL and Ubuntu",
+          "value": "set -eu\ncase \"$(uname -m)\" in\n  x86_64|amd64)\n    PRTHAK_ARCH=amd64\n    PRTHAK_SUM=df54b6e023c10900d811e231986809c96c896bd97c73df0b72f3fd90bacc362b\n    ;;\n  aarch64|arm64)\n    PRTHAK_ARCH=arm64\n    PRTHAK_SUM=2a6bcb36a44e5d6514d2084beecc6416e79d4a4e3f274f8115c9924c70fa46fd\n    ;;\n  *) printf '%s\\n' 'Unsupported CPU'; exit 1 ;;\nesac\nPRTHAK_AGENT=\"prthak-agent-0.16.0-linux-$PRTHAK_ARCH\"\nsudo install -d -o root -g root -m 0700 /var/tmp/prthak-media\nsudo install -o root -g root -m 0600 \\\n  \"$HOME/prthak-media/$PRTHAK_AGENT.tar.gz\" \\\n  \"/var/tmp/prthak-media/$PRTHAK_AGENT.tar.gz\"\nprintf '%s  %s\\n' \"$PRTHAK_SUM\" \\\n  \"/var/tmp/prthak-media/$PRTHAK_AGENT.tar.gz\" \\\n  | sudo sha256sum -c -\nsudo install -o root -g root -m 0600 \\\n  \"$HOME/prthak-media/prthak-agent-setup.json\" \\\n  /root/prthak-agent-setup.json"
+        },
+        {
+          "kind": "text",
+          "value": "Continue only after the package check prints <b>OK</b>. Do not hand-edit the JSON or copy another endpoint's initialized keys/state. These commands are for a fresh agent installation; pending enforcement/recovery or an existing changed configuration needs its reviewed workflow."
+        }
+      ]
+    },
+    {
+      "title": "Extract and run the matching agent installer",
+      "subtitle": "Command sheet 3 of 4  |  Run in the endpoint SSH window",
+      "items": [
+        {
+          "kind": "text",
+          "value": "The block chooses the CPU and Linux family automatically. The setup file must already contain the approved <b>Install missing OS dependencies</b> choice. Genuine systemd, sudo access and working approved package repositories are required."
+        },
+        {
+          "kind": "command",
+          "label": "RHEL 8/9 or Ubuntu 26.04 - one matching installer per host",
+          "value": "set -eu\ncase \"$(uname -m)\" in\n  x86_64|amd64) PRTHAK_ARCH=amd64 ;;\n  aarch64|arm64) PRTHAK_ARCH=arm64 ;;\n  *) printf '%s\\n' 'Unsupported CPU'; exit 1 ;;\nesac\nPRTHAK_AGENT=\"prthak-agent-0.16.0-linux-$PRTHAK_ARCH\"\nsudo install -d -o root -g root -m 0755 /opt/prthak/agent-releases\nsudo tar --no-same-owner --no-same-permissions \\\n  -xzf \"/var/tmp/prthak-media/$PRTHAK_AGENT.tar.gz\" \\\n  -C /opt/prthak/agent-releases\ncd \"/opt/prthak/agent-releases/$PRTHAK_AGENT\"\n. /etc/os-release\ncase \"$ID\" in\n  rhel)\n    sudo ./scripts/install-agent-rhel.sh \\\n      --setup-file /root/prthak-agent-setup.json ;;\n  ubuntu)\n    sudo ./scripts/install-agent-ubuntu.sh \\\n      --setup-file /root/prthak-agent-setup.json ;;\n  *) printf '%s\\n' 'Unsupported endpoint OS'; exit 1 ;;\nesac"
+        },
+        {
+          "kind": "text",
+          "value": "Wait for the result. The signed preparation helper handles missing packages without activating firewalld or disabling UFW. The installer enables <b>seg-agent</b> only. Initial access-policy enforcement stays <b>off</b>. No Python, Go or Git installation is needed for the agent binary."
+        }
+      ]
+    },
+    {
+      "title": "Confirm the agent is connected",
+      "subtitle": "Command sheet 4 of 4  |  Check this endpoint and the dashboard",
+      "items": [
+        {
+          "kind": "command",
+          "label": "On the endpoint - service and recent status",
+          "value": "set +e\nsudo systemctl status seg-agent.service --no-pager\nsudo /usr/local/bin/seg-agent \\\n  --config /etc/seg-agent/config.json --status\nsudo journalctl -u seg-agent.service -n 40 --no-pager"
+        },
+        {
+          "kind": "text",
+          "value": "These read-only checks continue so you can see every result, even if one reports a problem. A nonzero status is not a pass; inspect the message and the dashboard receipt."
+        },
+        {
+          "kind": "text",
+          "value": "In the GUI, open <b>Servers</b> and search for this hostname/IP. Confirm a recent heartbeat, correct Linux version and discovered services. A completed file installation does not prove the first authenticated report arrived."
+        },
+        {
+          "kind": "text",
+          "value": "If missing, check the exact control/discovery URLs, approved <b>8788/8789</b> access, HTTPS CA trust, server clock and fleet-profile expiry. Ask your server team to review any preparation error; do not disable UFW, SELinux or certificate checks."
+        },
+        {
+          "kind": "text",
+          "value": "Reuse the same valid fleet setup for the other servers. Each creates its own identity. Assign the one DC/location and business tags in the dashboard. Start with monitoring; live firewall enforcement and default deny require separate guarded configuration."
+        },
+        {
+          "kind": "text",
+          "value": "These command sheets describe the current installers. Native RHEL/Ubuntu package hooks, firewalld/rollback and the real 20-server/DC deployment remain to be tested in your environment."
+        }
+      ]
+    }
+  ],
+  "created_by": "Pratik Srivastava"
+}

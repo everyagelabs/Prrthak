@@ -4,15 +4,15 @@
   "author": "Pratik Srivastava",
   "guides": {
     "controller": {
-      "pages": 9,
+      "pages": 13,
       "pdf": "output/pdf/prthak-controller-installation-simple.pdf",
-      "pdf_sha256": "a0a7237ae0f157f0d883fc29e6cf5fbe7005afa1742110e384a85151a6509ee0",
+      "pdf_sha256": "d99ee3ac776edb236f3179aeb682e69d27acf472b774b0a87104b97ec5cd2dc9",
       "html": "docs/guide/simple/controller-installation.html",
-      "html_sha256": "c7d64416654788bdacdd80f4756ecce646036e1b13cf8fa399ce1f60b4527439",
+      "html_sha256": "58f8fe38721f6aa89c1c64c2b1e73912dcf2f55ff8e309141108058a28b1dabb",
       "layout": [
         {
           "page": 1,
-          "bottom_points": 167.72,
+          "bottom_points": 152.1,
           "picture_area_points": 191660.0
         },
         {
@@ -22,7 +22,7 @@
         },
         {
           "page": 3,
-          "bottom_points": 164.9,
+          "bottom_points": 122.66,
           "picture_area_points": 127669.9
         },
         {
@@ -54,19 +54,39 @@
           "page": 9,
           "bottom_points": 127.57,
           "picture_area_points": 206449.6
+        },
+        {
+          "page": 10,
+          "bottom_points": 237.63,
+          "picture_area_points": 0
+        },
+        {
+          "page": 11,
+          "bottom_points": 85.49,
+          "picture_area_points": 0
+        },
+        {
+          "page": 12,
+          "bottom_points": 364.53,
+          "picture_area_points": 0
+        },
+        {
+          "page": 13,
+          "bottom_points": 273.31,
+          "picture_area_points": 0
         }
       ]
     },
     "agent": {
-      "pages": 9,
+      "pages": 13,
       "pdf": "output/pdf/prthak-agent-installation-simple.pdf",
-      "pdf_sha256": "b97314462519c51ab0c9921c797f675a1c8e6b93f14983d48c5bbb6d54172707",
+      "pdf_sha256": "59edd797556125a34bc22de719270dd02b85cf2d69c407040777c0d0f9a69141",
       "html": "docs/guide/simple/agent-installation.html",
-      "html_sha256": "4f376a426cef4515f999b9b34bb7c6647e0a64feca09ab92ac43577230715cf7",
+      "html_sha256": "1508e87cb920c502a3576470429ab863a0db3450d17e5189c0f67809f530b471",
       "layout": [
         {
           "page": 1,
-          "bottom_points": 185.71,
+          "bottom_points": 170.09,
           "picture_area_points": 176025.4
         },
         {
@@ -86,12 +106,12 @@
         },
         {
           "page": 5,
-          "bottom_points": 149.33,
+          "bottom_points": 107.09,
           "picture_area_points": 186891.2
         },
         {
           "page": 6,
-          "bottom_points": 165.56,
+          "bottom_points": 123.32,
           "picture_area_points": 82031.3
         },
         {
@@ -108,6 +128,26 @@
           "page": 9,
           "bottom_points": 127.85,
           "picture_area_points": 176025.4
+        },
+        {
+          "page": 10,
+          "bottom_points": 152.67,
+          "picture_area_points": 0
+        },
+        {
+          "page": 11,
+          "bottom_points": 183.31,
+          "picture_area_points": 0
+        },
+        {
+          "page": 12,
+          "bottom_points": 198.31,
+          "picture_area_points": 0
+        },
+        {
+          "page": 13,
+          "bottom_points": 295.35,
+          "picture_area_points": 0
         }
       ]
     }
@@ -239,51 +279,54 @@
       ]
     }
   ],
+  "command_sheets": {
+    "file": "installation-commands.json",
+    "sha256": "3335eca0a03fd377b484419d03d770264152068643ef2bbb7bf5d2e0501cdb7b",
+    "validation": "Installer/source and official package procedure review; shell syntax only. Native execution pending."
+  },
   "all_html_images_embedded": true,
   "historical_exports_unchanged": true,
   "native_os_acceptance_completed": false,
   "dc_deployment_completed": false,
   "visual_review_completed": true,
-  "visual_review_scope": "All 18 final rendered PDF pages; seven feature diagrams; both browser editions",
+  "visual_review_scope": "All 26 final rendered PDF pages; browser command-sheet navigation and embedded images",
   "automated_checks": {
     "controller": {
-      "pages": 9,
-      "author_footer_each_page": true,
-      "pdf_metadata_author": true,
+      "pages": 13,
+      "author_footers": 13,
       "text_bounds_valid": true,
+      "all_pages_rendered_and_reviewed": true,
       "replacement_glyphs": 0,
-      "matching_output_copy": true
+      "pdf_sha256": "d99ee3ac776edb236f3179aeb682e69d27acf472b774b0a87104b97ec5cd2dc9"
     },
     "agent": {
-      "pages": 9,
-      "author_footer_each_page": true,
-      "pdf_metadata_author": true,
+      "pages": 13,
+      "author_footers": 13,
       "text_bounds_valid": true,
+      "all_pages_rendered_and_reviewed": true,
       "replacement_glyphs": 0,
-      "matching_output_copy": true
+      "pdf_sha256": "59edd797556125a34bc22de719270dd02b85cf2d69c407040777c0d0f9a69141"
     },
-    "agent-installation": {
-      "embedded_images": 9,
-      "local_links_valid": true
-    },
-    "controller-installation": {
-      "embedded_images": 9,
-      "local_links_valid": true
-    },
-    "markdown_author_footers": 57,
-    "local_links_checked": 108,
-    "requirement_groups_covered": 47
+    "shell_blocks_syntax_checked": 14,
+    "no_install_commands_executed": true,
+    "archive_pins_verified": 3,
+    "markdown_author_footers": 58,
+    "local_links_checked": 120,
+    "historical_exports_unchanged": true
   },
   "browser_checks": {
     "controller": {
-      "pages": 9,
+      "pages": 13,
       "images_loaded": 9,
-      "horizontal_overflow": false
+      "horizontal_overflow": false,
+      "command_sheets": 4,
+      "anchor_navigation": "#step-10"
     },
     "agent": {
-      "pages": 9,
+      "pages": 13,
       "images_loaded": 9,
-      "horizontal_overflow": false
+      "horizontal_overflow": false,
+      "command_sheets": 4
     },
     "cross_guide_navigation_passed": true
   }

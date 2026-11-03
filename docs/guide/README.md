@@ -2,9 +2,9 @@
 
 ## Start here with the simple picture guides
 
-The **0.16 controller guide** has nine short picture-led steps: [open in a browser](simple/controller-installation.html) or [download PDF](simple/controller-installation.pdf). It separates Linux preparation from the one-command application install and explains first login, mandatory password change and GUI configuration.
+The **0.16 controller guide** has nine short picture-led steps plus four end-to-end command sheets: [open in a browser](simple/controller-installation.html) or [download PDF](simple/controller-installation.pdf). It supplies RHEL 9/Ubuntu dependency commands, transfer, checksum, extraction and installation steps, then explains first login, mandatory password change and GUI configuration.
 
-The **0.16 agent guide** has nine short picture-led steps: [open in a browser](simple/agent-installation.html) or [download PDF](simple/agent-installation.pdf). It shows one reusable fleet setup, matching CPU packages, the RHEL/Ubuntu commands, automatic inventory and central location/tag assignment.
+The **0.16 agent guide** has nine short picture-led steps plus four end-to-end command sheets: [open in a browser](simple/agent-installation.html) or [download PDF](simple/agent-installation.pdf). It shows one reusable fleet setup, safe dependency preparation, private transfer, matching CPU selection, RHEL/Ubuntu installation, status checks and central location/tag assignment. The [plain command runbook](../installation-commands.md) carries the same copyable commands.
 
 [Features in simple language](../features-in-simple-language.md) explains all 47 requirement groups through seven original diagrams. Every new guide page and the project Markdown documentation carry the requested author note. Existing historical PDF/HTML exports and signed release archives remain unchanged.
 

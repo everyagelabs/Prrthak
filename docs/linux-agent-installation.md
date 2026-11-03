@@ -1,6 +1,6 @@
 # RHEL and Ubuntu endpoint installers
 
-New to Linux? Use the [simple agent picture guide](guide/simple/agent-installation.pdf), or its [browser edition with copyable commands](guide/simple/agent-installation.html).
+New to Linux? Use the [simple agent picture guide](guide/simple/agent-installation.pdf), or its [browser edition with copyable commands](guide/simple/agent-installation.html). The [end-to-end command sheets](installation-commands.md#agent) include safe dependencies, private file transfer, CPU selection, checksum verification, extraction, installation and status checks.
 
 **Preferred 0.16 GUI flow:** download one private **Fleet setup** through **Install
 agent**, copy the same file to the servers as root-owned 0600 at `/root/prthak-agent-setup.json`, then run

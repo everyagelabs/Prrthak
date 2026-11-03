@@ -1,6 +1,6 @@
 # Install the controller from a verified release
 
-New to Linux? Use the [simple controller picture guide](guide/simple/controller-installation.pdf), or its [browser edition with copyable commands](guide/simple/controller-installation.html).
+New to Linux? Use the [simple controller picture guide](guide/simple/controller-installation.pdf), or its [browser edition with copyable commands](guide/simple/controller-installation.html). The [end-to-end command sheets](installation-commands.md#controller) include fresh RHEL 9/Ubuntu dependency installation, file transfer, verification, extraction and startup checks.
 
 **Preferred 0.16.0 pilot flow:** after prerequisites and verified extraction, run
 `sudo ./scripts/install-controller.sh --gui-setup` once and complete configuration

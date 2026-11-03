@@ -65,13 +65,14 @@ CONTROLLER = [
          pic('controller-preparation.png', 'Give this picture to your server team. These are starting allocations for 20 servers.', 370),
          text('<b>You need a prepared Linux server first.</b> Ask your server team to confirm the items in the picture. The app installer does not install Docker or Python.'),
          text('Use <b>RHEL 9 or Ubuntu 26.04</b>. Keep SELinux enabled. Reserve UID/GID 10001 for the dedicated application account.'),
-         text('The rest of this guide uses one installer command and the browser. Native OS and DC testing are still to be completed.')),
+         text('<b>Fresh machine:</b> complete the matching <b>command sheets on pages 10-13</b> first. They install the app; then continue at <b>Step 4</b> for browser login. Product settings stay in the GUI. Native OS and DC tests remain pending.')),
     page('Make three connections available', 'Controller guide  |  Step 2 of 9',
          pic('network-ports.png', 'These are destination TCP ports. Allow return traffic and restrict access to approved networks.', 380),
          text('Ask the network team for a <b>fixed IP, a stable name, correct time and trusted HTTPS</b>. The installer needs approved image/package download access; this is not an offline installer.'),
          text('The installer does not open host firewall ports. Keep backend, database and cluster ports private. An approved load balancer can provide different public URLs.')),
     page('Run the controller installer', 'Controller guide  |  Step 3 of 9',
          pic('controller-install.png', 'Installation illustration. Your server address and progress messages will differ.', 290),
+         text('<b>Already completed command sheets 10-13?</b> The controller is installed. Skip this installer command and go to <b>Step 4</b>. Otherwise run it only once after preparing dependencies and files.'),
          text('Ask your release/server team for <b>prthak-controller-0.16.0.tar.gz</b>. They must verify its signature, copy it privately and extract it into a protected root-owned folder using independently approved release trust.'),
          text('Open Terminal in that extracted folder. Paste the command below. If sudo asks for your Linux password, type it and press Enter; the password does not appear on screen.'),
          command('sudo ./scripts/install-controller.sh --gui-setup'),
@@ -114,7 +115,7 @@ AGENT = [
          pic('onboarding-flow.png', 'One reusable setup file; a separate private identity for every server.', 340),
          text('Use an installed HTTPS controller and sign in as <b>Admin or Super Admin</b>. Ask the server team to confirm each server is <b>RHEL 8/9 or Ubuntu 26.04</b>, with systemd and sudo/root access.'),
          text('Ask which CPU package to use: <b>x86_64 = AMD64</b>; <b>aarch64 = ARM64</b>. The same CPU binary supports both Linux families. The agent binary needs no separate Go, Python or Git setup; firewalld uses its normal OS packages.'),
-         text('Agents need outbound access to the approved <b>control 8788</b> and <b>discovery 8789</b> origins. There is no inbound agent management port.')),
+         text('Agents need outbound access to <b>8788/8789</b>, with no inbound management port. Complete <b>GUI Steps 1-4</b>, then <b>command sheets on pages 10-13</b>. After installation, return to <b>Step 7</b> to check the server.')),
     page('Create one reusable fleet setup', 'Agent guide  |  Step 2 of 9',
          pic('agent-setup-top.jpg', 'Current synthetic preview. Real setup downloads require the installed HTTPS controller.', 425, True),
          text('<b>Click Install agent.</b> Choose <b>Fleet setup · reusable</b>, enter a profile name and choose how long new enrollment is allowed.'),
@@ -132,11 +133,13 @@ AGENT = [
          text('Click <b>Download private setup file</b>. Keep <b>prthak-agent-setup.json</b> private. New installs stay monitor-only; installation does not authorize firewall changes.')),
     page('Copy the two items to each server', 'Agent guide  |  Step 5 of 9',
          pic('agent-copy.png', 'Use your approved private deployment or file-transfer tool. Do not email the enrollment file.', 375),
+         text('<b>For copy-and-paste commands:</b> follow command sheets <b>10-13</b>, then return to <b>Step 7</b>. The command sheets already perform installation; do not run it twice.'),
          text('Ask your release/server team for <b>prthak-agent-0.16.0-linux-amd64.tar.gz</b> or <b>prthak-agent-0.16.0-linux-arm64.tar.gz</b>. They must verify the signature with approved independent trust and extract the matching package into a protected <b>root-owned release folder</b> on each server.'),
          text('Copy the same private setup to <b>/root/prthak-agent-setup.json</b>, owned by root with permission <b>0600</b> (0400 is also accepted). The server team can set this in the transfer tool.'),
          text('Do not copy another server\'s existing agent credentials or state. Your deployment tool can repeat the transfer and installation across all 20 hosts.')),
     page('Run one matching installer', 'Agent guide  |  Step 6 of 9',
          pic('agent-install.png', 'Installation illustration. Run one matching command on each server, from its extracted release folder.', 250),
+         text('<b>If command sheets 10-13 are complete, skip to Step 7.</b> Use the matching command below only if you have not already run the installer.'),
          command('sudo ./scripts/install-agent-rhel.sh ' + chr(92) + '\n  --setup-file /root/prthak-agent-setup.json', 'RHEL 8 or 9'),
          command('sudo ./scripts/install-agent-ubuntu.sh ' + chr(92) + '\n  --setup-file /root/prthak-agent-setup.json', 'Ubuntu 26.04'),
          text('Choose <b>one</b> command for that server. Wait for the result. The installer starts the <b>seg-agent</b> systemd service; it does not start firewalld or disable UFW.'),
@@ -158,6 +161,11 @@ AGENT = [
          text('<b>No traffic history?</b> Enable temporary learning or optional per-port monitoring separately. Neither is collecting by default. Agent CPU/memory depends on the workload; profile it during the pilot.'),
          text('Native RHEL/Ubuntu firewall, rollback and DC testing remain to be performed in your environment.')),
 ]
+
+
+COMMAND_SHEETS = json.loads((GUIDE/'installation-commands.json').read_text())
+CONTROLLER.extend(COMMAND_SHEETS['controller'])
+AGENT.extend(COMMAND_SHEETS['agent'])
 
 
 def prepare_crops():
@@ -224,6 +232,8 @@ def render_pdf(kind, pages):
                 top = para(c, f'<b>{html.escape(item["label"])}</b>', top, size=10)-6
                 lines = item['value'].splitlines()
                 size, leading = 10.1, 15
+                if max(pdfmetrics.stringWidth(line, 'GuideMono', size) for line in lines) >= WIDTH-22:
+                    size = 9.3
                 height = leading*len(lines)+20
                 c.setFillColor(colors.HexColor('#f3f3f5')); c.roundRect(MARGIN, top-height, WIDTH, height, 5, fill=1, stroke=0)
                 c.setFont('GuideMono', size); c.setFillColor(colors.HexColor(INK))
@@ -265,7 +275,7 @@ def render_html(kind, pages):
     other = 'agent' if kind == 'controller' else 'controller'
     out = ['<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
            f'<title>Prṛthak {kind} installation guide</title><style>{CSS}</style></head><body>',
-           f'<nav><strong>Prṛthak {kind} guide</strong><a href="{kind}-installation.pdf">Download PDF</a><a href="{other}-installation.html">{other.title()} guide</a><a href="../../features-in-simple-language.md">Features explained</a><button type="button" onclick="window.print()">Print</button></nav>']
+           f'<nav><strong>Prṛthak {kind} guide</strong><a href="{kind}-installation.pdf">Download PDF</a><a href="#step-10">Dependency and install commands</a><a href="{other}-installation.html">{other.title()} guide</a><a href="../../features-in-simple-language.md">Features explained</a><button type="button" onclick="window.print()">Print</button></nav>']
     for index, data in enumerate(pages, 1):
         out.extend([f'<article id="step-{index}" aria-labelledby="title-{index}"><div class="brand"><strong>Prṛthak</strong><small>0.16 · {STAMP}<br>Airtel Payments Bank</small></div>',
                     f'<p class="eyebrow">{html.escape(data["subtitle"])}</p><h1 id="title-{index}">{html.escape(data["title"])}</h1>'])
@@ -285,11 +295,37 @@ def render_html(kind, pages):
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def render_command_markdown():
+    out = ['# End to end installation commands', '',
+           'Use these command sheets with the picture guides. Choose the section matching the machine you are using. Product configuration stays in the GUI; do not edit `.env` or agent JSON.', '',
+           '**These are commands for fresh dedicated Linux machines.** They have been checked against the installers and official package instructions, and checked for shell syntax. Native RHEL/Ubuntu execution and DC deployment remain pending. Existing installations need the documented upgrade/recovery procedure.', '',
+           'You need sudo/root, approved repositories, working DNS/time, the supplied signed pilot packages and independent release trust. Your infrastructure team must provide the approved network paths and persistent storage. Docker-published ports need approved upstream or Docker-aware filtering; ordinary UFW rules alone do not establish isolation.', '',
+           'The current private Git repository does not by itself supply built agent binaries. Use the signed pilot ZIP provided with the release. Its `payloads` folder contains the archives. The GUI downloads the private agent setup file separately.', '']
+    from html import unescape
+    import re
+    for kind in ('controller', 'agent'):
+        out += ['## '+kind.title(), '']
+        for data in COMMAND_SHEETS[kind]:
+            out += ['### '+data['title'], '']
+            for item in data['items']:
+                if item['kind']=='command':
+                    out += ['**'+item['label']+'**', '', '```sh', item['value'], '```', '']
+                elif item['kind']=='text':
+                    value=item['value'].replace('<b>','**').replace('</b>','**')
+                    out += [unescape(re.sub('<[^>]+>','',value)), '']
+    out += ['## Package sources and detailed procedures', '',
+            'Docker preparation follows the official [RHEL procedure](https://docs.docker.com/engine/install/rhel/) and [Ubuntu procedure](https://docs.docker.com/engine/install/ubuntu/). Package versions come from the configured approved repositories; the commands do not pin an untested host package release.', '',
+            'Read the [controller picture guide](guide/simple/controller-installation.pdf), [agent picture guide](guide/simple/agent-installation.pdf), [release trust procedure](controller-installation.md#obtain-and-verify-a-release) and [safe endpoint preparation](endpoint-discovery-and-preparation.md). Application settings, certificates, users and polling stay in the GUI.', '',
+            '<sub>Created by Pratik Srivastava</sub>', '']
+    (ROOT/'docs/installation-commands.md').write_text('\n'.join(out),encoding='utf-8')
+
+
 def main():
     GUIDE.mkdir(parents=True, exist_ok=True); PDF_OUTPUT.mkdir(parents=True, exist_ok=True)
     for name, file in [('Guide','DejaVuSans.ttf'),('GuideBold','DejaVuSans-Bold.ttf'),('GuideMono','DejaVuSansMono.ttf')]:
         pdfmetrics.registerFont(TTFont(name, str(FONTS/file)))
     crops = prepare_crops()
+    render_command_markdown()
     results = {}
     for kind, pages in [('controller', CONTROLLER), ('agent', AGENT)]:
         pdf, metrics = render_pdf(kind, pages)
@@ -304,6 +340,8 @@ def main():
                          'provenance': 'Actual v0.16 local synthetic preview captured through the in-app browser on 3 November 2026. No real endpoints, setup download or enforcement.'})
     receipt = {'edition': '0.16 documentation guides', 'created_on': '2026-11-03', 'author': 'Pratik Srivastava',
                'guides': results, 'captures': captures, 'pixel_preserving_crops': crops,
+               'command_sheets': {'file':'installation-commands.json','sha256':digest(GUIDE/'installation-commands.json'),
+                                  'validation':'Installer/source and official package procedure review; shell syntax only. Native execution pending.'},
                'all_html_images_embedded': True, 'historical_exports_unchanged': True,
                'native_os_acceptance_completed': False, 'dc_deployment_completed': False,
                'visual_review_completed': False}
