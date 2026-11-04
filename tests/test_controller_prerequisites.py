@@ -23,6 +23,7 @@ class FakeHost:
         self.rootless = False
         self.conflict = ''
         self.failure = ''
+        self.rpm_query_failure = 0
         self.compose_version = '2.39.0'
         self.gpg_output = None
         self.configuration_status = 'validated'
@@ -52,8 +53,15 @@ class FakeHost:
             if 'shadow-utils' in packages or 'passwd' in packages:
                 for value in ('useradd', 'groupadd', 'nologin'):
                     self.executable('/usr/bin/'+value)
+        elif name == 'rpm' and '-qa' in arguments:
+            output = '\n'.join(value for value in ('bash', 'rpm', 'python3', self.conflict) if value)
+            code = self.rpm_query_failure
         elif name == 'rpm' and '-q' in arguments:
-            output = self.conflict
+            # RPM counts missing names in a multi-package query's exit status.
+            requested = arguments[arguments.index('--qf')+2:]
+            output = '\n'.join(value if value == self.conflict else
+                               'package '+value+' is not installed' for value in requested)
+            code = sum(value != self.conflict for value in requested)
         elif name == 'dpkg-query':
             output = self.conflict+' ii ' if self.conflict else ''
         elif name == 'curl':
@@ -183,6 +191,28 @@ class ControllerPrerequisiteTests(unittest.TestCase):
         with self.assertRaisesRegex(bootstrap.Blocked, 'conflicts'): self.installer.prepare()
         self.assertNotIn('dnf', self.names()); self.assertNotIn('curl', self.names())
 
+    def test_each_rhel_container_conflict_blocks_before_mutations(self):
+        for package in bootstrap.CONFLICTS['rhel']:
+            with self.subTest(package=package):
+                self.host.conflict = package
+                self.host.calls.clear()
+                with self.assertRaisesRegex(bootstrap.Blocked, 'container stack conflicts'):
+                    self.installer.prepare()
+                self.assertNotIn('dnf', self.names())
+                self.assertNotIn('curl', self.names())
+                self.assertNotIn('systemctl', self.names())
+
+    def test_rhel_inventory_error_including_exit_one_blocks_before_mutations(self):
+        for code in (1, 2, 37):
+            with self.subTest(code=code):
+                self.host.rpm_query_failure = code
+                self.host.calls.clear()
+                with self.assertRaisesRegex(bootstrap.Blocked, 'package state'):
+                    self.installer.prepare()
+                self.assertNotIn('dnf', self.names())
+                self.assertNotIn('curl', self.names())
+                self.assertNotIn('systemctl', self.names())
+
     def test_package_database_query_error_blocks_before_dependency_mutations(self):
         for family, manager in (('rhel','rpm'),('ubuntu','dpkg-query')):
             with self.subTest(family=family):
@@ -311,3 +341,4 @@ class ControllerArgumentTests(unittest.TestCase):
 
 
 if __name__ == '__main__': unittest.main()
+

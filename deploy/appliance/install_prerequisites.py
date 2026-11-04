@@ -208,7 +208,9 @@ class Installer:
 
     def conflicts(self):
         if self.family == 'rhel':
-            output, code = self.call([self.tool('rpm'), '-q', '--qf', '%{NAME}\n', *CONFLICTS['rhel']], required=False)
+            # Named queries count absent packages as errors, even on a clean host.
+            # Inventory installed names instead; any inventory failure must block.
+            output, code = self.call([self.tool('rpm'), '-qa', '--qf', '%{NAME}\n'], required=False)
             found = set(output.splitlines()).intersection(CONFLICTS['rhel'])
         else:
             output, code = self.call([self.tool('dpkg-query'), '-W', '-f=${binary:Package} ${db:Status-Abbrev}\n',
@@ -216,7 +218,8 @@ class Installer:
             found = {line.split()[0].split(':')[0] for line in output.splitlines()
                      if len(line.split()) >= 2 and line.split()[1].startswith('ii')}
             found.intersection_update(CONFLICTS['ubuntu'])
-        if code not in (0, 1):
+        allowed_codes = (0,) if self.family == 'rhel' else (0, 1)
+        if code not in allowed_codes:
             raise Blocked('The existing package state could not be inspected; no package installation was attempted')
         if found:
             raise Blocked('An existing container stack conflicts with automatic Docker preparation; no packages were removed')
@@ -520,3 +523,4 @@ def main(argv=None):
 
 if __name__ == '__main__':
     raise SystemExit(main())
+
