@@ -31,6 +31,7 @@ FENCE_NAME = ".prthak-storage-fence.json"
 MARKER_TABLE = "runtime_deployment"
 META_TABLES = (
     "agent_polling_settings", "agent_polling_revisions",
+    "agent_upgrade_rollouts", "agent_upgrade_targets",
     "network_control_plans", "network_control_assignments",
     "firewall_counter_samples", "siem_settings", "siem_reviews", "siem_cursor", "siem_events", "siem_deliveries",
     "endpoint_configuration_reviews",
@@ -49,6 +50,7 @@ META_TABLES = (
 )
 TRAFFIC_TABLES = ("batches", "flows", "hit_batches", "hit_events", "hit_limits")
 SPECIAL_COLUMNS = {
+    "agent_upgrade_targets": ("id", "rollout_id", "server_id", "expires_at", "status", "data"),
     "network_control_plans": ("id", "created_at", "status", "data"),
     "siem_cursor": ("id", "sequence", "queued", "overflow", "last_dropped_sequence", "acknowledged", "stream_id"),
     "siem_events": ("sequence", "event_key", "batch_id", "configuration_revision", "binding", "destination", "data"),

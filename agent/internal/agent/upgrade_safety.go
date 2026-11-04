@@ -16,6 +16,9 @@ func CheckInstallerUpgradeSafety(c Config, descriptor int) error {
 	if runtime.GOOS != "linux" || os.Geteuid() != 0 || c.StateDir != "/var/lib/seg-agent" {
 		return errors.New("inherited installation lease requires the canonical native root installation")
 	}
+	if err := checkAgentUpgradeIdle(c); err != nil {
+		return err
+	}
 	return checkInstallerLeaseUnder(c, "", descriptor)
 }
 func checkInstallerLeaseUnder(c Config, root string, descriptor int) error {
@@ -51,6 +54,9 @@ func checkInstallerLeaseUnder(c Config, root string, descriptor int) error {
 // kills an agent/watchdog, creates a lock or changes firewall state. Installers
 // call it before any copy, then again after stopping the normal agent unit.
 func CheckEnforcementUpgradeSafety(c Config) error {
+	if err := checkAgentUpgradeIdle(c); err != nil {
+		return err
+	}
 	return checkEnforcementUpgradeSafety(c, false)
 }
 func checkEnforcementUpgradeSafety(c Config, ownsConfigurationLock bool, ownReview ...string) error {

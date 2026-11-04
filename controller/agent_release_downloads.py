@@ -78,6 +78,44 @@ def _release(architecture, version):
 _INVALID = (OSError, ValueError, TypeError, KeyError, InvalidSignature)
 
 
+def _verify_archive(release):
+    _, size, source, _, expected = release
+    checksum = hashlib.sha256()
+    remaining = size
+    while remaining and (chunk := source.read(min(65536, remaining))):
+        checksum.update(chunk)
+        remaining -= len(chunk)
+    if remaining or source.read(1) or checksum.hexdigest() != expected:
+        raise ValueError("Agent archive digest changed")
+    source.seek(0)
+
+
+def available_versions(*, verify=False, version=None):
+    result = []
+    for candidate in VERSIONS:
+        if version is not None and version != candidate:
+            continue
+        architectures = {}
+        for architecture in ARCHITECTURES:
+            try:
+                with _release(architecture, candidate) as release:
+                    if verify:
+                        _verify_archive(release)
+                    architectures[architecture] = {"bytes": release[1], "sha256": release[4]}
+            except _INVALID:
+                continue
+        if architectures:
+            result.append({"version": candidate, "architectures": architectures})
+    return result
+
+
+def _asset(release, asset):
+    filename, size, source, signature, _ = release
+    if asset == "signature":
+        return filename + ".signature.json", len(signature), io.BytesIO(signature)
+    return filename, size, source
+
+
 @contextmanager
 def _select_release(architecture):
     with ExitStack() as stack:
@@ -108,19 +146,24 @@ def open_download(architecture, asset):
     if architecture not in ARCHITECTURES or asset not in ("archive", "signature"):
         raise FileNotFoundError("Signed agent package is unavailable")
     with _select_release(architecture) as (_, release):
-        filename, size, source, signature, expected = release
         try:
-            digest = hashlib.sha256()
-            remaining = size
-            while remaining and (chunk := source.read(min(65536, remaining))):
-                digest.update(chunk)
-                remaining -= len(chunk)
-            if remaining or source.read(1) or digest.hexdigest() != expected:
-                raise ValueError("Agent archive digest changed")
-            source.seek(0)
+            _verify_archive(release)
         except _INVALID:
             raise FileNotFoundError("Signed agent package is unavailable") from None
-        if asset == "signature":
-            yield filename + ".signature.json", len(signature), io.BytesIO(signature)
-        else:
-            yield filename, size, source
+        yield _asset(release, asset)
+
+
+@contextmanager
+def open_exact_download(architecture, version, asset, expected):
+    """Verify the exact reviewed artifact and never substitute a fallback."""
+    if architecture not in ARCHITECTURES or version not in VERSIONS or asset not in ("archive", "signature"):
+        raise FileNotFoundError("Signed agent package is unavailable")
+    with ExitStack() as stack:
+        try:
+            release = stack.enter_context(_release(architecture, version))
+            if release[1] != expected["bytes"] or release[4] != expected["sha256"]:
+                raise ValueError("Signed agent package does not match the reviewed assignment")
+            _verify_archive(release)
+        except _INVALID:
+            raise FileNotFoundError("Signed agent package is unavailable") from None
+        yield _asset(release, asset)

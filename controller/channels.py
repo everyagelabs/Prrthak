@@ -5,6 +5,7 @@ appliances expose separate management, control and discovery TLS ports.
 """
 from urllib.parse import urlsplit, urlunsplit
 import os
+import re
 
 CONTROL = {
     "/api/v1/agent/network-control/check": "POST",
@@ -21,6 +22,7 @@ DISCOVERY = {path: "POST" for path in (
     "/api/v1/agent/enroll", "/api/v1/agent/certificates/recover",
     "/api/v1/agent/report", "/api/v1/agent/flows", "/api/v1/agent/hits",
 )}
+AGENT_UPGRADE = re.compile(r"/api/v1/agent/upgrade/([a-f0-9]{32})/(archive|signature)")
 
 
 def protected_origins(server):
@@ -59,6 +61,8 @@ def admitted(channel, method, path):
         return True
     if channel == "management":
         return not path.startswith("/api/v1/agent/")
+    if channel == "control" and method == "GET" and AGENT_UPGRADE.fullmatch(path):
+        return True
     return (CONTROL if channel == "control" else DISCOVERY).get(path) == method
 
 

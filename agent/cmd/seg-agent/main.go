@@ -54,7 +54,26 @@ func main() {
 	expireQuarantine := flag.String("expire-quarantine", "", "independent original-deadline quarantine expiry journal")
 	networkControlNonce := flag.String("network-control-nonce", "", "owned network-control journal generation")
 	restoreQuarantine := flag.String("restore-quarantine", "", "boot reconciliation of the remaining original quarantine lease")
+	runAgentUpgrade := flag.Bool("run-agent-upgrade", false, "fixed independent systemd agent release worker")
+	recoverAgentUpgrade := flag.Bool("recover-agent-upgrade", false, "restore interrupted agent release replacement before service start")
 	flag.Parse()
+	if *runAgentUpgrade || *recoverAgentUpgrade {
+		if flag.NFlag() != 1 || flag.NArg() != 0 {
+			log.Fatal("agent upgrade worker and boot recovery are exclusive fixed operating modes")
+		}
+		var err error
+		if *runAgentUpgrade {
+			ctx, cancel := context.WithTimeout(context.Background(), 140*time.Second)
+			defer cancel()
+			err = agent.RunAgentUpgrade(ctx)
+		} else {
+			err = agent.RecoverAgentUpgrade()
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if *rollbackNetworkControl != "" || *expireQuarantine != "" || *networkControlNonce != "" || *restoreQuarantine != "" {
 		invalid := flag.NArg() != 0
 		modes := 0

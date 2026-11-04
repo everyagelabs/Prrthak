@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -81,6 +82,8 @@ func (a *Agent) inventoryReport(ctx context.Context, now time.Time) Report {
 	}
 	if !a.Simulate {
 		report.ConfigurationState = configurationState(a.Config)
+		report.AgentArchitecture = runtime.GOARCH
+		report.AgentUpgrade = agentUpgradeOutcome(a.Config)
 	}
 	report.Capabilities = []string{LearningDiscoveryCapability, LearningAutoAllowCapability, PollingSettingsCapability, "managed_ipsets_v1", "signed_assignments_v1", LearningIPSetCapability}
 	report.Capabilities = append(report.Capabilities, FirewallCountersCapability)
@@ -94,6 +97,9 @@ func (a *Agent) inventoryReport(ctx context.Context, now time.Time) Report {
 		report.Capabilities = append(report.Capabilities, SourceBankPreparationCapability)
 		report.Capabilities = append(report.Capabilities, PolicyVerificationCapability)
 		report.Capabilities = append(report.Capabilities, "endpoint_configuration_v1", "approval_mode_proof_v1", HostDefaultDenyCapability)
+		if agentUpgradeAvailable(a.Config, false) {
+			report.Capabilities = append(report.Capabilities, AgentUpgradeCapability)
+		}
 	}
 	// Capability describes the signed typed protocol, independently of kernel
 	// availability. Simulation may discover ports but never claims native data.

@@ -27,6 +27,18 @@ The scripts have staged/mocked acceptance checks. Native RHEL 8/9 and Ubuntu hos
 
 After monitor-only enrollment, open **Firewall → Start firewalld** for a stopped endpoint or **Stop and disable** for a running endpoint. Request a fresh assessment and review the change. You can explicitly choose **Start firewalld with default allow** to permit otherwise unmatched inbound traffic. The upgraded agent applies the change locally after polling and verifies its outbound mTLS control connection before and after. These service actions need no controller-to-endpoint SSH access. See [workflow and limits](observability-and-network-controls.md).
 
+## Approve agent upgrades from the workspace
+
+Install the updater-enabled agent release once through the local signed installer. On an already enrolled host with the standard configuration path, run this from the verified, extracted agent archive:
+
+```sh
+sudo ./scripts/install-agent.sh ./seg-agent /etc/seg-agent/config.json
+```
+
+In **Platform settings → Agent upgrades**, a Super Admin selects a signed version staged on the controller and chooses endpoints, matching tags, or a saved location or DC. Review the concrete endpoint list and click **Schedule upgrade**. That action authorizes the listed agents to pull the package. Viewing packages or previewing endpoints has no scheduling effect.
+
+Each eligible agent uses its existing authenticated control connection, verifies the package with its pinned release key, and restarts under its local supervisor. The upgrade replaces the signed binary and runtime manifest while retaining endpoint enrollment and configuration. The worker verifies a fresh report from the requested version and restores the previous runtime when startup verification fails. Use the outcome list to check each endpoint. Releases that change the signed systemd unit use the local installer.
+
 ## Prepare the endpoint and release
 
 1. In **Install agent**, choose the CPU package and the common URLs/polling in the GUI. OS detection and required dependency preparation are automatic; no Linux-family choice or dependency checkbox is needed. Optional **Assess UFW and export migration data** starts off. The automatic command validates the kit and signed binary/unit before bounded native apt/dnf operations with journaled service-start suppression. It also accepts older schema-1/2 kits without rewriting them; the explicit local automatic command authorizes dependency preparation only, never enforcement. UFW and existing firewalld activity are preserved. Unsafe/uncertain overrides block preparation. RHEL needs approved repository/subscription access; UFW cutover remains separate. See [preparation safeguards and private receipt](endpoint-discovery-and-preparation.md).

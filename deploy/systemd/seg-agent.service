@@ -10,6 +10,9 @@ Type=simple
 User=root
 Group=root
 EnvironmentFile=-/etc/seg-agent/bootstrap.env
+# This fixed, signed helper restores only the installed runtime before startup
+# if the independently supervised upgrade was interrupted by a reboot.
+ExecStartPre=+/usr/share/seg-agent/upgrade-helper --recover-agent-upgrade
 ExecStart=/usr/local/bin/seg-agent --config /etc/seg-agent/config.json
 Restart=on-failure
 RestartSec=10s

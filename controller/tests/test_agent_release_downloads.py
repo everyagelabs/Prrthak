@@ -70,3 +70,21 @@ class AgentReleaseDownloadsTest(unittest.TestCase):
         self.assertEqual(releases.available(), {})
         with self.assertRaises(FileNotFoundError), releases.open_download("amd64", "signature"):
             self.fail("Untrusted signature must never open a stream")
+
+    def test_exact_rollout_lookup_pins_version_digest_and_size(self):
+        [manifest] = releases.available_versions(verify=True, version="0.18.0")
+        self.assertEqual(manifest["version"], "0.18.0")
+        expected = manifest["architectures"]["amd64"]
+        with releases.open_exact_download("amd64", "0.18.0", "archive", expected) as (_, _, source):
+            self.assertEqual(source.read(), self.contents)
+        for version, pin in (
+            ("0.18.1", expected),
+            ("0.18.0", {**expected, "sha256": "f" * 64}),
+            ("0.18.0", {**expected, "bytes": expected["bytes"] + 1}),
+        ):
+            with self.subTest(version=version, pin=pin), self.assertRaises(FileNotFoundError), releases.open_exact_download("amd64", version, "signature", pin):
+                self.fail("A signed sidecar from another reviewed artifact cannot be substituted")
+        self.archive.write_bytes(b"x" * len(self.contents))
+        self.assertEqual(releases.available_versions(verify=True, version="0.18.0"), [])
+        with self.assertRaises(FileNotFoundError), releases.open_exact_download("amd64", "0.18.0", "signature", expected):
+            self.fail("A changed archive cannot expose a sidecar as reviewed")

@@ -163,6 +163,11 @@ install -m 0644 "$PROJECT_ROOT/deploy/systemd/seg-agent.service" "$UNIT_DIR/seg-
 if [ -f "$RUNTIME_MANIFEST" ] && [ -f "$RELEASE_TRUST" ]; then
   install -d -m 0755 "$ROOT/usr/share/seg-agent"
   install -m 0644 "$RUNTIME_MANIFEST" "$ROOT/usr/share/seg-agent/runtime-integrity.json"
+  # Independent root worker survives upgrades of the running agent binary.
+  install -m 0755 "$BINARY_SOURCE" "$ROOT/usr/share/seg-agent/upgrade-helper.next"
+  mv -f -- "$ROOT/usr/share/seg-agent/upgrade-helper.next" "$ROOT/usr/share/seg-agent/upgrade-helper"
+  install -m 0644 "$RUNTIME_MANIFEST" "$ROOT/usr/share/seg-agent/upgrade-helper-integrity.json.next"
+  mv -f -- "$ROOT/usr/share/seg-agent/upgrade-helper-integrity.json.next" "$ROOT/usr/share/seg-agent/upgrade-helper-integrity.json"
   if [ ! -f "$ETC_DIR/release-public-trust.json" ]; then install -m 0644 "$RELEASE_TRUST" "$ETC_DIR/release-public-trust.json"; fi
 fi
 # Validate the exact effective installed configuration before starting a service.

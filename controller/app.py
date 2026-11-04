@@ -309,6 +309,17 @@ def handler_for(app):
             if isinstance(self.connection, ssl.SSLSocket):
                 self.send_header("Strict-Transport-Security", "max-age=31536000")
 
+        def stream_agent_package(self, filename, size, source):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            self.send_header("Content-Length", str(size))
+            self.send_header("Cache-Control", "no-store")
+            self.security_headers()
+            self.end_headers()
+            while chunk := source.read(65536):
+                self.wfile.write(chunk)
+
         def body(self):
             if self.headers.get("Transfer-Encoding"):
                 raise ValueError("Chunked request bodies are not supported")
@@ -493,11 +504,16 @@ def handler_for(app):
             if path.startswith("/api/v1/agent/"):
                 identity = app.endpoint_identity(self.connection, self.headers)
                 app.limits.check("agent", identity)
-                from .channels import CONTROL
-                if path in CONTROL:
+                from .channels import AGENT_UPGRADE, CONTROL
+                upgrade_path = AGENT_UPGRADE.fullmatch(path) if method == "GET" else None
+                if path in CONTROL or upgrade_path:
                     from .provider_lifecycle import assert_current
                     assert_current(app)
-                if path == "/api/v1/agent/certificates/renew" and method == "POST":
+                if upgrade_path:
+                    from .agent_upgrades import download
+                    with download(app, identity, *upgrade_path.groups()) as package:
+                        self.stream_agent_package(*package)
+                elif path == "/api/v1/agent/certificates/renew" and method == "POST":
                     from .endpoint_certificates import renew
                     self.response(200, renew(app.store, identity, self.connection.getpeercert(binary_form=True), self.body(), app.signer))
                 elif path == "/api/v1/agent/report" and method == "POST":
@@ -716,6 +732,21 @@ def handler_for(app):
                     return
                 if role != "super_admin":
                     raise PermissionError("Only Super Admin can manage platform storage, backups, cluster installation or joining")
+                if parts[:2] == ["platform", "agent-upgrades"]:
+                    from . import agent_upgrades
+                    if not isinstance(self.connection, ssl.SSLSocket):
+                        raise PermissionError("Agent upgrades require installed HTTPS")
+                    if len(parts) == 2 and method == "GET":
+                        self.response(200, agent_upgrades.listing(app, principal))
+                    elif parts[2:] == ["preview"] and method == "POST":
+                        self.response(201, agent_upgrades.preview(app, self.body(), principal))
+                    elif len(parts) == 3 and method == "GET":
+                        self.response(200, agent_upgrades.detail(app, parts[2], principal))
+                    elif len(parts) == 4 and parts[3] == "confirm" and method == "POST":
+                        self.response(202, agent_upgrades.confirm(app, parts[2], self.body(), principal))
+                    else:
+                        self.response(404, {"error": "Agent upgrade operation not found"})
+                    return
                 if parts[:2] == ["platform", "updates"]:
                     from .offline_updates import OfflineUpdates, read_chunk
                     if app.demo or not isinstance(self.connection, ssl.SSLSocket):
@@ -1361,16 +1392,8 @@ def handler_for(app):
             elif len(parts) == 4 and parts[:2] == ["agent-installation", "releases"] and method == "GET":
                 from .agent_release_downloads import open_download
                 try:
-                    with open_download(parts[2], parts[3]) as (filename, size, source):
-                        self.send_response(200)
-                        self.send_header("Content-Type", "application/octet-stream")
-                        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
-                        self.send_header("Content-Length", str(size))
-                        self.send_header("Cache-Control", "no-store")
-                        self.security_headers()
-                        self.end_headers()
-                        while chunk := source.read(65536):
-                            self.wfile.write(chunk)
+                    with open_download(parts[2], parts[3]) as package:
+                        self.stream_agent_package(*package)
                 except FileNotFoundError:
                     self.response(404, {"error": "This signed agent download is not available on this controller"})
             elif parts[:2] == ["agent-installation", "configuration"]:

@@ -24,6 +24,7 @@ function clearDashboardIdentity(){
   if(typeof clearPolicyDeployments==='function')clearPolicyDeployments();
   if(typeof platformClearCertificateUpload==='function')platformClearCertificateUpload();
   if(typeof platformClearUpdateState==='function')platformClearUpdateState();
+  if(typeof platformClearAgentUpgradeState==='function')platformClearAgentUpgradeState();
   if(typeof clearAgentInstallation==='function')clearAgentInstallation();
   accessAsync.generation++;accessAsync.users++;accessAsync.providers++;state.accessBusy=false;
   state.role='read_only';state.user=null;state.authType=null;state.authProvider='';state.passwordChangeRequired=false;state.csrfToken='';state.token='';
@@ -41,7 +42,7 @@ function applyDashboardIdentity(auth,{passwordChanged=false}={}){
   state.authProvider=auth.auth_provider||state.user?.provider||(state.authType==='session'?'entra':'');
   state.passwordChangeRequired=state.authProvider==='local'&&(auth.password_change_required===true||state.user?.password_change_required===true||previousLocalRequirement&&!passwordChanged);
   state.csrfToken=typeof auth.csrf_token==='string'?auth.csrf_token:'';state.authError='';
-  if(previousAccess!==accessIdentityKey()){accessAsync.generation++;accessAsync.users++;accessAsync.providers++;state.accessLoading=false;state.accessBusy=false;state.accessProviders=null;state.accessUsers=[];state.accessLoaded=false;if(typeof platformClearUpdateState==='function')platformClearUpdateState();}
+  if(previousAccess!==accessIdentityKey()){accessAsync.generation++;accessAsync.users++;accessAsync.providers++;state.accessLoading=false;state.accessBusy=false;state.accessProviders=null;state.accessUsers=[];state.accessLoaded=false;if(typeof platformClearUpdateState==='function')platformClearUpdateState();if(typeof platformClearAgentUpgradeState==='function')platformClearAgentUpgradeState();}
   if(previousMetadataIdentity!==null&&previousMetadataIdentity!==metadataIdentity())metadataClearIdentity();
   if(previousIdentity!==null&&previousIdentity!==platformCertificateUploadIdentity())platformClearCertificateUpload();
   if(previousAgentIdentity!==null&&previousAgentIdentity!==agentInstallationIdentity())clearAgentInstallation();

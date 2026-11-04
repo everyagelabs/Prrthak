@@ -41,6 +41,7 @@ SHA = re.compile(r"[a-f0-9]{64}")
 TERMINAL = frozenset(("completed", "cancelled"))
 IMMUTABLE = ("audit", "bundle_history", "policy_revisions", "service_group_revisions", "managed_outcomes", "learning_allow_history")
 CURRENT = ("network_control_plans", "network_control_assignments", "siem_settings", "siem_reviews", "siem_cursor", "siem_events", "siem_deliveries", "auth_users", "auth_local_attempts", "maintenance_backups", "managed_rollouts", "learning_allow_hosts", "learning_allow_policies", "notification_settings", "notification_revisions", "notification_deliveries", "endpoint_configuration_reviews", "hit_monitors", "hit_monitor_targets", "policy_deployments", "policy_deployment_targets")
+CURRENT += ("agent_upgrade_rollouts", "agent_upgrade_targets")
 SAFETY_TABLES = (*IMMUTABLE, *CURRENT, "managed_approvals", "servers", "retired_endpoints", "maintenance_settings", "tokens", "firewall_changes")
 _OWNER = secrets.token_hex(16)
 _ADMITTED = set()
@@ -359,6 +360,8 @@ def _merge_immutable(db, table, incoming):
 def _overlay_safety(db, safety, recovery_id):
     """High-water authority state wins over the selected older business data."""
     from .managed import record_revision
+    from .agent_upgrades import initialize as initialize_agent_upgrades, invalidate_after_recovery as invalidate_agent_upgrades
+    initialize_agent_upgrades(db)
     for table in IMMUTABLE:
         _merge_immutable(db, table, safety[table])
     for table in CURRENT:
@@ -367,6 +370,7 @@ def _overlay_safety(db, safety, recovery_id):
     invalidate_network_control(None, db)
     from .firewall_activation import invalidate_after_recovery as invalidate_firewall_activation
     invalidate_firewall_activation(None, db)
+    invalidate_agent_upgrades(Store, db)
     # Counter values are telemetry, not durable enforcement authority. A fresh
     # endpoint sample establishes a new baseline after recovery.
     db.execute("DELETE FROM firewall_counter_samples")

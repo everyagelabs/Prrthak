@@ -60,6 +60,10 @@ func runtimeRead(path string, limit int64, owner uint32) ([]byte, error) {
 }
 
 func verifyRuntimeRelease(manifestRaw, trustRaw []byte, read func(string) ([]byte, error)) error {
+	return verifyRuntimeReleaseVersion(manifestRaw, trustRaw, Version, read)
+}
+
+func verifyRuntimeReleaseVersion(manifestRaw, trustRaw []byte, version string, read func(string) ([]byte, error)) error {
 	var signed struct {
 		Algorithm string `json:"algorithm"`
 		KeyID     string `json:"key_id"`
@@ -96,7 +100,7 @@ func verifyRuntimeRelease(manifestRaw, trustRaw []byte, read func(string) ([]byt
 			Files   map[string]runtimeFile `json:"files"`
 		} `json:"manifest"`
 	}
-	if json.Unmarshal(payload, &document) != nil || document.Domain != "prthak-package-manifest-v1" || document.Manifest.Kind != "prthak-agent-runtime-v1" || document.Manifest.Version != Version || len(document.Manifest.Files) != 2 {
+	if json.Unmarshal(payload, &document) != nil || document.Domain != "prthak-package-manifest-v1" || document.Manifest.Kind != "prthak-agent-runtime-v1" || document.Manifest.Version != version || len(document.Manifest.Files) != 2 {
 		return errors.New("runtime manifest has another domain, version or file scope")
 	}
 	for _, path := range []string{"/usr/local/bin/seg-agent", "/etc/systemd/system/seg-agent.service"} {

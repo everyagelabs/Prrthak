@@ -277,6 +277,9 @@ func (a *Agent) Sync(ctx context.Context) error {
 	if e := a.report(ctx); e != nil {
 		return e
 	}
+	if a.agentUpgradeFenced() {
+		return nil
+	}
 	// A candidate daemon must report successfully before its independent local
 	// configuration transaction can commit. No firewall authority runs in that window.
 	if configurationMutationBlocked(a.Config) {
@@ -297,6 +300,12 @@ func (a *Agent) Sync(ctx context.Context) error {
 		}
 		if e := a.validateAssignmentReplay(a.State.Policy, time.Now().UTC()); e != nil {
 			return e
+		}
+		if handled, err := a.processAgentUpgrade(ctx, a.State.Policy); handled || err != nil {
+			if reportErr := a.report(ctx); reportErr != nil {
+				return reportErr
+			}
+			return err
 		}
 		for _, process := range []func(context.Context, *Policy) (bool, error){a.processFirewallActivation, a.processNetworkControls} {
 			if handled, err := process(ctx, a.State.Policy); handled {
@@ -656,6 +665,11 @@ func (a *Agent) LearningTick(ctx context.Context, now time.Time) error {
 }
 func (a *Agent) Run(ctx context.Context, once bool) error {
 	_ = a.writeReadyStatus("enrollment_pending", nil)
+	// A newly launched binary proves its authenticated report before any
+	// startup recovery or policy/capture tick can modify the firewall.
+	if !a.awaitAgentUpgradeCommit(ctx) {
+		return nil
+	}
 	for attempt := 0; ; attempt++ {
 		if e := a.Startup(ctx); e != nil {
 			_ = a.writeReadyStatus("enrollment_retrying", e)
@@ -702,6 +716,14 @@ func (a *Agent) Run(ctx context.Context, once bool) error {
 	defer ticker.Stop()
 	for {
 		now := time.Now().UTC()
+		if a.agentUpgradeFenced() {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-ticker.C:
+				continue
+			}
+		}
 		fastChanged := a.fastDiscoveryTick(ctx, a.currentTime())
 		if !now.Before(nextSync) {
 			if e := a.Sync(ctx); e != nil {
@@ -719,6 +741,9 @@ func (a *Agent) Run(ctx context.Context, once bool) error {
 			}
 			nextSync = now.Add(delay)
 			fastChanged = false // Sync already reports the exact pending scan.
+		}
+		if a.agentUpgradeFenced() {
+			continue
 		}
 		if requested, e := a.consumeDiscoveryRequest(); e != nil {
 			log.Printf("manual service discovery request: %v", e)

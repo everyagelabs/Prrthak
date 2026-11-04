@@ -40,7 +40,7 @@ async function workspace(view='overview',options={}) {
  context.apiResponses=options.responses || {};
  context.FormData=class{constructor(form){this.values=form.values || {};}get(key){return this.values[key] ?? null;}getAll(key){const value=this.values[key];return Array.isArray(value)?value:value==null?[]:[value];}};
  vm.createContext(context);
- for(const file of ['locations.js','filters.js','topology.js','routing.js','services.js','firewall.js','firewall-page.js','managed.js','managed-page.js','default-deny-page.js','locations-page.js','metadata-page.js','access-page.js','server-lifecycle-page.js','service-groups-page.js','learning-page.js','hit-monitoring-page.js','recommendations.js','approvals-page.js','recommendations-page.js','platform.js','settings-setup-page.js','settings-page.js','settings-ha-page.js','settings-appliance-page.js','settings-certificates-page.js','settings-agents-page.js','settings-notifications-page.js','settings-siem-page.js','settings-signing-page.js','firewall-counters-page.js','firewall-activation-page.js','network-control-page.js','settings-endpoint-certificates-page.js','settings-recovery-page.js','settings-application-port-page.js','settings-updates-page.js','policy-catalogue-page.js','alerts-catalogue-page.js','account-menu.js','risk-page.js','agent-installation.js','traffic-catalogue-page.js','audit-catalogue-page.js','source-banks-page.js','policy-deployments-page.js','app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context,{filename:file});
+ for(const file of ['locations.js','filters.js','topology.js','routing.js','services.js','firewall.js','firewall-page.js','managed.js','managed-page.js','default-deny-page.js','locations-page.js','metadata-page.js','access-page.js','server-lifecycle-page.js','service-groups-page.js','learning-page.js','hit-monitoring-page.js','recommendations.js','approvals-page.js','recommendations-page.js','platform.js','settings-setup-page.js','settings-page.js','settings-ha-page.js','settings-appliance-page.js','settings-certificates-page.js','settings-agents-page.js','settings-notifications-page.js','settings-siem-page.js','settings-signing-page.js','firewall-counters-page.js','firewall-activation-page.js','network-control-page.js','settings-endpoint-certificates-page.js','settings-recovery-page.js','settings-application-port-page.js','settings-updates-page.js','settings-agent-upgrades-page.js','policy-catalogue-page.js','alerts-catalogue-page.js','account-menu.js','risk-page.js','agent-installation.js','traffic-catalogue-page.js','audit-catalogue-page.js','source-banks-page.js','policy-deployments-page.js','app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context,{filename:file});
  await new Promise(setImmediate);
  const run=script=>vm.runInContext(script,context);
  async function click(action,dataset={}){context.testButton={disabled:false,dataset:{action,...dataset}};return run('handleAction({target:{closest:()=>testButton}})');}
@@ -1729,4 +1729,105 @@ test('certificate names can be edited and regeneration opens a review with the c
  assertCookieMutation(request);
  assert.match(env.element('#modal-content').innerHTML, /CN=Existing CA/);
  assert.equal(mutations(env).length, 1);
+});
+
+const agentUpgradeAPI = '/api/v1/platform/agent-upgrades';
+const agentUpgradeId = 'd'.repeat(32);
+const agentUpgradeVersion = '0.19.0';
+const agentUpgradeTarget = {server_id: 'host-1', hostname: 'api <one>', previous_version: '0.18.5', architecture: 'amd64', status: 'queued'};
+const agentUpgradeReview = overrides => ({
+  id: agentUpgradeId, version: agentUpgradeVersion, digest: 'e'.repeat(64), status: 'reviewed',
+  created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 60000).toISOString(),
+  target_count: 1, targets: [agentUpgradeTarget], exclusions: [], outcomes: {}, can_apply: true, ...overrides,
+});
+const agentUpgradeIndex = rollouts => ({capability: 'agent_pull_upgrade_v1', releases: [{
+  version: agentUpgradeVersion, architectures: {amd64: {bytes: 1234, sha256: 'a'.repeat(64)}},
+}], rollouts});
+
+test('Agent upgrades review exact enrolled targets and send only the reviewed digest when explicitly scheduled', async () => {
+  const review = agentUpgradeReview({exclusions: [{server_id: 'host-2', hostname: 'legacy <two>', reason: 'Updater required'}]});
+  let active = null;
+  let finishScheduling;
+  const scheduling = new Promise(resolve => { finishScheduling = resolve; });
+  const env = await workspace('settings', {mode: 'entra', responses: {
+    [agentUpgradeAPI]: () => agentUpgradeIndex(active ? [active] : [review]),
+    ['POST ' + agentUpgradeAPI + '/preview']: review,
+    ['POST ' + agentUpgradeAPI + '/' + agentUpgradeId + '/confirm']: async () => {
+      await scheduling;
+      return active = {...review, status: 'completed', can_apply: false, confirmed_at: new Date().toISOString(), outcomes: {applied: 1},
+        targets: [{...agentUpgradeTarget, status: 'applied', reported_version: agentUpgradeVersion}]};
+    },
+    [agentUpgradeAPI + '/' + agentUpgradeId]: () => active,
+  }});
+  await env.click('platform-tab', {tab: 'agent-upgrades'});
+  await new Promise(setImmediate);
+  const html = env.element('#view-content').innerHTML;
+  assert.match(html, /Agents begin only after a Super Admin schedules/);
+  assert.match(html, /0\.19\.0 · amd64/);
+  assert.doesNotMatch(html, /View outcomes/);
+  const form = renderedForm(env, 'platform-agent-upgrade-scope-form', {
+    version: agentUpgradeVersion, scope: 'endpoints', upgrade_endpoint_ids: ['host-1', 'host-1'], tags: 'ignored=value',
+  });
+  await submitRendered(env, form);
+  const modal = env.element('#modal-content').innerHTML;
+  assert.match(modal, /api &lt;one&gt;/);
+  assert.match(modal, /legacy &lt;two&gt;/);
+  assert.match(modal, /Updater required/);
+  assert.match(modal, /Schedule upgrade/);
+  assert.doesNotMatch(modal, /confirmation_phrase/);
+  let writes = mutations(env).filter(request => request.url.startsWith(agentUpgradeAPI));
+  assert.deepEqual(writes.map(request => request.url), [agentUpgradeAPI + '/preview']);
+  assert.deepEqual(JSON.parse(writes[0].options.body), {version: agentUpgradeVersion, server_ids: ['host-1']});
+  assertCookieMutation(writes[0]);
+  const confirmation = renderedForm(env, 'platform-agent-upgrade-confirm-form');
+  const first = submitRendered(env, confirmation);
+  await submitRendered(env, confirmation);
+  finishScheduling();
+  await first;
+  writes = mutations(env).filter(request => request.url.startsWith(agentUpgradeAPI));
+  assert.deepEqual(writes.map(request => request.url), [agentUpgradeAPI + '/preview', agentUpgradeAPI + '/' + agentUpgradeId + '/confirm']);
+  assert.deepEqual(JSON.parse(writes[1].options.body), {digest: review.digest});
+  assertCookieMutation(writes[1]);
+  const history = env.element('#view-content').innerHTML;
+  assert.match(history, /Endpoint outcomes/);
+  assert.match(history, /Applied/);
+  assert.match(history, /Reported version/);
+});
+
+test('Agent upgrades scope by tags or saved location and skip the schedule action for an empty or expired review', async () => {
+  const cases = [
+    {
+      fields: {scope: 'tags', tags: 'application=billing, owner=finance', upgrade_endpoint_ids: ['ignored']},
+      selector: {application: 'billing', owner: 'finance'},
+      plan: agentUpgradeReview({can_apply: false, target_count: 0, targets: []}),
+    },
+    {
+      fields: {scope: 'location', location_id: location.id},
+      selector: {location_id: location.id},
+      plan: agentUpgradeReview({expires_at: new Date(Date.now() - 1000).toISOString()}),
+    },
+  ];
+  for (const {fields, selector, plan} of cases) {
+    const env = await workspace('settings', {mode: 'entra', responses: {
+      [agentUpgradeAPI]: agentUpgradeIndex([]),
+      ['POST ' + agentUpgradeAPI + '/preview']: plan,
+    }});
+    await env.click('platform-tab', {tab: 'agent-upgrades'});
+    await new Promise(setImmediate);
+    await submitRendered(env, renderedForm(env, 'platform-agent-upgrade-scope-form', {version: agentUpgradeVersion, ...fields}));
+    assert.match(env.element('#modal-title').textContent, /Review agent upgrade/);
+    assert.doesNotMatch(env.element('#modal-content').innerHTML, /Schedule upgrade/);
+    const writes = mutations(env).filter(request => request.url.startsWith(agentUpgradeAPI));
+    assert.deepEqual(writes.map(request => JSON.parse(request.options.body)), [{version: agentUpgradeVersion, selector}]);
+  }
+});
+
+test('Agent upgrades withhold scheduling from demo, token and non-Super Admin identities', async () => {
+  for (const options of [{mode:'demo'}, {mode:'tokens'}, {mode:'entra',role:'admin'}]) {
+    const env = await workspace('settings', options);
+    await env.click('platform-tab', {tab: 'agent-upgrades'});
+    await env.click('platform-agent-upgrades-refresh');
+    assert.doesNotMatch(env.element('#view-content').innerHTML, /platform-agent-upgrade-scope-form/);
+    assert.equal(env.requests.some(request => request.url.startsWith(agentUpgradeAPI)), false);
+  }
 });

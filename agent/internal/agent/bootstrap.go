@@ -14,6 +14,7 @@ import (
 )
 
 type ReadyStatus struct {
+	AgentVersion  string    `json:"agent_version,omitempty"`
 	Status        string    `json:"status"`
 	ServerID      string    `json:"server_id,omitempty"`
 	Hostname      string    `json:"hostname,omitempty"`
@@ -181,9 +182,13 @@ func (a *Agent) writeReadyStatus(status string, err error) error {
 	if a.Simulate && a.SimulateHostname != "" {
 		host = a.SimulateHostname
 	}
-	record := ReadyStatus{Status: status, Hostname: host, ControllerURL: a.Config.ControllerURL, UpdatedAt: time.Now().UTC(), Generation: a.Generation}
+	record := ReadyStatus{Status: status, Hostname: host, ControllerURL: a.Config.ControllerURL, UpdatedAt: time.Now().UTC(), Generation: a.Generation, AgentVersion: Version}
 	if a.State.Policy != nil {
 		record.ServerID = a.State.Policy.ServerID
+	} else if a.Client != nil && a.Client.identity != nil {
+		if certificate := a.Client.identity.Load(); certificate != nil && certificate.Leaf != nil {
+			record.ServerID = certificate.Leaf.Subject.CommonName
+		}
 	}
 	if err != nil {
 		record.Error = err.Error()

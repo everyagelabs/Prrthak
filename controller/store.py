@@ -179,6 +179,8 @@ class Store:
             initialize_learning_targets(self, db)
             from .agent_settings import initialize as initialize_agent_settings
             initialize_agent_settings(db)
+            from .agent_upgrades import initialize as initialize_agent_upgrades
+            initialize_agent_upgrades(db)
             from .endpoint_configuration import initialize as initialize_endpoint_configuration
             initialize_endpoint_configuration(db)
             from .hit_monitoring import initialize as initialize_hit_monitoring
@@ -822,6 +824,8 @@ class Store:
             previous_apply_status = server.get("apply_status", "preview")
             server.update({"hostname": hostname, "ips": ips, "last_seen": stamp(), "applied_version": applied_version, "apply_status": apply_status, "collector_status": collector_status, "ufw_active": bool(value.get("ufw_active", False)), "discovery_performed": discovery_performed, "control_interval_seconds": control_interval})
             server.update({"agent_version": agent_version, "capabilities": capabilities})
+            from .agent_upgrades import report as report_agent_upgrade
+            report_agent_upgrade(self, db, server, value)
             if fast_receipt is not None:
                 server["fast_discovery"] = fast_receipt
             elif "fast_listener_discovery_v1" not in capabilities:
@@ -1026,6 +1030,10 @@ class Store:
         activation = activation_assignment(self, db, server)
         if activation is not None:
             result["firewall_activation"] = activation
+        from .agent_upgrades import assignment as upgrade_assignment
+        upgrade = upgrade_assignment(db, server)
+        if upgrade is not None:
+            result["agent_upgrade"] = upgrade
         return result
 
     def assignment(self, identifier):

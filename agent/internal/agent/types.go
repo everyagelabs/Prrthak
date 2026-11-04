@@ -33,6 +33,7 @@ type Session struct {
 	StoppedAt        *time.Time `json:"stopped_at,omitempty"`
 }
 type Policy struct {
+	AgentUpgrade          *AgentUpgradeAssignment          `json:"agent_upgrade,omitempty"`
 	EgressBundle          *EgressAssignment                `json:"egress_bundle,omitempty"`
 	Quarantine            *QuarantineAssignment            `json:"quarantine,omitempty"`
 	FirewallActivation    *FirewallActivationAssignment    `json:"firewall_activation,omitempty"`
@@ -77,6 +78,8 @@ type Coverage struct {
 	Error         string     `json:"error,omitempty"`
 }
 type Report struct {
+	AgentUpgrade                *AgentUpgradeReport          `json:"agent_upgrade,omitempty"`
+	AgentArchitecture           string                       `json:"agent_architecture,omitempty"`
 	NetworkControl              *NetworkControlReport        `json:"network_control,omitempty"`
 	FirewallActivation          *FirewallActivationReport    `json:"firewall_activation,omitempty"`
 	FirewallCounters            *FirewallCounterSnapshot     `json:"firewall_counters,omitempty"`

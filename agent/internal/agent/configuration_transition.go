@@ -297,6 +297,10 @@ func readConfigurationPublic(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 func atomicPrivateFile(path string, data []byte) error {
+	return atomicProtectedFile(path, data, 0600)
+}
+
+func atomicProtectedFile(path string, data []byte, mode os.FileMode) error {
 	if info, err := os.Lstat(path); err == nil {
 		if !info.Mode().IsRegular() || info.Mode().Perm()&0022 != 0 {
 			return errors.New("configuration artifact is not a protected regular file")
@@ -310,7 +314,7 @@ func atomicPrivateFile(path string, data []byte) error {
 	}
 	defer os.Remove(file.Name())
 	defer file.Close()
-	if err = file.Chmod(0600); err != nil {
+	if err = file.Chmod(mode); err != nil {
 		return err
 	}
 	if _, err = file.Write(data); err != nil {
@@ -766,6 +770,9 @@ func ApplyEndpointConfiguration(ctx context.Context, path, configPath string, co
 		return lockErr
 	}
 	defer lock.Close()
+	if err = checkAgentUpgradeIdle(c); err != nil {
+		return err
+	}
 	if err = checkEnforcementUpgradeSafety(c, true); err != nil {
 		return err
 	}

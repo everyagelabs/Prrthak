@@ -306,6 +306,8 @@ class PostgresStore(Store):
             initialize_learning_targets(self, db)
             from .agent_settings import initialize as initialize_agent_settings
             initialize_agent_settings(db)
+            from .agent_upgrades import initialize as initialize_agent_upgrades
+            initialize_agent_upgrades(db)
             from .endpoint_configuration import initialize as initialize_endpoint_configuration
             initialize_endpoint_configuration(db)
             from .hit_monitoring import initialize as initialize_hit_monitoring
@@ -366,7 +368,7 @@ class PostgresStore(Store):
                         connection.execute(f"SELECT 1 FROM {required} LIMIT 0")
                     for required in ("maintenance_backups", "maintenance_plans", "maintenance_settings"):
                         connection.execute(f"SELECT 1 FROM {required} LIMIT 0")
-                    for required in ("policy_deployments", "policy_deployment_targets"):
+                    for required in ("policy_deployments", "policy_deployment_targets", "agent_upgrade_rollouts", "agent_upgrade_targets"):
                         connection.execute(f"SELECT 1 FROM {required} LIMIT 0")
                     for required in ("learning_evidence", "learning_evidence_receipts", "learning_allow_policies", "learning_allow_hosts", "learning_allow_history", "learning_policy_previews"):
                         connection.execute(f"SELECT 1 FROM {required} LIMIT 0")
