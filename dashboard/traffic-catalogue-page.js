@@ -41,7 +41,14 @@ async function loadTrafficCatalogue(offset=0,{fresh=false}={}){
 function trafficCatalogueResultText(){const page=trafficCataloguePage();return page?`${page.total===null?'…':format(page.total)} matching relationships · ${page.endpoint_count===null?'…':format(page.endpoint_count)} endpoints`:null;}
 function trafficCatalogueFooter(page){
   const first=page.items.length?page.offset+1:0,last=page.items.length?page.offset+page.items.length:0;
-  return `${page.error?`<p class="form-error" role="alert">${h(page.error)}</p>`:''}<div class="table-footer" aria-live="polite"><span>${page.loading?'Refreshing · ':''}${first}–${last} of ${page.total===null?'…':format(page.total)} matching relationships</span><div><button class="text-button" data-action="traffic-catalogue-page" data-offset="${Math.max(0,page.offset-page.limit)}" ${page.loading||!page.offset?'disabled':''}>Previous</button><button class="text-button" data-action="traffic-catalogue-page" data-offset="${page.offset+page.items.length}" ${page.loading||!page.has_more?'disabled':''}>Next</button><button class="text-button" data-action="traffic-catalogue-refresh" ${page.loading?'disabled':''}>Refresh</button></div></div>`;
+  return `${page.error?`<p class="form-error" role="alert">${h(page.error)}</p>`:''}<div class="table-footer">
+    <span role="status">${page.loading?'Refreshing · ':''}${first}–${last} of ${page.total===null?'…':format(page.total)} matching relationships</span>
+    <div role="group" aria-label="Traffic results pages">
+      <button type="button" class="text-button" data-action="traffic-catalogue-page" data-offset="${Math.max(0,page.offset-page.limit)}" ${page.loading||!page.offset?'disabled':''}>Previous</button>
+      <button type="button" class="text-button" data-action="traffic-catalogue-page" data-offset="${page.offset+page.items.length}" ${page.loading||!page.has_more?'disabled':''}>Next</button>
+      <button type="button" class="text-button" data-action="traffic-catalogue-refresh" ${page.loading?'disabled':''}>Refresh</button>
+    </div>
+  </div>`;
 }
 function trafficControlsHTML(page){
   const windowButtons=[[3600,'1h'],[21600,'6h'],[86400,'24h']].map(([value,label])=>`<button type="button" class="${state.window===value?'selected':''}" data-action="window" data-value="${value}" aria-pressed="${state.window===value}">${label}</button>`).join('');

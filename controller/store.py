@@ -1179,6 +1179,18 @@ class Store:
             from .traffic_capture import public as capture_public
             return [capture_public(dict(row)) for row in rows]
 
+    def flows_with_origins(self, window=3600, server_id=None, *, servers=None, locations=None):
+        from .source_geography import annotate, endpoint_locations
+        flows = self.flows(window, server_id)
+        if not flows:
+            return flows
+        with self.read_meta() as db:
+            if locations is None:
+                locations = self._all(db, "locations")
+            if servers is None:
+                servers = endpoint_locations(db)
+            return annotate(flows, servers, locations, lambda: self._all(db, "metadata_subnets"))
+
     def prune(self):
         from .hit_monitoring import prune as prune_hits
         prune_hits(self)
@@ -1371,11 +1383,11 @@ class Store:
         from .alert_views import listing as public_alerts
         alert_page = public_alerts(self)
         alerts = alert_page.pop("items")
-        flows = self.flows()
         total = len(servers)
         # Reuse this compact fleet projection for catalogue/group counts. Do not
         # decode every canonical firewall snapshot again for each overview panel.
         catalog=self.all("locations")
+        flows = self.flows_with_origins(servers=servers, locations=catalog)
         location_counts={}
         for server in servers:
             identifier=server.get("location_id")

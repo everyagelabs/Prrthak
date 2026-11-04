@@ -1,6 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const locations = require('../locations.js');
 require('../topology.js');
 const now = Date.parse('2026-10-30T10:00:00Z');
 const stamp = seconds => new Date(now - seconds * 1000).toISOString();
@@ -66,7 +67,7 @@ test('recent observations connect managed source and destination sites', () => {
   assert.match(html,/class="pseg-edge is-current"/);
   assert.match(html,/DC-1 → DC-2/);
   assert.match(html,/pseg-edge-pulse/);
-  assert.doesNotMatch(html,/External \/ other sources/);
+  assert.doesNotMatch(html,/pseg-source-node/);
 });
 test('one observed link retains separate connection, packet, historical log and sample units', () => {
   const html=render({flows:[
@@ -93,11 +94,57 @@ test('ended, missing and mismatched sessions or stale endpoints cannot imply liv
     assert.doesNotMatch(html,/class="pseg-edge-pulse"/);
   }
 });
-test('unresolved sources aggregate and ambiguous IP ownership outside scope is not attributed', () => {
+test('unattributed legacy sources aggregate without guessing ambiguous IP ownership', () => {
   const html = render({inventory:[source,server('shared','Other site'),target],flows:[flow,{...flow,source_ip:'203.0.113.15'}]});
-  assert.match(html,/External \/ other sources/);
+  assert.match(html,/Unattributed sources/);
   assert.match(html,/2 observed source IPs/);
   assert.equal((html.match(/class="pseg-edge /g) || []).length,1);
+});
+test('private traffic from a configured location uses its pin without needing an enrolled source', () => {
+  const html = render({flows:[{...flow,source_ip:'10.2.0.30',source_origin:{kind:'location',location_id:'loc-DC-1'}}]});
+  assert.match(html,/<title>DC-1 → DC-2/);
+  assert.doesNotMatch(html,/pseg-source-node/);
+});
+test('private traffic from an off-map location uses its saved name', () => {
+  locations.setCatalog([{id:'sydney',name:'Sydney <DC>',type:'datacenter',country_code:'AU'}]);
+  try {
+    const html = render({flows:[{...flow,source_origin:{kind:'location',location_id:'sydney'}}]});
+    assert.match(html,/data-origin-kind="location"/);
+    assert.match(html,/<title>Sydney &lt;DC&gt; → DC-2/);
+    assert.match(html,/1 observed source IP/);
+    assert.doesNotMatch(html,/<DC>/);
+  } finally {
+    locations.setCatalog([]);
+  }
+});
+test('attributed unmapped private and external sources stay separate and override legacy matching', () => {
+  const html = render({flows:[
+    {...flow,source_origin:{kind:'private'}},
+    {...flow,source_ip:'203.0.113.15',source_origin:{kind:'external'}}
+  ]});
+  assert.match(html,/<title>Private · Unmapped → DC-2/);
+  assert.match(html,/<title>External sources → DC-2/);
+  assert.doesNotMatch(html,/<title>DC-1 → DC-2/);
+  assert.equal((html.match(/class="pseg-edge /g) || []).length,2);
+});
+test('the map caps source groups, prioritises recent observations and reports hidden links', () => {
+  const otherLocations = Array.from({length:4}, (_, i) => ({
+    id:'source-location-'+i,name:'Source DC '+i,type:'datacenter'
+  }));
+  locations.setCatalog(otherLocations);
+  try {
+    const html = render({flows:otherLocations.map(({id}, i)=>({
+      ...flow,source_ip:'10.2.0.'+(i+1),last_seen:stamp(20+i),
+      source_origin:{kind:'location',location_id:id}
+    }))});
+    assert.equal((html.match(/class="pseg-source-node"/g) || []).length,3);
+    assert.equal((html.match(/class="pseg-edge /g) || []).length,3);
+    assert.match(html,/>4 observed links</);
+    assert.match(html,/>1 more source group · 1 link off map</);
+    assert.doesNotMatch(html,/Source DC 3/);
+  } finally {
+    locations.setCatalog([]);
+  }
 });
 test('location labels and keys cannot inject markup', () => {
   const html = render({servers:[server('bad','" onclick="bad',{
@@ -155,6 +202,6 @@ test('discovery pending or incomplete does not animate unconfirmed collection',(
 });
 test('map ownership uses agent-reported IPs rather than connection or planned addresses',()=>{
   const unreported={...source,ips:[],peer_ip:'10.1.0.1',remote_ip:'10.1.0.1',forwarded_for:'10.1.0.1',planned_ips:['10.1.0.1']};
-  assert.match(render({servers:[unreported,target],flows:[flow]}),/External \/ other sources → DC-2/);
+  assert.match(render({servers:[unreported,target],flows:[flow]}),/Unattributed sources → DC-2/);
   assert.match(render({servers:[{...unreported,ips:['10.1.0.1']},target],flows:[flow]}),/<title>DC-1 → DC-2/);
 });

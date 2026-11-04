@@ -7,6 +7,7 @@ const vm=require('node:vm');
 function ui(flows=[]){
  const h=value=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
  const context={console,Date,URL,Number,String,Map,Set,JSON,Array,Error,h,num:value=>Number(value)||0,format:value=>String(value),compact:value=>String(value),date:value=>new Date(value),state:{window:3600,data:{servers:[],service_groups:[]}},visibleFlows:()=>flows,activeFilterCount:()=>0,canWrite:()=>true,filteredServers:()=>[],errorSlot:'',modalFooter:()=>'',savedLocationOptions:()=>'',showModal:(title,html)=>{context.modal=html;},parsePorts:text=>text?text.split(',').map(value=>({port:Number(value.split('/')[0]),protocol:value.split('/')[1]||'tcp'})):[]};
+ context.trafficCataloguePage=()=>null;
  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'..','learning-page.js'),'utf8'),context);
  const recommendations=fs.readFileSync(path.join(__dirname,'..','recommendations-page.js'),'utf8');vm.runInContext(recommendations.slice(recommendations.indexOf('function trafficDiscoveryRateHTML'),recommendations.indexOf('async function loadLearningRecommendations')),context);
  const app=fs.readFileSync(path.join(__dirname,'..','app.js'),'utf8');vm.runInContext(app.slice(app.indexOf('function chartHTML(){'),app.indexOf('\nfunction postureHTML(')),context);
@@ -37,7 +38,31 @@ test('historical allowed strings remain legacy logs and backend errors cannot in
  assert.match(env.run('captureCountHTML(row)'),/legacy log records/);
  env.context.coverage={capture_backends:[{backend:'nflog',status:'error',ipv4:false,ipv6:false,lost_events:null,error:'<img src=x onerror=alert(1)>'}],capture_gaps:['<script>bad()</script>']};
  const html=env.run('captureCoverageHTML(coverage)');
- assert.match(html,/lost events unknown/);assert.match(html,/IPv6 unavailable/);assert.match(html,/&lt;img/);assert.doesNotMatch(html,/<img|<script>/);
+ assert.match(html,/Reported lost events unknown/);assert.match(html,/IPv6 unavailable/);assert.match(html,/&lt;img/);assert.doesNotMatch(html,/<img|<script>/);
+});
+test('capture coverage separates backend blockers, measured loss, and general Conntrack limits',()=>{
+ const env=ui();
+ env.context.coverage={
+  capture_backends:[
+   {backend:'conntrack',status:'active',ipv4:true,ipv6:true,lost_events:3},
+   {backend:'nflog',status:'unsupported',ipv4:false,ipv6:false,lost_events:0,error:'firewalld is not running'},
+  ],
+  capture_gaps:[
+   'Conntrack startup/dump races, untracked flows and event loss cannot establish a complete connection ledger.',
+   'NFLOG: firewalld is not running',
+   'firewalld is not running.',
+   'Native capture queue reached its bound.',
+  ],
+  dropped_events:4,
+ };
+ const html=env.run('captureCoverageHTML(coverage)');
+ assert.match(html,/Conntrack<\/strong><span>Accepted connections<\/span>.*>Active<\/span>/);
+ assert.match(html,/NFLOG<\/strong><span>Denied packets<\/span>.*>Unavailable<\/span>/);
+ assert.match(html,/Reported lost events 3/);
+ assert.match(html,/Dropped events reported: 4/);
+ assert.match(html,/General Conntrack limit/);
+ assert.match(html,/Native capture queue reached its bound/);
+ assert.equal((html.match(/firewalld is not running/g) || []).length,1);
 });
 test('the production traffic chart selects a count unit instead of summing connections and packets',()=>{
  const at=new Date().toISOString(),env=ui([{source_ip:'192.0.2.1',last_seen:at,count:2,capture_kind:'accepted_connection',verdict:'allowed'},{source_ip:'192.0.2.1',last_seen:at,count:500,capture_kind:'denied_packet',verdict:'denied'},{source_ip:'2001:db8::1',last_seen:at,count:7,verdict:'allowed'}]);
@@ -54,7 +79,16 @@ test('communication samples keep their own count unit and cannot show a hit rate
  assert.match(env.run('captureEvidenceHTML(row)'),/Accepted transport connection · sampled/);
  assert.match(env.run('captureCountHTML(row)'),/3.*communication samples/);
  assert.doesNotMatch(env.run('trafficDiscoveryRateHTML(row)'),/connections\/s/);
- assert.match(env.run("state.view='traffic';state.captureUnit='sample_minutes';chartHTML()"),/<strong>3<\/strong><span>communication samples/);
+ const chart=env.run("state.view='traffic';state.captureUnit='sample_minutes';chartHTML()");
+ assert.match(chart,/<strong>3<\/strong><span>communication samples/);
+ assert.match(chart,/one observation per source IP and endpoint port\/protocol each minute/);
+});
+
+test('an empty sample chart explains how to collect samples or find them on other pages',()=>{
+ const env=ui();
+ assert.match(env.run("state.view='traffic';state.captureUnit='sample_minutes';chartHTML()"),/Start Discover traffic with Count traffic hits turned off/);
+ env.context.trafficCataloguePage=()=>({counts_by_unit:{sample_minutes:4}});
+ assert.match(env.run('chartHTML()'),/4 samples match your filters on other pages/);
 });
 
 test('traffic shows a short coverage summary with technical receipts collapsed by default',()=>{
@@ -63,7 +97,7 @@ test('traffic shows a short coverage summary with technical receipts collapsed b
  env.context.filteredServers=()=>[{hostname:'db-1',learning_coverage:{session_id:'receipt-1',capture_backends:[{backend:'nflog',status:'active',ipv4:true,ipv6:false,lost_events:null}]}}];
  const html=env.run('trafficCaptureStatusHTML()');
  assert.match(html,/<details class="traffic-coverage limited" >\s*<summary>Capture coverage <strong>Limited<\/strong><\/summary>/);
- assert.match(html,/<div class="traffic-coverage-details">.*receipt-1.*IPv6 unavailable/);
+ assert.match(html,/<div class="traffic-coverage-details">[\s\S]*Session receipt-1[\s\S]*IPv6 unavailable/);
  assert.match(env.run('state.trafficCoverageOpen=true;trafficCaptureStatusHTML()'),/<details class="traffic-coverage limited" open>/);
 });
 
@@ -96,6 +130,20 @@ test('scope search uses exact agent addresses and tags, with separate location f
  }
  assert.equal(env.run("endpointPickerMatches(servers,'api','dc-two').map(item=>item.id).join()"),'b');
  assert.match(env.run("endpointPickerRows('server_ids',servers.slice(0,1),['a','b'])"),/type="hidden" name="server_ids" value="b"/);
+});
+test('endpoint rows separate identity and health and make unavailable selection actions inactive',()=>{
+ const env=ui();
+ env.context.servers=[
+  {id:'a',hostname:'<endpoint-one>',ips:['2001:db8::1'],status:'warning',capabilities:['traffic_capture_v1']},
+  {id:'b',hostname:'endpoint-two',ips:[],status:'healthy'},
+ ];
+ const html=env.run("endpointPickerHTML('test-endpoints','server_ids',servers,['a','b'],{bulk:true})");
+ assert.match(html,/type="checkbox" name="server_ids" value="a" checked/);
+ assert.match(html,/<strong>&lt;endpoint-one&gt;<\/strong>\s*<small>2001:db8::1<\/small>/);
+ assert.match(html,/data-status="warning">Warning/);
+ assert.match(html,/data-status="upgrade">Agent upgrade required/);
+ assert.match(html,/data-action="endpoint-picker-select" disabled/);
+ assert.match(env.run("endpointPickerHTML('test-endpoints','server_ids',servers,[],{bulk:true})"),/data-action="endpoint-picker-clear" disabled/);
 });
 test('observed peaks retain their count unit and absent or invalid rates stay unavailable',()=>{
  const env=ui();

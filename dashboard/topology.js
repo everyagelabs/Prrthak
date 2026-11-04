@@ -3,6 +3,7 @@
   const L = global.PrithakLocations || (typeof require === 'function' ? require('./locations.js') : null);
   const outlines = global.PrithakCountryOutlines || (typeof require === 'function' ? require('./country-outlines.js') : {});
   const maxPins = 6;
+  const maxSourceGroups = 3;
   const cities = {
     IN: [
       ['noida',28.5355,77.3910], ['new delhi|delhi',28.6139,77.2090], ['gurugram|gurgaon',28.4595,77.0266],
@@ -22,7 +23,11 @@
     'ap-south-1':['IN',19.0760,72.8777], 'ap-south-2':['IN',17.3850,78.4867],
     'ap-southeast-2':['AU',-33.8688,151.2093], 'ap-southeast-4':['AU',-37.8136,144.9631]
   };
-  const external = {key:'external',label:'External / other sources',x:380,y:51};
+  const sourceGroups = {
+    private: {key:'origin:private',kind:'private',label:'Private · Unmapped'},
+    external: {key:'origin:external',kind:'external',label:'External sources'},
+    unknown: {key:'origin:unknown',kind:'unknown',label:'Unattributed sources'}
+  };
   const units = {connections:'transport connections',packets:'denied packets',log_records:'legacy log records',sample_minutes:'communication samples'};
   let sequence = 0, paused = false, expanded = false, selectedCountry = '';
   const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[char]));
@@ -177,10 +182,28 @@
     }).join('')}${sites.length>maxPins?`<a href="/locations">+${sites.length-maxPins} sites</a>`:''}</div>`;
   }
 
+  function sourceOrigin(flow, displayedById, namesById) {
+    const origin = flow.source_origin;
+    if (origin?.kind === 'location') {
+      const id = origin.location_id;
+      const name = namesById.get(id);
+      return displayedById.get(id) || (name ?
+        {key:'origin:location:'+id,kind:'location',label:name} : sourceGroups.unknown);
+    }
+    if (origin?.kind === 'private') return sourceGroups.private;
+    if (origin?.kind === 'external') return sourceGroups.external;
+    return sourceGroups.unknown;
+  }
+
   function observedLinks(flows, inventory, displayed, sessions, now) {
     const sitesByServer = new Map(), owners = new Map(), activeByServer = new Map();
+    const displayedById = new Map(displayed.map(site=>[site.id,site]));
+    const namesById = new Map(L.catalog().map(location=>[location.id,location.name]));
     for (const site of displayed) for (const server of site.members) sitesByServer.set(server.id,site);
     for (const server of inventory) {
+      if (server.location?.id === server.location_id && server.location?.name) {
+        namesById.set(server.location_id,server.location.name);
+      }
       for (const ip of server.ips || []) {
         const key = address(ip);
         if (key && !owners.has(key)) owners.set(key,server.id);
@@ -195,14 +218,20 @@
         activeByServer.get(id).add(session.id);
       }
     }
-    const links = new Map(), sourceIPs = new Set(), targetById = new Map(inventory.map(server=>[server.id,server]));
+    const links = new Map(), origins = new Map(), targetById = new Map(inventory.map(server=>[server.id,server]));
     for (const flow of flows) {
       const stamp = time(flow.last_seen);
       const end = sitesByServer.get(flow.server_id);
       if (!end || !flow.source_ip || !Number.isFinite(stamp) || stamp > now + 30000) continue;
       const sourceIP = address(flow.source_ip);
-      const start = sitesByServer.get(owners.get(sourceIP)) || external;
-      if (start === external) sourceIPs.add(sourceIP);
+      let start = flow.source_origin ? sourceOrigin(flow,displayedById,namesById) :
+        sitesByServer.get(owners.get(sourceIP)) || sourceGroups.unknown;
+      if (!('x' in start)) {
+        if (!origins.has(start.key)) origins.set(start.key,{...start,ips:new Set(),latest:0,active:false});
+        start = origins.get(start.key);
+        start.ips.add(sourceIP);
+        start.latest = Math.max(start.latest,stamp);
+      }
       const key = JSON.stringify([start.key,end.key]);
       if (!links.has(key)) links.set(key,{start,end,counts:{},latest:0,active:false});
       const link = links.get(key);
@@ -215,8 +244,25 @@
         !target.status_stale && target.status !== 'offline' &&
         recent(time(target.last_seen),now,count(target.heartbeat_timeout_seconds) || 180) &&
         recent(stamp,now,120) && !!flow.session_id && !!activeByServer.get(flow.server_id)?.has(flow.session_id);
+      if (start.ips && link.active) start.active = true;
     }
-    return {links:[...links.values()],sourceIPs};
+    const sources = [...origins.values()].sort((a,b)=>Number(b.active)-Number(a.active) || b.latest-a.latest || a.key.localeCompare(b.key)).slice(0,maxSourceGroups);
+    for (const [index,source] of sources.entries()) {
+      source.x = 284 + 182 * index;
+      source.y = 48;
+    }
+    const shownLinks = [...links.values()].filter(link=>'x' in link.start);
+    return {links:shownLinks,sources,hiddenGroups:origins.size-sources.length,hiddenLinks:links.size-shownLinks.length};
+  }
+
+  function sourceGroupHTML(source) {
+    const ips = quantity(source.ips.size,'observed source IP');
+    const title = `${source.label} · ${ips}`;
+    return `<g class="pseg-source-node" data-origin-kind="${source.kind}" transform="translate(${source.x-82} 13)" role="img" aria-label="${escape(title)}">
+      <title>${escape(title)}</title><rect width="164" height="35" rx="7"/>
+      <svg x="7" width="150" height="20"><text x="75" y="15" text-anchor="middle">${escape(short(source.label,25))}</text></svg>
+      <text x="82" y="28" text-anchor="middle" class="pseg-source-meta">${ips}</text>
+    </g>`;
   }
 
   function linkHTML(link, prefix) {
@@ -254,13 +300,13 @@
     const inCountry = grouped.get(activeCountry) || [];
     const positioned = inCountry.filter(site=>site.point);
     const displayed = placeLabels(positioned.slice(0,maxPins).map(site=>({...site,...site.point})));
-    const {links,sourceIPs} = observedLinks(flows,inventory,displayed,learningSessions,now);
+    const {links,sources,hiddenGroups,hiddenLinks} = observedLinks(flows,inventory,displayed,learningSessions,now);
     const activeSites = new Set(links.filter(link=>link.active).flatMap(link=>[link.start.key,link.end.key]));
     const counted = activeCountry ? inCountry : locations;
     const centres = counted.filter(site=>site.kind==='datacenter').length;
     const cloud = counted.filter(site=>site.kind==='cloud').length;
     const note = servers.some(server=>server.synthetic===true) ? 'Synthetic observations' : (activeCountry ? countryName(activeCountry) : '');
-    const linkStatus = !links.length ? 'No observed links' : quantity(links.length,'observed link');
+    const linkStatus = !links.length ? 'No observed links' : quantity(links.length+hiddenLinks,'observed link');
     const empty = !servers.length ? 'No endpoints match this scope' : 'No sites have a map location';
     return `<section class="card pseg-topology" data-paused="${paused}" data-expanded="${expanded}" aria-label="Infrastructure topology">
       <header class="overview-panel-head">
@@ -276,13 +322,14 @@
         ${mapBackground(prefix,map)}
         ${links.map(link=>linkHTML(link,prefix)).join('')}
         ${displayed.map(site=>siteHTML(site,now,activeSites.has(site.key))).join('')}
-        ${sourceIPs.size?`<g class="pseg-external" transform="translate(292 13)"><title>${quantity(sourceIPs.size,'observed source IP')}</title><rect width="176" height="33" rx="6"/><text x="88" y="14" text-anchor="middle">External / other sources</text><text x="88" y="26" text-anchor="middle" class="pseg-site-meta">${quantity(sourceIPs.size,'observed source IP')}</text></g>`:''}
+        ${sources.map(sourceGroupHTML).join('')}
         ${note?`<rect x="17" y="16" width="169" height="23" rx="11" fill="#fff0f4"/><text x="28" y="31" class="pseg-map-label">${escape(short(note,24))}</text>`:''}
         ${!map?`<text x="380" y="220" text-anchor="middle" class="pseg-empty">${empty}</text>`:''}
       </svg></div>
       <footer class="pseg-topology-footer"><div class="pseg-topology-legend"><span${sessionsLimited?' title="Animation uses the loaded learning session page"':''}><i></i>Recent observation</span><span><i></i>Historical observation</span></div>
-        <strong>${linkStatus}</strong>
+        <strong>${linkStatus}</strong>${hiddenGroups?`<a href="/traffic">${quantity(hiddenGroups,'more source group')} · ${quantity(hiddenLinks,'link')} off map</a>`:''}
       </footer>
+      ${sources.length?`<div class="pseg-off-map pseg-compact-sites pseg-source-list"><strong>Traffic sources</strong>${sources.map(source=>`<span>${escape(source.label)} · ${quantity(source.ips.size,'source IP')}</span>`).join('')}</div>`:''}
       ${siteListHTML(displayed,now,'Mapped sites',true)}
       ${siteListHTML(unmapped,now,'Unmapped sites')}
       ${siteListHTML(inCountry.filter(site=>!site.point),now,'Needs map coordinates')}

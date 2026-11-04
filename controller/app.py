@@ -1412,7 +1412,7 @@ def handler_for(app):
                 self.response(200, action(app.store, parts[1], self.body(), actor, principal=principal))
             elif parts == ["flows"] and method == "GET":
                 window = int(query.get("window", [3600])[0])
-                self.response(200, {"items": app.store.flows(window, query.get("server_id", [None])[0])})
+                self.response(200, {"items": app.store.flows_with_origins(window, query.get("server_id", [None])[0])})
             elif parts == ["alerts"] and method == "GET":
                 from .alert_views import listing as public_alerts
                 if set(query) - {"limit", "offset", "include_resolved"} or any(len(values) != 1 for values in query.values()) or query.get("include_resolved", ["false"])[0] not in ("true", "false"):
