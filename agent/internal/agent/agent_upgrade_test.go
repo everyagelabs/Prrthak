@@ -128,6 +128,24 @@ func TestAgentUpgradePackageAvailabilityWithoutAssignmentHasNoAction(t *testing.
 	}
 }
 
+func TestAgentUpgradeRequiresLoadedStockSystemdUnit(t *testing.T) {
+	stock := "NeedDaemonReload=no\nDropInPaths=\nFragmentPath=" + upgradeUnit + "\n"
+	if err := checkAgentUpgradeUnitProperties(stock); err != nil {
+		t.Fatalf("loaded stock unit was rejected: %v", err)
+	}
+	for _, unsafe := range []string{
+		strings.Replace(stock, upgradeUnit, "/run/systemd/system/seg-agent.service", 1),
+		strings.Replace(stock, "DropInPaths=", "DropInPaths=/etc/systemd/system/seg-agent.service.d/override.conf", 1),
+		strings.Replace(stock, "NeedDaemonReload=no", "NeedDaemonReload=yes", 1),
+		strings.Replace(stock, "DropInPaths=\n", "", 1),
+		stock + "DropInPaths=\n",
+	} {
+		if err := checkAgentUpgradeUnitProperties(unsafe); err == nil {
+			t.Fatalf("unverified effective unit was accepted: %q", unsafe)
+		}
+	}
+}
+
 func TestAgentUpgradeRollbackKeepsDurableFenceAfterInterruptedWrite(t *testing.T) {
 	c := Config{StateDir: t.TempDir()}
 	if err := os.Mkdir(agentUpgradeDirectory(c), 0700); err != nil {

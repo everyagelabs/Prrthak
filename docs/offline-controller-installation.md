@@ -2,14 +2,14 @@
 
 Use a dedicated RHEL 9 x86_64 systemd VM with its stock system Python and DNF. Download the signed offline controller archive and its detached signature from the Prṛthak GitHub Release on a connected workstation. Verify the archive with your independently trusted Prṛthak release key before transferring it to the VM. The [release verification procedure](controller-installation.md#obtain-and-verify-a-release) applies to the offline archive as well.
 
-Copy `prthak-controller-0.18.4-offline-rhel9-x86_64.tar.gz` to your home directory on the VM. If you are in a root shell, run the following commands as written. From an authorized non-root shell, use `sudo` for `install`, `tar`, and `install-controller.sh`.
+Copy `prthak-controller-0.18.6-offline-rhel9-x86_64.tar.gz` to your home directory on the VM. If you are in a root shell, run the following commands as written. From an authorized non-root shell, use `sudo` for `install`, `tar`, and `install-controller.sh`.
 
 ```sh
 install -d -m 0755 /opt/prthak/releases/offline
 tar --no-same-owner --no-same-permissions \
-  -xzf "$HOME/prthak-controller-0.18.4-offline-rhel9-x86_64.tar.gz" \
+  -xzf "$HOME/prthak-controller-0.18.6-offline-rhel9-x86_64.tar.gz" \
   -C /opt/prthak/releases/offline
-cd /opt/prthak/releases/offline/prthak-controller-0.18.4
+cd /opt/prthak/releases/offline/prthak-controller-0.18.6
 ./scripts/install-controller.sh
 ```
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -94,6 +95,32 @@ func agentUpgradeSystemctl(ctx context.Context, action string) error {
 	default:
 		return errors.New("unknown agent upgrade service operation")
 	}
+}
+
+func checkAgentUpgradeUnitProperties(output string) error {
+	expected := map[string]string{"FragmentPath": upgradeUnit, "DropInPaths": "", "NeedDaemonReload": "no"}
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		name, value, present := strings.Cut(line, "=")
+		want, known := expected[name]
+		if !present || !known || value != want {
+			return errors.New("managed agent upgrades require the loaded stock systemd unit without drop-ins")
+		}
+		delete(expected, name)
+	}
+	if len(expected) != 0 {
+		return errors.New("the loaded systemd unit configuration could not be verified")
+	}
+	return nil
+}
+
+func checkAgentUpgradeSystemd(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, "/usr/bin/systemctl", "show", "--all", "--property=FragmentPath", "--property=DropInPaths", "--property=NeedDaemonReload", upgradeUnitName).Output()
+	if err != nil {
+		return fmt.Errorf("could not verify the loaded agent systemd unit: %w", err)
+	}
+	return checkAgentUpgradeUnitProperties(string(output))
 }
 
 func (j *agentUpgradeJournal) restore(c Config, trust, unit []byte) error {
@@ -216,6 +243,9 @@ func RunAgentUpgrade(ctx context.Context) error {
 	}
 	if err = journal.confirm(ctx, c); err != nil {
 		return journal.save(c, "blocked", "Current signed upgrade authorization could not be verified: "+err.Error())
+	}
+	if err = checkAgentUpgradeSystemd(ctx); err != nil {
+		return journal.save(c, "blocked", err.Error())
 	}
 	if err = journal.save(c, "stopping", ""); err != nil {
 		return err

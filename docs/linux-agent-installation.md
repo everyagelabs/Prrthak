@@ -35,9 +35,9 @@ Install the updater-enabled agent release once through the local signed installe
 sudo ./scripts/install-agent.sh ./seg-agent /etc/seg-agent/config.json
 ```
 
-In **Platform settings → Agent upgrades**, a Super Admin selects a signed version staged on the controller and chooses endpoints, matching tags, or a saved location or DC. Review the concrete endpoint list and click **Schedule upgrade**. That action authorizes the listed agents to pull the package. Viewing packages or previewing endpoints has no scheduling effect.
+In **Platform settings → Agent upgrades**, a Super Admin selects a signed version staged on the controller that is newer than the target agents. Choose endpoints, matching tags, or a saved location or DC. Review the concrete endpoint list and click **Schedule upgrade**. That action authorizes the listed agents to pull the package. Viewing packages or previewing endpoints has no scheduling effect.
 
-Each eligible agent uses its existing authenticated control connection, verifies the package with its pinned release key, and restarts under its local supervisor. The upgrade replaces the signed binary and runtime manifest while retaining endpoint enrollment and configuration. The worker verifies a fresh report from the requested version and restores the previous runtime when startup verification fails. Use the outcome list to check each endpoint. Releases that change the signed systemd unit use the local installer.
+Each eligible agent uses its existing authenticated control connection, verifies the package with its pinned release key, and restarts under its local supervisor. The upgrade replaces the signed binary and runtime manifest while retaining endpoint enrollment and configuration. The worker verifies a fresh report from the requested version and restores the previous runtime when startup verification fails. Use the outcome list to check each endpoint. A rollout requires the stock signed systemd service. Use the local installer for releases that change that unit.
 
 ## Prepare the endpoint and release
 
