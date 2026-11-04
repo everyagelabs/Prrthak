@@ -101,6 +101,49 @@ class FirewallTests(unittest.TestCase):
         self.assertEqual(set(plan["operations_by_server"]), {"a", "b"})
         self.assertEqual(len(plan["plan_digest"]), 64)
 
+    def test_explicit_rich_rule_decisions_preserve_the_exact_scopes_and_match(self):
+        prefix = 'rule family="ipv4"  source address="10.4.0.0/24" port port="443" protocol="tcp"  '
+        base = {**self.port, "kind": "rich_rule"}
+        for before, decision in (("accept", "reject"), ("drop", "accept")):
+            with self.subTest(before=before, decision=decision):
+                current = prefix + before + "  "
+                expected = prefix + decision + "  "
+                rule = {**base, "value": current}
+                self.report("a", [rule, {**rule, "scope": "permanent"}])
+                draft = self.store.create_firewall_change({"name": "Change only action", "server_ids": ["a"],
+                    "rule_key": fingerprints("runtime", "public", "rich_rule", current)[1],
+                    "scopes": ["runtime", "permanent"], "operation": "replace", "decision": decision}, "admin")
+                self.assertTrue(draft["requires_double_confirmation"])
+                self.assertEqual({row["value"] for row in draft["preview"]["before"]}, {current})
+                self.assertEqual({row["value"] for row in draft["preview"]["after"]}, {expected})
+                self.assertEqual(self.store.assignment("a")[0]["firewall_changes"], [])
+                queued = self.queue(draft)
+                assigned, = self.store.assignment("a")[0]["firewall_changes"]
+                self.assertEqual(assigned["id"], queued["id"])
+                self.assertCountEqual(assigned["operations"], [{"scope": scope, "zone": "public", "kind": "rich_rule",
+                    "old_value": current, "new_value": expected, "operation": "replace"} for scope in ("permanent", "runtime")])
+                self.store.cancel_firewall_change(queued["id"], "admin")
+
+    def test_explicit_decisions_reject_conflicting_inputs_and_unsupported_rules(self):
+        raw = 'rule port port="8443" protocol="tcp" accept'
+        base = {**self.port, "kind": "rich_rule"}
+        self.report("a", [{**base, "value": raw}])
+        request = {"name": "Decision only", "server_ids": ["a"], "scopes": ["runtime"],
+                   "rule_key": fingerprints("runtime", "public", "rich_rule", raw)[1], "operation": "replace", "decision": "drop"}
+        for options in ({"new_value": None}, {"new_value": raw}, {"operation": "remove"}, {"decision": None},
+                        {"decision": "DROP"}, {"decision": "deny"}, {"decision": ["accept"]}, {"decision": "accept"}):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                self.store.create_firewall_change({**request, **options}, "admin")
+        for rule in (self.port, self.log, {**base, "value": raw + " reject"},
+                     {**base, "value": raw.removesuffix("accept") + '"accept"'},
+                     {**self.port, "kind": "service", "value": "https"},
+                     {**self.port, "kind": "service", "value": "dhcpv6-client", "editable": False}):
+            with self.subTest(rule=rule), self.assertRaises(ValueError):
+                self.report("a", [rule])
+                key = fingerprints(rule["scope"], rule["zone"], rule["kind"], rule["value"])[1]
+                self.store.create_firewall_change({**request, "rule_key": key}, "admin")
+        self.assertEqual(self.store.all("firewall_changes"), [])
+
     def test_risky_change_requires_two_distinct_steps_and_current_typed_challenge(self):
         plan = self.draft()
         old_policy, old_etag = self.store.assignment("a")

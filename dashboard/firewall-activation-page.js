@@ -65,6 +65,11 @@ function firewallActivationHTML(){
   </details>
  </section>`;
 }
+function firewallMaintenanceReason(reason){
+ if(reason==='stop traffic learning and monitoring before source-bank maintenance')return 'Traffic capture must stop before firewall maintenance. In Traffic, stop learning and monitoring for this endpoint, wait for collection to finish, then request a fresh assessment.';
+ if(reason==='stop continuous hit monitoring before source-bank maintenance')return 'Turn off continuous hit monitoring for this endpoint in Traffic, then request a fresh assessment.';
+ return reason;
+}
 function firewallActivationReceiptHTML(item){
  const {receipt, job} = item;
  const awaitingReport = job && (!receipt || receipt.id !== job.id || receipt.plan_digest !== job.plan_digest);
@@ -80,7 +85,7 @@ function firewallActivationReceiptHTML(item){
   <div class="firewall-service-result">${badge(status.label, status.tone)}${awaitingReport ? '<small>Previous request</small>' : ''}</div>
   ${operation ? `<strong>${h(operation)}</strong>` : ''}
   ${receipt.checked_at ? `<time datetime="${h(receipt.checked_at)}">Reported ${h(timestamp(receipt.checked_at))}</time>` : ''}
-  ${receipt.error ? `<p class="firewall-service-reason"><strong>Reason</strong> ${h(receipt.error)}</p>` : ''}
+  ${receipt.error ? `<p class="firewall-service-reason"><strong>Reason</strong> ${h(firewallMaintenanceReason(receipt.error))}</p>` : ''}
   ${awaitingReport ? `<small>${requestNote}</small>` : ''}
  </div>`;
 }
@@ -94,7 +99,25 @@ async function loadFirewallActivation(redraw=true){
 }
 function showFirewallActivationForm(id='',operation=''){
  if(!canWrite())return;state.firewallActivationReview=null;state.firewallActivationAssessment=null;const servers=state.data?.servers||[],groups=state.data?.groups||[];
- showModal(operation==='activate_existing'?'Start firewalld':firewallMaintenanceOperations[operation]||'Firewall service maintenance',`<form id="firewall-activation-form"><div class="modal-body">${errorSlot}<p class="inline-notice warning">The assessment is read-only. Starting and stopping firewalld use the agent’s outbound connection and need no controller SSH access. Select default allow only if you want to permit otherwise unmatched inbound traffic. Stopping firewalld removes its active filtering and disables it at boot.</p><div class="field"><label>Operation<select name="operation">${Object.entries(firewallMaintenanceOperations).map(([key,label])=>`<option value="${key}" ${key===operation?'selected':''}>${h(label)}</option>`).join('')}</select></label></div><fieldset><legend>Explicit endpoints · at most 20 per review</legend><div class="host-checklist">${servers.map(server=>`<label class="host-check"><input name="server_ids" type="checkbox" value="${h(server.id)}" ${server.id===id?'checked':''}>${h(server.hostname||server.id)} <small>${h((server.ips||[]).join(', '))}</small></label>`).join('')||'<p>No endpoints loaded in this workspace.</p>'}</div></fieldset><fieldset><legend>Saved groups · freeze current members</legend><div class="host-checklist">${groups.map(group=>`<label class="host-check"><input name="group_ids" type="checkbox" value="${h(group.id)}">${h(group.name)}</label>`).join('')||'<p>No saved groups loaded.</p>'}</div></fieldset><div id="firewall-assessment-status" aria-live="polite"><p class="help-text">Request an assessment to check the selected endpoints.</p></div></div><div class="modal-footer"><button class="button secondary" type="button" data-action="close-modal">Close</button><button class="button secondary" type="button" data-action="firewall-activation-assess">Request fresh assessment</button><button class="button primary" type="submit" disabled>Review activation</button></div></form>`,'NO AUTOMATIC ACTIVATION · GUI CONFIGURATION');
+ showModal(operation==='activate_existing'?'Start firewalld':firewallMaintenanceOperations[operation]||'Firewall service maintenance',`<form id="firewall-activation-form" class="firewall-maintenance-form">
+  <div class="modal-body">
+   ${errorSlot}
+   <p class="firewall-maintenance-note"><strong>Check first, apply after review.</strong> The assessment is read-only. Start and stop use the agent’s outbound connection and need no controller SSH access.</p>
+   <div class="field"><label>Operation<select name="operation">${Object.entries(firewallMaintenanceOperations).map(([key,label])=>`<option value="${key}" ${key===operation?'selected':''}>${h(label)}</option>`).join('')}</select></label></div>
+   <fieldset class="firewall-maintenance-scope"><legend>Endpoints <small>Up to 20 per review</small></legend>
+    <div class="host-checklist">${servers.map(server=>`<label class="host-check"><input name="server_ids" type="checkbox" value="${h(server.id)}" ${server.id===id?'checked':''}><span><strong>${h(server.hostname||server.id)}</strong>${server.ips?.length?`<small>${h(server.ips.join(', '))}</small>`:''}</span></label>`).join('')||'<p>No endpoints loaded.</p>'}</div>
+   </fieldset>
+   <fieldset class="firewall-maintenance-scope"><legend>Saved groups <small>Current members only</small></legend>
+    <div class="host-checklist">${groups.map(group=>`<label class="host-check"><input name="group_ids" type="checkbox" value="${h(group.id)}"><span><strong>${h(group.name)}</strong></span></label>`).join('')||'<p>No saved groups loaded.</p>'}</div>
+   </fieldset>
+   <div id="firewall-assessment-status" aria-live="polite"><p class="help-text">Request an assessment to check the selected endpoints.</p></div>
+  </div>
+  <div class="modal-footer">
+   <button class="button secondary" type="button" data-action="close-modal">Close</button>
+   <button class="button secondary" type="button" data-action="firewall-activation-assess">Request fresh assessment</button>
+   <button class="button primary" type="submit" disabled>Review activation</button>
+  </div>
+ </form>`,'ENDPOINT FIREWALL');
 }
 function firewallActivationSelection(form){
  const fields=new FormData(form),selection={operation:String(fields.get('operation')||''),server_ids:$$('input[name="server_ids"]:checked',form).map(input=>input.value),group_ids:$$('input[name="group_ids"]:checked',form).map(input=>input.value)};
@@ -134,16 +157,23 @@ async function refreshFirewallActivationAssessment(){
    const passed=matches&&receipt.status==='assessed'&&deadline>now;
    if(passed)expires=Math.min(expires,deadline);
    else ready=false;
-   let detail;
-   if(passed)detail='Ready to review';
-   else if(matches)detail=receipt.error||(receipt.status==='assessed'?'Assessment expired. Request a fresh assessment.':`Assessment ${receipt.status}. Open endpoint details for the reason.`);
-   else if(item?.job?.id&&item.job.id!==job.id)detail='Assessment replaced. Request a fresh assessment.';
-   else if(Date.parse(item?.job?.expires_at||job.expires_at)<=now)detail='Assessment request expired before the agent responded. Check the agent connection and request a fresh assessment.';
-   else detail='Waiting for the agent to report its assessment.';
-   return `<li><strong>${h(item?.hostname||job.server_id)}</strong> · ${h(detail)}</li>`;
+   let status='Ready to review',tone='ready',detail='';
+   if(!passed){
+    status='Waiting';tone='waiting';detail='Waiting for the agent to report its assessment.';
+    if(matches){
+     const stale=receipt.status==='assessed';
+     status=stale?'Expired':firewallMaintenanceStatuses[receipt.status]?.label||'Blocked';tone=stale?'waiting':'blocked';
+     detail=firewallMaintenanceReason(receipt.error)||(stale?'Request a fresh assessment.':'Open endpoint details for the reason.');
+    }else if(item?.job?.id&&item.job.id!==job.id){
+     status='Replaced';detail='Request a fresh assessment.';
+    }else if(Date.parse(item?.job?.expires_at||job.expires_at)<=now){
+     status='Expired';detail='Assessment request expired before the agent responded. Check the agent connection and request a fresh assessment.';
+    }
+   }
+   return `<li><strong>${h(item?.hostname||job.server_id)}</strong><span class="firewall-assessment-pill ${tone}">${h(status)}</span>${detail?`<p>${h(detail)}</p>`:''}</li>`;
   });
   result.ready=ready;result.expires=expires;
-  result.message=`<ul class="firewall-assessment-list">${lines.join('')}</ul>`;
+  result.message=`<h3>Assessment results</h3><ul class="firewall-assessment-list">${lines.join('')}</ul>`;
  }catch(error){result.ready=false;result.message=`<p class="form-error">${h(error.message)}</p>`;}
  finally{result.loading=false;if($('#modal').open&&$('#firewall-activation-form')===result.form)renderFirewallAssessment(result.form);}
 }
@@ -151,12 +181,12 @@ function firewallActivationFactsHTML(facts={},operation=''){
  const management=agentFirewallServiceOperations.has(operation)
   ?'Health check: authenticated outbound control connection from the agent to the controller.'
   :`<strong>Protected actual SSH listeners:</strong> ${h((facts.ssh_ports||[]).join(', ')||'Unverified')}<br><strong>Restricted management sources:</strong> ${h((facts.management_sources||[]).join(', ')||'Unverified')}`;
- return `<p>firewalld: ${facts.firewalld_active?'active':'inactive / unknown'} (${h(facts.firewalld_enabled||'unknown')}) · UFW: ${facts.ufw_active?'active':'inactive / absent / unknown'} · ${h(facts.version||'unknown version')} / ${h(facts.backend||'unknown backend')}</p><p>${management}<br><strong>Agent-reported interface IPs:</strong> ${h((facts.ips||[]).join(', ')||'Unverified')}</p><details><summary>Discovered services / exact numeric translation</summary><p>Listeners: ${h((facts.discovered_ports||[]).map(row=>row.port+'/'+row.protocol).join(', ')||'None reported')}</p><div class="table-scroll"><table><thead><tr><th>Order / family</th><th>Source</th><th>Port</th><th>Action</th></tr></thead><tbody>${(facts.translated_rules||[]).map(row=>`<tr><td>${num(row.priority)} / ${h(row.family)}</td><td>${h(row.source)}</td><td>${num(row.port)}/${h(row.protocol)}</td><td>${h(row.action)}</td></tr>`).join('')||'<tr><td colspan="4">No numeric UFW rules translated for this operation.</td></tr>'}</tbody></table></div></details>${(facts.blockers||[]).map(text=>`<p class="form-error">${h(text)}</p>`).join('')}${(facts.notes||[]).map(text=>`<p class="help-text">${h(text)}</p>`).join('')}`;
+ return `<p>firewalld: ${facts.firewalld_active?'active':'inactive / unknown'} (${h(facts.firewalld_enabled||'unknown')}) · UFW: ${facts.ufw_active?'active':'inactive / absent / unknown'} · ${h(facts.version||'unknown version')} / ${h(facts.backend||'unknown backend')}</p><p>${management}<br><strong>Agent-reported interface IPs:</strong> ${h((facts.ips||[]).join(', ')||'Unverified')}</p><details><summary>Discovered services / exact numeric translation</summary><p>Listeners: ${h((facts.discovered_ports||[]).map(row=>row.port+'/'+row.protocol).join(', ')||'None reported')}</p><div class="table-scroll"><table><thead><tr><th>Order / family</th><th>Source</th><th>Port</th><th>Action</th></tr></thead><tbody>${(facts.translated_rules||[]).map(row=>`<tr><td>${num(row.priority)} / ${h(row.family)}</td><td>${h(row.source)}</td><td>${num(row.port)}/${h(row.protocol)}</td><td>${h(row.action)}</td></tr>`).join('')||'<tr><td colspan="4">No numeric UFW rules translated for this operation.</td></tr>'}</tbody></table></div></details>${(facts.blockers||[]).map(text=>`<p class="form-error">${h(firewallMaintenanceReason(text))}</p>`).join('')}${(facts.notes||[]).map(text=>`<p class="help-text">${h(text)}</p>`).join('')}`;
 }
 function showFirewallActivationReview(plan){
  state.firewallActivationReview=plan;state.firewallActivationReviewOwner=firewallActivationIdentity();
  const canApply=canWrite()&&plan.can_apply===true&&!(plan.blockers||[]).length;
- showModal('Review firewall maintenance',`<form id="firewall-activation-review-form"><div class="modal-body">${errorSlot}<p class="inline-notice warning">${h(firewallMaintenanceOperations[plan.operation]||'Endpoint maintenance')} can change live access even when ordinary policy enforcement is monitor-only. ${plan.operation==='activate_allow_all'?'Default allow permits otherwise unmatched inbound traffic from any source to any local port. Existing explicit denies still apply.':plan.operation==='deactivate_existing'?'Stopping firewalld removes its active filtering and prevents it starting at boot.':'The existing firewall rules can block access to applications.'} ${agentFirewallServiceOperations.has(plan.operation)?'The agent checks its outbound control connection. The check does not verify inbound reachability.':'Management health checks cover the controller and protected SSH paths.'}</p><p>Expires ${h(timestamp(plan.expires_at))}. No second administrator is required.</p>${!(plan.targets||[]).length?(plan.blockers||[]).map(text=>`<p class="form-error">${h(text)}</p>`).join(''):''}${(plan.targets||[]).map(target=>`<article><h3>${h(target.hostname||target.server_id)}</h3>${firewallActivationFactsHTML(target.assessment||{},plan.operation)}<p class="help-text">Exact native baseline: ${h(target.baseline_digest)}</p>${(target.blockers||[]).map(text=>`<p class="form-error">${h(text)}</p>`).join('')}</article>`).join('')}${canApply?`<div class="field"><label>Type the exact phrase<code class="platform-confirmation-phrase">${h(plan.challenge)}</code><input id="firewall-activation-phrase" name="confirmation_phrase" autocomplete="off"></label></div><label class="host-check"><input id="firewall-activation-ack" name="acknowledge_downtime" type="checkbox">${plan.operation==='activate_allow_all'?'I understand this start allows otherwise unmatched inbound traffic to any local port.':plan.operation==='deactivate_existing'?'I understand that stopping and disabling firewalld removes its host traffic filtering.':'I understand that this firewall change can interrupt access.'}</label><p class="help-text">Acknowledgement starts unchecked for every review and push attempt. The independent watchdog restores the exact previous configuration and service activity when recovery is provable. An unverified rollback is an error, never a success.</p>`:''}</div><div class="modal-footer"><button class="button secondary" type="button" data-action="close-modal">Close</button>${canApply?'<button class="button danger" type="submit" disabled>Apply reviewed maintenance</button>':canWrite()?'<button class="button secondary" type="button" data-action="firewall-activation-open">Return to assessment</button>':''}</div></form>`,'FROZEN ENDPOINTS · AUTHENTICATED HEALTH · INDEPENDENT ROLLBACK');
+ showModal('Review firewall maintenance',`<form id="firewall-activation-review-form" class="firewall-maintenance-form"><div class="modal-body">${errorSlot}<p class="firewall-maintenance-note">${h(firewallMaintenanceOperations[plan.operation]||'Endpoint maintenance')} can change live access even when ordinary policy enforcement is monitor-only. ${plan.operation==='activate_allow_all'?'Default allow permits otherwise unmatched inbound traffic from any source to any local port. Existing explicit denies still apply.':plan.operation==='deactivate_existing'?'Stopping firewalld removes its active filtering and prevents it starting at boot.':'The existing firewall rules can block access to applications.'} ${agentFirewallServiceOperations.has(plan.operation)?'The agent checks its outbound control connection. The check does not verify inbound reachability.':'Management health checks cover the controller and protected SSH paths.'}</p><p>Expires ${h(timestamp(plan.expires_at))}. No second administrator is required.</p>${!(plan.targets||[]).length?(plan.blockers||[]).map(text=>`<p class="form-error">${h(firewallMaintenanceReason(text))}</p>`).join(''):''}${(plan.targets||[]).map(target=>`<article class="firewall-maintenance-target"><h3>${h(target.hostname||target.server_id)}</h3>${firewallActivationFactsHTML(target.assessment||{},plan.operation)}<p class="help-text">Exact native baseline: ${h(target.baseline_digest)}</p>${(target.blockers||[]).map(text=>`<p class="form-error">${h(firewallMaintenanceReason(text))}</p>`).join('')}</article>`).join('')}${canApply?`<div class="field"><label>Type the exact phrase<code class="platform-confirmation-phrase">${h(plan.challenge)}</code><input id="firewall-activation-phrase" name="confirmation_phrase" autocomplete="off"></label></div><label class="host-check"><input id="firewall-activation-ack" name="acknowledge_downtime" type="checkbox">${plan.operation==='activate_allow_all'?'I understand this start allows otherwise unmatched inbound traffic to any local port.':plan.operation==='deactivate_existing'?'I understand that stopping and disabling firewalld removes its host traffic filtering.':'I understand that this firewall change can interrupt access.'}</label><p class="help-text">Acknowledgement starts unchecked for every review and push attempt. The independent watchdog restores the exact previous configuration and service activity when recovery is provable. An unverified rollback is an error, never a success.</p>`:''}</div><div class="modal-footer"><button class="button secondary" type="button" data-action="close-modal">Close</button>${canApply?'<button class="button danger" type="submit" disabled>Apply reviewed maintenance</button>':canWrite()?'<button class="button secondary" type="button" data-action="firewall-activation-open">Return to assessment</button>':''}</div></form>`,'FROZEN ENDPOINTS · AUTHENTICATED HEALTH · INDEPENDENT ROLLBACK');
 }
 function firewallActivationReviewUsable(plan,phrase,ack){return canWrite()&&state.firewallActivationReviewOwner===firewallActivationIdentity()&&plan?.status==='preview'&&plan.can_apply===true&&!(plan.blockers||[]).length&&!!plan.digest&&!!plan.confirmation_nonce&&Date.parse(plan.expires_at)>Date.now()&&phrase===plan.challenge&&ack===true;}
 function firewallActivationInput(event){if(event.target.form?.id==='firewall-activation-form'){renderFirewallAssessment(event.target.form);return true;}if(!['firewall-activation-phrase','firewall-activation-ack'].includes(event.target.id))return false;const form=$('#firewall-activation-review-form');if(form)$('button[type="submit"]',form).disabled=!firewallActivationReviewUsable(state.firewallActivationReview,$('#firewall-activation-phrase').value,$('#firewall-activation-ack').checked);return true;}

@@ -19,7 +19,7 @@ test('reviewed capture choices default both and never introduce another consent 
  const env=ui();env.run('showLearning()');
  assert.match(env.context.modal,/name="observation_kinds" value="accepted_connection" checked/);
  assert.match(env.context.modal,/name="observation_kinds" value="denied_packet" checked/);
- assert.match(env.context.modal,/Denied first-hits and scanners can become allowed sources/);
+ assert.match(env.context.modal,/Denied first hits and scanners can become allowed sources/);
  assert.doesNotMatch(env.context.modal,/auto_allow_denied_confirmed|second administrator|checker account/);
  env.context.values=values({server_ids:['server-a'],selection_mode:'discovered',duration:'1',unit:'3600',policy_action:'auto_allow',auto_allow_confirmed:'on',capture_scope_version:'1',observation_kinds:['denied_packet']});
  assert.deepEqual(JSON.parse(env.run('JSON.stringify(learningPayload(values))')).observation_kinds,['denied_packet']);
@@ -37,7 +37,7 @@ test('historical allowed strings remain legacy logs and backend errors cannot in
  assert.match(env.run('captureEvidenceHTML(row)'),/Legacy sampled log/);
  assert.match(env.run('captureCountHTML(row)'),/legacy log records/);
  env.context.coverage={capture_backends:[{backend:'nflog',status:'error',ipv4:false,ipv6:false,lost_events:null,error:'<img src=x onerror=alert(1)>'}],capture_gaps:['<script>bad()</script>']};
- const html=env.run('captureCoverageHTML(coverage)');
+ const html=env.run("captureCoverageHTML(coverage,'traffic')");
  assert.match(html,/Reported lost events unknown/);assert.match(html,/IPv6 unavailable/);assert.match(html,/&lt;img/);assert.doesNotMatch(html,/<img|<script>/);
 });
 test('capture coverage separates backend blockers, measured loss, and general Conntrack limits',()=>{
@@ -49,18 +49,23 @@ test('capture coverage separates backend blockers, measured loss, and general Co
   ],
   capture_gaps:[
    'Conntrack startup/dump races, untracked flows and event loss cannot establish a complete connection ledger.',
+   'Conntrack start timestamps are unavailable; kernel ID reuse/deduplication cannot establish an exact ledger.',
    'NFLOG: firewalld is not running',
    'firewalld is not running.',
    'Native capture queue reached its bound.',
   ],
   dropped_events:4,
+  rate_limited:true,
  };
- const html=env.run('captureCoverageHTML(coverage)');
+ const html=env.run("captureCoverageHTML(coverage,'traffic')");
  assert.match(html,/Conntrack<\/strong><span>Accepted connections<\/span>.*>Active<\/span>/);
  assert.match(html,/NFLOG<\/strong><span>Denied packets<\/span>.*>Unavailable<\/span>/);
  assert.match(html,/Reported lost events 3/);
  assert.match(html,/Dropped events reported: 4/);
+ assert.match(html,/A capture rate limit is configured/);
  assert.match(html,/General Conntrack limit/);
+ assert.match(html,/Kernel connection start timestamps were unavailable/);
+ assert.match(html,/Denied packets and Count traffic hits enabled/);
  assert.match(html,/Native capture queue reached its bound/);
  assert.equal((html.match(/firewalld is not running/g) || []).length,1);
 });
@@ -86,7 +91,9 @@ test('communication samples keep their own count unit and cannot show a hit rate
 
 test('an empty sample chart explains how to collect samples or find them on other pages',()=>{
  const env=ui();
- assert.match(env.run("state.view='traffic';state.captureUnit='sample_minutes';chartHTML()"),/Start Discover traffic with Count traffic hits turned off/);
+ const empty = env.run("state.view='traffic';state.captureUnit='sample_minutes';chartHTML()");
+ assert.match(empty,/For Count traffic hits sessions, choose Connections or Denied packets/);
+ assert.match(empty,/Start Discover traffic with Count traffic hits turned off/);
  env.context.trafficCataloguePage=()=>({counts_by_unit:{sample_minutes:4}});
  assert.match(env.run('chartHTML()'),/4 samples match your filters on other pages/);
 });
@@ -94,7 +101,7 @@ test('an empty sample chart explains how to collect samples or find them on othe
 test('traffic shows a short coverage summary with technical receipts collapsed by default',()=>{
  const env=ui();
  assert.match(env.run('trafficCaptureStatusHTML()'),/<summary>Capture coverage <strong>No reports yet<\/strong><\/summary>/);
- env.context.filteredServers=()=>[{hostname:'db-1',learning_coverage:{session_id:'receipt-1',capture_backends:[{backend:'nflog',status:'active',ipv4:true,ipv6:false,lost_events:null}]}}];
+ env.context.filteredServers=()=>[{hostname:'db-1',learning_coverage:{session_id:'receipt-1',purpose:'traffic',capture_backends:[{backend:'nflog',status:'active',ipv4:true,ipv6:false,lost_events:null}]}}];
  const html=env.run('trafficCaptureStatusHTML()');
  assert.match(html,/<details class="traffic-coverage limited" >\s*<summary>Capture coverage <strong>Limited<\/strong><\/summary>/);
  assert.match(html,/<div class="traffic-coverage-details">[\s\S]*Session receipt-1[\s\S]*IPv6 unavailable/);
@@ -104,7 +111,7 @@ test('traffic shows a short coverage summary with technical receipts collapsed b
 test('Discover traffic is metadata-only for up to 30 days and Discover policy uses the protected auto-allow flow',()=>{
  const env=ui();env.run("showLearning(undefined,{purpose:'traffic'})");
  assert.match(env.context.modal,/name="purpose" value="traffic"/);
- assert.match(env.context.modal,/name="policy_action" value="observe"/);
+ assert.doesNotMatch(env.context.modal,/name="policy_action"|name="auto_allow_confirmed"/);
  assert.match(env.context.modal,/<input type="checkbox" name="traffic_hit_count">Count traffic hits/);
  assert.match(env.context.modal,/1 minute to 30 days/);
  assert.doesNotMatch(env.context.modal,/value="auto_allow"|name="policy_action"[^>]+auto_allow/);
@@ -116,7 +123,7 @@ test('Discover traffic is metadata-only for up to 30 days and Discover policy us
  env.context.values=values({...input,duration:'31'});assert.throws(()=>env.run('learningPayload(values)'),/30 days/);
  env.context.values=values({...input,policy_action:'auto_allow'});assert.throws(()=>env.run('learningPayload(values)'),/only observes/);
  env.run("showLearning(undefined,{purpose:'automatic'})");
- assert.match(env.context.modal,/name="policy_action" value="auto_allow"/);
+ assert.match(env.context.modal,/name="policy_action"[\s\S]*value="auto_allow" selected[\s\S]*Recommend policies for review/);
  assert.match(env.context.modal,/name="auto_allow_confirmed" required/);
  assert.match(env.context.modal,/1 minute to 7 days/);
  assert.doesNotMatch(env.context.modal,/name="purpose" value="traffic"|name="traffic_hit_count"/);

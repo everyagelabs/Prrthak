@@ -70,6 +70,39 @@ class TrafficPageChecks:
         self.assertEqual(traffic_views.listing(self.store, {**query, "search": "billing", "search_server_ids": ["billing"]})["total"], 2)
         self.assertEqual(traffic_views.listing(self.store, {"server_ids": []})["total"], 0)
 
+    def test_traffic_discovery_scope_filters_totals_pages_and_csv_without_changing_global_flows(self):
+        with self.store.meta() as db:
+            for identifier, purpose in (("discovery", "traffic"), ("policy", "policy"), ("legacy", None)):
+                session = {"id": identifier, "status": "active", "server_ids": ["billing", "payments"],
+                           "starts_at": stamp(self.at-timedelta(minutes=10)),
+                           "expires_at": stamp(self.at+timedelta(minutes=10))}
+                if purpose is not None:
+                    session["purpose"] = purpose
+                self.store._put(db, "sessions", session)
+        self.flow(session="policy", source="192.0.2.11", count=40)
+        self.flow(session="legacy", source="192.0.2.12", count=30)
+        self.flow(session="missing", source="192.0.2.13", count=20)
+        self.flow(session="discovery", source="192.0.2.14", at=self.at-timedelta(seconds=10), count=3)
+        self.flow(session="discovery", source="192.0.2.15", at=self.at-timedelta(seconds=20), count=4)
+        self.flow(session="discovery", source="192.0.2.16", port=8443, count=8)
+        self.flow(session="discovery", source="192.0.2.17", server="payments", count=9)
+
+        scope = {"purpose": "traffic", "server_ids": ["billing"], "ports": ["443/tcp"]}
+        first = traffic_views.listing(self.store, {**scope, "limit": 1})
+        self.assertEqual((first["purpose"], first["total"], first["endpoint_count"], first["has_more"]), ("traffic", 2, 1, True))
+        self.assertEqual(first["counts_by_unit"]["connections"], 7)
+        self.assertEqual(first["items"][0]["source_ip"], "192.0.2.14")
+        second = traffic_views.listing(self.store, {**scope, "limit": 1, "offset": 1, "as_of": first["as_of"]})
+        self.assertEqual((second["items"][0]["source_ip"], second["has_more"]), ("192.0.2.15", False))
+        with traffic_views.csv_spool(self.store, {**scope, "as_of": first["as_of"]}, max_rows=2) as (output, _):
+            exported = list(csv.DictReader(io.StringIO(output.read().decode("utf-8-sig"))))
+        self.assertEqual([(row["session_id"], row["source_ip"]) for row in exported],
+                         [("discovery", "192.0.2.14"), ("discovery", "192.0.2.15")])
+        global_page = traffic_views.listing(self.store)
+        self.assertNotIn("purpose", global_page)
+        self.assertEqual(global_page["total"], 7)
+        self.assertEqual({row["session_id"] for row in self.store.flows()}, {"discovery", "policy", "legacy", "missing"})
+
     def test_typed_units_sessions_protocols_and_historical_metadata_never_collapse(self):
         self.flow(count=2)
         self.flow(count=3)
@@ -150,7 +183,7 @@ class TrafficPageChecks:
                 self.fail("Busy export must not allocate a spool")
 
     def test_strict_fields_bounds_and_parameters_refuse_invalid_queries(self):
-        for query in ({"limit": True}, {"limit": 101}, {"offset": -1}, {"window_seconds": 1}, {"window_seconds": 1000000}, {"server_ids": "billing"}, {"server_ids": [None]}, {"ports": ["65536/tcp"]}, {"ports": ["443/sctp"]}, {"search": "x"*257}, {"search": None}, {"sql": "delete"}, {"as_of": stamp(now()+timedelta(seconds=20))}):
+        for query in ({"limit": True}, {"limit": 101}, {"offset": -1}, {"window_seconds": 1}, {"window_seconds": 1000000}, {"server_ids": "billing"}, {"server_ids": [None]}, {"ports": ["65536/tcp"]}, {"ports": ["443/sctp"]}, {"search": "x"*257}, {"search": None}, {"sql": "delete"}, {"purpose": "policy"}, {"purpose": None}, {"as_of": stamp(now()+timedelta(seconds=20))}):
             with self.subTest(query=query), self.assertRaises(ValueError):
                 traffic_views.listing(self.store, query)
         with self.assertRaises(ValueError):
@@ -183,6 +216,8 @@ class SQLiteTrafficPages(TrafficPageChecks, unittest.TestCase):
             return captured
         query = request("POST", "/api/v1/flows/query", {"server_ids": ["billing"], "ports": ["443/tcp"]})
         self.assertEqual((query["status"], query["value"]["total"]), (200, 1))
+        scoped = request("POST", "/api/v1/flows/query", {"purpose": "traffic"})
+        self.assertEqual((scoped["status"], scoped["value"]["purpose"], scoped["value"]["total"]), (200, "traffic", 0))
         export = request("POST", "/api/v1/flows/export.csv", {"server_ids": ["billing"]})
         self.assertEqual(export["status"], 200)
         self.assertIn("text/csv", export["headers"]["Content-Type"])

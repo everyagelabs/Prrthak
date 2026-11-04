@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from controller import learning, learning_policies, session_views, traffic_views
+from controller import approvals, learning, learning_policies, session_views, traffic_views
 from controller.store import Store, now, parse_time, stamp
 from controller.tests.capture_fixture import typed_event
 
@@ -87,6 +87,69 @@ class DiscoverTrafficTests(unittest.TestCase):
         self.assertEqual(self.store.assignment('web-1')[0]['assignment_generation'], signed_generation)
         with self.assertRaisesRegex(PermissionError, 'cannot create firewall policy'):
             learning_policies.preview(self.store, session['id'], {'row_ids': [observed['connections']['id']]}, 'admin')
+
+    def test_discovery_preview_and_start_reject_automatic_access_options_for_traffic(self):
+        base = {'server_ids': ['web-1'], 'purpose': 'traffic'}
+        for options in ({'policy_action': 'auto_allow'}, {'policy_action': 'observe', 'auto_allow_confirmed': True}):
+            with self.subTest(options=options):
+                with self.assertRaisesRegex(ValueError, 'observe-only'):
+                    learning.preview(self.store, {**base, **options})
+                with self.assertRaisesRegex(ValueError, 'observe-only'):
+                    self.start(**options)
+        with self.assertRaisesRegex(ValueError, 'only available in Discover traffic'):
+            learning.preview(self.store, {**base, 'purpose': 'policy', 'traffic_collection_mode': 'hits'})
+        self.assertEqual(learning.preview(self.store, {**base, 'purpose': 'policy', 'policy_action': 'auto_allow'})['purpose'], 'policy')
+        self.assertEqual(self.store.all('sessions'), [])
+
+    def test_traffic_receipts_have_trusted_purpose_and_only_appear_on_their_exact_session(self):
+        session = self.start()
+        self.report(learning_coverage={'session_id': session['id'], 'purpose': 'policy'})
+        receipt = self.store.overview()['servers'][0]['learning_coverage']
+        self.assertEqual(receipt['purpose'], 'traffic')
+        result = learning_policies.recommendations(self.store, session['id'])
+        self.assertEqual(result['coverage']['servers'][0]['learning_coverage'], receipt)
+        self.store.stop_session(session['id'], 'admin')
+        policy = self.store.create_session({'server_ids': ['web-1'], 'ports': [{'port': 443}]}, 'admin')
+        with self.assertRaisesRegex(ValueError, 'does not belong'):
+            self.store.report('different-endpoint', {'hostname': 'different-endpoint', 'ips': ['192.0.2.6'],
+                              'learning_coverage': {'session_id': session['id'], 'purpose': 'traffic'}})
+        self.report(learning_coverage={'session_id': policy['id'], 'purpose': 'traffic'})
+        self.assertEqual(self.store.overview()['servers'][0]['learning_coverage']['purpose'], 'policy')
+        result = learning_policies.recommendations(self.store, session['id'])
+        self.assertIsNone(result['coverage']['servers'][0]['learning_coverage'])
+
+    def test_restored_traffic_metadata_cannot_show_or_use_policy_authority(self):
+        session = self.start()
+        self.report(learning_discovery_session_ids=[session['id']])
+        self.upload(session, 'observation', [self.event('observed', 1)])
+        self.store.lab_approvals = True
+        with self.store.meta() as db:
+            saved = self.store._get(db, 'sessions', session['id'])
+            saved.update(policy_action='auto_allow', auto_allow_confirmed=True, initial_approval_mode='lab_only',
+                         initial_approval_state='awaiting_review', initial_approval_plan={
+                             'id': 'old-initial-review', 'status': 'draft', 'expires_at': stamp(now() + timedelta(minutes=1))})
+            self.store._put(db, 'sessions', saved)
+            self.store._put(db, 'learning_policy_previews', {'id': 'old-review', 'session_id': session['id'],
+                            'digest': 'a' * 64, 'status': 'reviewed', 'expires_at': stamp(now() + timedelta(minutes=1))})
+            learning_policies._put_policy(self.store, db, {'id': 'historical-allow', 'session_id': session['id'],
+                                          'server_id': 'web-1', 'name': 'Historical entry', 'status': 'pending'})
+            self.assertFalse(approvals.learning_authorized(self.store, db, saved))
+        public = session_views.listing(self.store, purpose='traffic')['items'][0]
+        self.assertNotIn('initial_approval_plan', public)
+        self.assertEqual(public['policy_action'], 'observe')
+        assigned = self.store.assignment('web-1')[0]['learning_sessions'][0]
+        self.assertEqual(assigned['policy_action'], 'observe')
+        result = learning_policies.recommendations(self.store, session['id'])
+        self.assertEqual((result['generated_policies'], result['pending_approvals'], result['total_rows']), ([], [], 1))
+        self.assertEqual((result['generated_policy_total'], result['pending_approval_total']), (0, 0))
+        self.assertIn('sample_minutes', learning_policies.export_csv(self.store, session['id']))
+        self.assertEqual(learning_policies.get(self.store, 'historical-allow')['name'], 'Historical entry')
+        with self.assertRaisesRegex(PermissionError, 'cannot create firewall policy'):
+            approvals.learning_preview(self.store, session['id'], {}, 'admin')
+        with self.assertRaisesRegex(PermissionError, 'cannot create firewall policy'):
+            approvals.learning_confirm(self.store, session['id'], {'preview_id': 'old-initial-review'}, 'admin')
+        with self.assertRaisesRegex(PermissionError, 'cannot create firewall policy'):
+            learning_policies.apply(self.store, session['id'], {'confirm': True, 'preview_id': 'old-review', 'digest': 'a' * 64}, 'admin')
 
     def test_traffic_burst_counts_connections_and_denied_packets_separately(self):
         session = self.start(traffic_collection_mode='hits')

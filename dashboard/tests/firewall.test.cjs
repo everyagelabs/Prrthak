@@ -25,12 +25,62 @@ function uiEnvironment(){
  const plan={id:'plan-1',name:'Remove shared HTTP',operation:'remove',scopes:['runtime','permanent'],server_ids:['billing-1','billing-2'],status:'draft',requires_double_confirmation:true,confirmation_count:0,confirmation_nonce:'nonce-1',confirmation_phrase:'CONFIRM abc123',plan_digest:'abc123',expires_at:new Date(Date.now()+600000).toISOString(),preview:{matched_host_count:2,unmatched_host_count:0,unmatched_server_ids:[],before:[{server_id:'billing-1',value:'80/tcp'}],after:[],impact:'Removal restricts access'},results:{}};
  const state={role:'admin',data:{servers},firewallData:{common_rules:[common],servers:[],changes:[plan]},filters:F.empty(),search:'',flowServer:'all',firewallLoading:false};
  const context={firewallActivationHTML:()=>'',console,Date,Map,Set,JSON,Array,String,Number,Error,F,W,state,num:value=>Number(value)||0,format:value=>String(value),h:value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),humanize:value=>String(value||'').replaceAll('_',' '),icon:()=>'',badge:(label,kind)=>`<span class="badge ${kind||''}">${label}</span>`,date:value=>value?new Date(value):null,timestamp:value=>String(value||''),serverName:id=>servers.find(server=>server.id===id)?.hostname||id,filteredServers:()=>servers,errorSlot:'',modalFooter:label=>label,showModal:(title,html)=>shown.push({title,html}),toast:()=>{},render:()=>{},formError:error=>errors.push(error.message),$:(selector)=>selector==='#firewall-confirmation-challenge'?{value:typed}:{open:true},$$:()=>[],api:async(path,options={})=>{calls.push({path,options});if(path==='/firewall')return state.firewallData;if(path.endsWith('/confirm')){const confirmation=options.body.challenge?{...plan,status:'queued',confirmation_count:2,confirmation_nonce:'nonce-3'}:{...plan,status:'awaiting_second_confirmation',confirmation_count:1,confirmation_nonce:'nonce-2'};state.firewallData.changes=[confirmation];return confirmation;}return {};}};
+ context.canWrite=()=>!state.passwordChangeRequired&&['admin','super_admin'].includes(state.role);
+ context.FormData=class {
+  constructor(form){this.values=form.values;}
+  get(key){return this.values[key] ?? null;}
+  getAll(key){return this.values[key] || [];}
+ };
  vm.createContext(context);vm.runInContext(fs.readFileSync(require.resolve('../firewall-page.js'),'utf8'),context);
  return {context,calls,shown,errors,plan,setTyped:value=>{typed=value}};
 }
 test('initial Edit or Remove only opens draft preparation and never mutates an endpoint',()=>{
  const env=uiEnvironment();env.context.firewallEditRule(common.rule_key,'remove');assert.equal(env.calls.length,0);assert.match(env.shown.at(-1).html,/Create review plan/);assert.match(env.shown.at(-1).html,/billing-api-01/);
  env.context.state.role='viewer';const before=env.shown.length;env.context.firewallEditRule(common.rule_key,'replace');assert.equal(env.shown.length,before);assert.equal(env.calls.length,0);
+});
+test('review action is restricted to editable exact imported actions and admin access',()=>{
+ const env=uiEnvironment(),rich={...common,kind:'rich_rule',value:'rule family="ipv4" source address="192.0.2.0/24" port port="443" protocol="tcp" log prefix="drop packet" accept'};
+ const direct={...common,kind:'direct',value:'ipv4 filter INPUT 0 -p tcp --dport 8443 -j DROP'};
+ const target={...common,kind:'target',value:'default',editable_scopes:['permanent']};
+ for(const rule of [rich,direct,target]){
+  env.context.state.firewallData.common_rules=[rule];env.context.firewallShowHosts(rule.rule_key);
+  assert.match(env.shown.at(-1).html,/Review action/);
+  assert.match(env.shown.at(-1).html,/Review edit/);
+  env.context.firewallEditRule(rule.rule_key,'decision');
+  const html=env.shown.at(-1).html;
+  assert.match(html,/name="decision" required/);assert.match(html,/Allow/);
+  assert.match(html,/Deny \(drop\)/);assert.match(html,/Deny \(reject\)/);assert.doesNotMatch(html,/name="new_value"/);
+  if(rule.kind==='target'){assert.match(html,/value="runtime" disabled/);assert.match(html,/value="permanent" checked/);}
+ }
+ for(const rule of [common,{...rich,value:'rule log prefix="reject"'},{...direct,value:'ipv4 filter OUTPUT 0 -p tcp --dport 8443 -j DROP'},
+  {...target,editable:false,scopes:['runtime'],editable_scopes:[]},{...common,kind:'service',value:'dhcpv6-client',editable:false,reason:'Complex named-service definition is view-only'}]){
+  env.context.state.firewallData.common_rules=[rule];env.context.firewallShowHosts(rule.rule_key);
+  const html=env.shown.at(-1).html;
+  assert.doesNotMatch(html,/Review action/);
+  if(rule.kind==='service')assert.match(html,/Read only.*Complex named-service definition is view-only/);
+ }
+ env.context.state.role='read_only';env.context.state.firewallData.common_rules=[rich];
+ env.context.firewallShowHosts(rich.rule_key);assert.doesNotMatch(env.shown.at(-1).html,/Review action|Review edit/);
+ assert.equal(env.calls.length,0);
+});
+test('action review submits only the typed decision with the selected endpoint and scope',async()=>{
+ const env=uiEnvironment(),rule={...common,kind:'rich_rule',value:'rule port port="443" protocol="tcp" accept'};
+ env.context.state.firewallData.common_rules=[rule];
+ env.context.api=async(path,options={})=>{env.calls.push({path,options});return path==='/firewall/changes'?env.plan:env.context.state.firewallData;};
+ await env.context.firewallAction({dataset:{action:'firewall-edit',key:rule.rule_key,operation:'decision'}});
+ assert.match(env.shown.at(-1).html,/value="accept" disabled/);
+ assert.equal(env.calls.length,0);
+ for(const id of ['billing-2','web'])env.context.firewallChange({target:{dataset:{firewallTarget:id},checked:false}});
+ const form={dataset:{ruleKey:rule.rule_key,operation:'decision'},values:{name:'Reviewed HTTPS action',scopes:['permanent']}};
+ await env.context.firewallSubmit({target:form,preventDefault(){}});
+ assert.equal(env.calls.length,0);assert.match(env.errors.at(-1),/Choose a firewall action/);
+ form.values.decision='reject';
+ await env.context.firewallSubmit({target:form,preventDefault(){}});
+ const request=env.calls.find(call=>call.path==='/firewall/changes');
+ assert.equal(request.options.method,'POST');
+ assert.deepEqual(JSON.parse(JSON.stringify(request.options.body)),{name:'Reviewed HTTPS action',server_ids:['billing-1'],rule_key:rule.rule_key,operation:'replace',scopes:['permanent'],decision:'reject'});
+ assert.equal(env.shown.at(-1).title,'Review the firewall change');
+ assert.match(env.shown.at(-1).html,/Confirm change \(1 of 2\)/);
 });
 test('restrictive change requires a new nonce and a separately typed second confirmation',async()=>{
  const env=uiEnvironment();env.context.firewallShowPlan(env.plan);

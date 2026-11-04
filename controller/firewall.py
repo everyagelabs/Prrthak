@@ -377,6 +377,27 @@ def replacement_ports(snapshot, rule, new_value):
     return []
 
 
+def _replace_decision(rule, decision):
+    kind, current = rule["kind"], rule["value"]
+    if kind == "target" and rule["scope"] == "permanent":
+        return decision.upper()
+    if kind == "rich_rule":
+        tokens = rich_tokens(current)
+        match = re.search(r"(?<!\S)(accept|drop|reject)(?=\s*\Z)", current)
+        if (not match or tokens[-1] != match[1]
+                or sum(token in ("accept", "drop", "reject") for token in tokens) != 1):
+            raise ValueError("Changing a rich-rule decision requires one exact terminal action")
+    elif kind == "direct":
+        current_action = direct_fields(current)["-j"]
+        match = re.search(r"(?<!\S)-j\s+(ACCEPT|DROP|REJECT)(?=\s|\Z)", current)
+        if not match or match[1] != current_action:
+            raise ValueError("Changing a direct-rule decision requires one exact INPUT action")
+        decision = decision.upper()
+    else:
+        raise ValueError("This rule kind does not support changing its decision")
+    return current[:match.start(1)] + decision + current[match.end(1):]
+
+
 def create_change(store, value, actor, *, principal=None):
     name = value.get("name", "")
     ids, key, scopes = value.get("server_ids"), value.get("rule_key"), value.get("scopes", ["runtime", "permanent"])
@@ -385,6 +406,9 @@ def create_change(store, value, actor, *, principal=None):
         raise ValueError("Provide a name and explicit enrolled endpoint IDs")
     if not isinstance(key, str) or not re.fullmatch(r"[a-f0-9]{64}", key) or operation not in ("replace", "remove") or not isinstance(scopes, list) or not scopes or set(scopes) - {"runtime", "permanent"}:
         raise ValueError("Invalid exact rule key, operation or scopes")
+    decision = value.get("decision")
+    if "decision" in value and (operation != "replace" or "new_value" in value or decision not in ("accept", "drop", "reject")):
+        raise ValueError("Choose one decision (accept, drop or reject) for replacement without a raw new value")
     ids, scopes = sorted(set(ids)), sorted(set(scopes))
     with store.lock, store.meta() as db:
         operations, snapshots, targets, before, after, unmatched = {}, {}, {}, [], [], []
@@ -423,7 +447,10 @@ def create_change(store, value, actor, *, principal=None):
                     elif not all(any(candidate["kind"] == "target" and candidate["zone"] == rule["zone"] and candidate["scope"] == scope for candidate in snapshot["rules"]) for scope in ("runtime", "permanent")):
                         raise ValueError("Extended zone editing requires matching runtime and permanent zone evidence")
                     risky = True
-                new_value = typed_value(rule["kind"], value.get("new_value")) if operation == "replace" else ""
+                new_value = ""
+                if operation == "replace":
+                    replacement = _replace_decision(rule, decision) if decision is not None else value.get("new_value")
+                    new_value = typed_value(rule["kind"], replacement)
                 new_action = classify(rule["kind"], new_value)[0] if operation == "replace" else ""
                 if operation == "replace" and new_value == rule["value"]:
                     raise ValueError("Replacement must differ from the current rule")

@@ -17,6 +17,7 @@ function policyWorkspaceHTML() {
   return `${filterBarHTML('policies')}
     <div id="discovered-policy-results">${discoveredPolicyResultsHTML()}</div>
     ${managedPoliciesHTML()}${learnedPoliciesHTML()}
+    ${discoverySessionsHTML('policy')}
     <div class="section-line"><h2>Policy administration</h2><div class="inline-actions">${controls.map(([key,label])=>`<button class="button secondary small" type="button" data-action="managed-workspace-tab" data-tab="${key}" aria-expanded="${section===key}" aria-controls="policy-administration">${label}</button>`).join('')}</div></div>
     <div id="policy-administration">${section==='default-deny'?defaultDenyHTML(false):section==='rollouts'?managedRolloutsHTML(false)+learningApprovalsHTML()+`<div id="firewall-policy-changes">${firewallChangeHistoryHTML()}</div>`:''}</div>
     <details id="advanced-network-controls" class="advanced-network-controls" ${state.networkControlOpen?'open':''}>

@@ -29,9 +29,9 @@ async function learningApprovalSubmit(event){
 function recommendationServicesHTML(services=[],limit=services.length) {
   return services.slice(0,limit).map(service=>`<div class="recommendation-service"><strong>${num(service.port)}/${h(service.protocol)}</strong><span>${service.sources_omitted?`${format(service.source_count)} literal source CIDRs · addresses load in exact details`:h((service.sources || []).join(', ') || 'No allowed sources')}</span></div>`).join('') || '<p class="help-text">No observed source allowances.</p>';
 }
-function recommendationCoverageHTML(coverage={}) {
+function recommendationCoverageHTML(coverage={},purpose='policy') {
   const hosts=coverage.servers || [],issues=hosts.filter(host=>captureCoverageLimited(host.learning_coverage || {}));
-  return `<div class="inline-notice ${coverage.rate_limited||issues.length?'warning':''}">${h(coverage.message || 'Observed clients are evidence, not proof of trust. Review each source before allowing access. Retained evidence may omit traffic outside the collection window.')} ${coverage.rate_limited?'Coverage may be incomplete or rate limited. ':''}${issues.slice(0,5).map(host=>`${h(host.hostname || host.server_id)}: ${num(host.learning_coverage?.dropped_events)} dropped events${host.learning_coverage?.error?' · '+h(host.learning_coverage.error):''}${captureCoverageHTML(host.learning_coverage || {})}`).join('; ')}</div>`;
+  return `<div class="inline-notice ${coverage.rate_limited||issues.length?'warning':''}">${h(coverage.message || (purpose==='traffic'?'Collection may miss some traffic.':'Review each source before allowing access. Collection may miss some traffic.'))} ${coverage.rate_limited?'Coverage may be incomplete or rate limited. ':''}${issues.slice(0,5).map(host=>`${h(host.hostname || host.server_id)}: ${num(host.learning_coverage?.dropped_events)} dropped events${host.learning_coverage?.error?' · '+h(host.learning_coverage.error):''}${captureCoverageHTML(host.learning_coverage || {},purpose)}`).join('; ')}</div>`;
 }
 function recommendationDraft(form) {
   const current=state.currentRecommendation,values=new FormData(form),type=String(values.get('target_type') || current?.draft.target_type || 'servers');
@@ -64,7 +64,7 @@ function trafficDiscoveryRateHTML(row){
 function trafficDiscoveryReportHTML(current){
   const data=current.data,rows=data.rows || [],offset=num(data.offset),limit=num(data.limit || 200),sampled=data.traffic_collection_mode==='sampled';
   return `<div class="modal-body">${errorSlot}<div class="inline-notice">${sampled?'Up to one communication sample per source and destination service per minute.':'Observed traffic metadata. Counts and rates reflect capture coverage.'}</div>
-    ${recommendationCoverageHTML(data.coverage)}
+    ${recommendationCoverageHTML(data.coverage,'traffic')}
     ${data.evidence_expired===true?'<p class="inline-notice warning">The retention period ended and session evidence expired.</p>':data.evidence_expires_at?`<p class="help-text">Session evidence retention ends ${h(timestamp(data.evidence_expires_at))}.</p>`:''}
     <div class="table-scroll recommendation-evidence"><table><thead><tr><th>Source IP</th><th>Endpoint</th><th>Destination port</th><th>${sampled?'Communication samples':'Observed events'}</th>${sampled?'':'<th>Peak observed rate</th>'}<th>First and last observed</th></tr></thead>
     <tbody>${rows.map(row=>`<tr><td class="mono">${h(row.source_ip)}</td><td>${h(row.hostname || row.server_id)}</td><td>${num(row.port)}/${h(row.protocol)}<small>${h(row.service || row.process || '')}</small></td><td>${captureCountHTML(row)}<small>${captureEvidenceHTML(row)}</small></td>${sampled?'':`<td>${trafficDiscoveryRateHTML(row)}</td>`}<td>${h(timestamp(row.first_seen))}<small>${h(timestamp(row.last_seen))}</small></td></tr>`).join('')||`<tr><td colspan="${sampled?5:6}">No observations are currently available for this session.</td></tr>`}</tbody></table></div>

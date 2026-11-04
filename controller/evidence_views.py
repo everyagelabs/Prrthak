@@ -141,13 +141,14 @@ def csv_spool(store,session_id,server_id=None,*,max_bytes=None):
                 from .session_views import header
                 session=header(db,session_id)
                 server_filter(session,server_id)
-                from .learning import TRAFFIC_PURPOSE
+                from .learning import TRAFFIC_PURPOSE, is_policy_session
+                policy_session = is_policy_session(session)
                 fields = FIELDS + (RATE_FIELDS if session.get("purpose") == TRAFFIC_PURPOSE else ()) + DESTINATION_FIELDS
                 write(fields)
                 current_id,current_server=None,None
                 for row in evidence_rows(db,session_id,server_id) if traffic_evidence_available(session) else ():
                     if row['server_id']!=current_id:current_id=row['server_id'];current_server=server_view(db,current_id)
-                    public = _row_public(row, current_server, purpose=session.get("purpose"))
+                    public = _row_public(row, current_server, policy_session=policy_session)
                     public['destination_reported_ips'] = '; '.join(current_server.get('ips', []))
                     write(csv_values(public, fields))
             output.flush();output.seek(0)

@@ -1398,7 +1398,10 @@ def handler_for(app):
                 self.response(201, app.store.create_session(self.body(), actor, principal=principal))
             elif parts == ["learning"] and method == "GET":
                 from .session_views import listing as public_sessions
-                self.response(200, public_sessions(app.store,limit=int(query.get("limit",[6])[0]),offset=int(query.get("offset",[0])[0]),server_id=query.get("server_id",[None])[0],purpose=query.get("purpose",[None])[0]))
+                active_only = query.get("active_only", ["false"])
+                if active_only not in (["true"], ["false"]):
+                    raise ValueError("active_only must be true or false")
+                self.response(200, public_sessions(app.store,limit=int(query.get("limit",[6])[0]),offset=int(query.get("offset",[0])[0]),server_id=query.get("server_id",[None])[0],purpose=query.get("purpose",[None])[0],active_only=active_only == ["true"]))
             elif len(parts) == 3 and parts[0] == "learning" and parts[2] == "hosts" and method == "GET":
                 from .session_views import hosts as public_session_hosts
                 self.response(200, public_session_hosts(app.store,parts[1],limit=int(query.get("limit",[50])[0]),offset=int(query.get("offset",[0])[0])))

@@ -116,8 +116,15 @@
       </div>
       <nav id="navigation"></nav>
       <div class="sidebar-bottom">
-        <div class="agent-note"><span class="connection-dot"></span><span id="connection-label">Connecting to controller</span></div>
         <button class="nav-item" id="setup-button" type="button" aria-label="Agent setup" title="Agent setup"><span id="setup-icon"></span>Agent setup<span class="nav-arrow" aria-hidden="true">↗</span></button>
+        <div class="sidebar-health">
+          <div class="sidebar-health-row" id="sidebar-controller-health" data-state="pending" role="status">
+            <span class="connection-dot" aria-hidden="true"></span><span class="sidebar-health-label"><span id="controller-display-name">Controller</span> <span id="connection-label">connecting</span></span><span class="sidebar-health-short" aria-hidden="true">Ctrl</span>
+          </div>
+          <div class="sidebar-health-row" id="sidebar-ha-health" data-state="pending" role="status" hidden>
+            <span class="connection-dot" aria-hidden="true"></span><span class="sidebar-health-label" id="sidebar-ha-label"></span><span class="sidebar-health-short" aria-hidden="true">HA</span>
+          </div>
+        </div>
         <p class="sidebar-controller-version" title="Controller version"><span class="sidebar-version-label">Controller</span><span id="controller-version">—</span></p>
         <p class="sidebar-updated" id="last-updated">Waiting for first sync</p>
       </div>
@@ -125,7 +132,7 @@
     <div class="workspace-main">
       <header class="topbar">
         <img class="topbar-client-logo" src="/assets/airtel-payments-bank.png" alt="Airtel Payments Bank">
-        <div class="topbar-tools"><span class="controller-badge"><span class="connection-dot"></span><span id="controller-display-name">Controller</span></span><button id="refresh-button" class="icon-button" type="button" title="Refresh dashboard" aria-label="Refresh dashboard"></button><div id="policy-deployments" class="policy-deployments"></div><div class="account-menu" id="account-menu"><button id="account-menu-toggle" class="account-trigger" type="button" data-action="account-toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu-panel" aria-label="Account"><span class="topbar-avatar" id="identity-avatar" aria-hidden="true">?</span><span class="account-trigger-label"><span id="identity-name">Sign in required</span><small id="role-label">Read Only</small></span><span class="account-trigger-chevron" aria-hidden="true">⌄</span></button><div id="account-menu-panel" class="account-dropdown" role="menu" aria-label="Account menu" hidden></div></div></div></header>
+        <div class="topbar-tools"><button id="refresh-button" class="icon-button" type="button" title="Refresh dashboard" aria-label="Refresh dashboard"></button><div id="policy-deployments" class="policy-deployments"></div><div class="account-menu" id="account-menu"><button id="account-menu-toggle" class="account-trigger" type="button" data-action="account-toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu-panel" aria-label="Account"><span class="topbar-avatar" id="identity-avatar" aria-hidden="true">?</span><span class="account-trigger-label"><span id="identity-name">Sign in required</span><small id="role-label">Read Only</small></span><span class="account-trigger-chevron" aria-hidden="true">⌄</span></button><div id="account-menu-panel" class="account-dropdown" role="menu" aria-label="Account menu" hidden></div></div></div></header>
       <div id="demo-banner" class="demo-banner" hidden><span class="demo-symbol">◇</span><strong>Demo workspace</strong><span>·</span><span>Synthetic endpoints and traffic included. Live changes require explicit agent opt-in and reviewed authorization.</span><span class="demo-pill">LOCAL PREVIEW</span></div>
       <main id="main" tabindex="-1">
         <section class="page-heading"><div><div class="eyebrow">INFRASTRUCTURE OVERVIEW</div><h1 id="page-title">Network overview</h1><p id="page-description">Endpoint health, discovered services and observed communication across your sites.</p></div><div class="heading-actions"><div id="overview-quick-filters" hidden></div><button class="button secondary" id="enroll-button" type="button"></button><button class="button primary" id="learn-button" type="button" hidden></button></div></section>

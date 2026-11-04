@@ -8,7 +8,7 @@ const L=require('../locations.js');
 const source=fs.readFileSync(path.join(__dirname,'..','app.js'),'utf8');
 const deferred=()=>{let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};};
 const flow=(source='192.0.2.44')=>({server_id:'billing',session_id:'learn-one',source_ip:source,port:443,protocol:'tcp',verdict:'allowed',capture_kind:'accepted_connection',capture_backend:'conntrack',count_unit:'connections',address_family:'ipv4',count:3,first_seen:'2026-11-02T00:00:00Z',last_seen:'2026-11-02T00:00:00Z'});
-function page(items=[flow()],overrides={}){return {items,total:507,endpoint_count:1,counts_by_unit:{connections:1521,packets:7,log_records:0},limit:50,offset:0,has_more:true,window_seconds:3600,as_of:'2026-11-02T00:01:00Z',from_time:'2026-11-01T23:01:00Z',coverage:'Full retained scope; each page is a read snapshot. Late processing can change later pages.',filter_before_pagination:true,...overrides};}
+function page(items=[flow()],overrides={}){return {purpose:'traffic',items,total:507,endpoint_count:1,counts_by_unit:{connections:1521,packets:7,log_records:0},limit:50,offset:0,has_more:true,window_seconds:3600,as_of:'2026-11-02T00:01:00Z',from_time:'2026-11-01T23:01:00Z',coverage:'Full retained scope; each page is a read snapshot. Late processing can change later pages.',filter_before_pagination:true,...overrides};}
 function fixture(request=async()=>page()){
  const elements=new Map(),requests=[],downloads=[],toasts=[],blobs=[],revoked=[],context={console,JSON,Array,String,Number,Set,Map,Date,Promise,F,URLSearchParams,AbortController,Blob};
  const element=selector=>{if(!elements.has(selector))elements.set(selector,{innerHTML:'',open:false});return elements.get(selector);};
@@ -30,7 +30,7 @@ test('Read Only traffic pagination passes the real shared API guard and sends co
 test('combined application location group custom tag port and endpoint filters build one pre-pagination scope',()=>{
  const f=fixture();f.c.state.filters.application=['billing'];f.c.state.filters.locations=['location:dc-1'];f.c.state.filters.groups=['bill-group'];f.c.state.filters.custom.owner=['finance'];f.c.state.filters.ports=['443/tcp'];f.c.state.search='billing';
  const query=JSON.parse(JSON.stringify(f.c.trafficCatalogueQuery(100)));
- assert.deepEqual(query,{limit:50,offset:100,window_seconds:3600,server_ids:['billing'],search_server_ids:['billing'],ports:['443/tcp'],search:'billing'});
+ assert.deepEqual(query,{purpose:'traffic',limit:50,offset:100,window_seconds:3600,server_ids:['billing'],search_server_ids:['billing'],ports:['443/tcp'],search:'billing'});
  assert.equal(f.c.state.data.servers[0].listeners[0].port,22,'Historical traffic port does not have to be a currently listening port');
  f.c.state.flowServer='payments';assert.deepEqual(Array.from(f.c.trafficCatalogueQuery(0).server_ids),[]);
 });

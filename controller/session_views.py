@@ -70,7 +70,10 @@ def _summary(row):
         result.pop("traffic_collection_mode")
     for field, fallback in (("selection_mode", "manual"), ("policy_action", "observe"), ("purpose", "policy")):
         result[field] = result[field] or fallback
-    if row[start + 6]:
+    from .learning import is_policy_session
+    if not is_policy_session(result):
+        result.update(policy_action="observe", initial_approval_state=None)
+    elif row[start + 6]:
         fields = ("id", "status", "created_at", "expires_at", "digest", "plan_digest")
         result["initial_approval_plan"] = {field: row[start + 6 + index] for index, field in enumerate(fields)}
         result["initial_approval_plan"].update(session_id=result["id"], kind="initial_learning", summary_only=True)
@@ -87,9 +90,11 @@ def _where(db, server_id):
     return "EXISTS(SELECT 1 FROM json_each(sessions.data,'$.server_ids') member WHERE member.value=?)", (server_id,)
 
 
-def listing(store, limit=6, offset=0, server_id=None, purpose=None):
+def listing(store, limit=6, offset=0, server_id=None, purpose=None, active_only=False):
     if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 20 or isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
         raise ValueError("Learning pagination requires limit 1..20 and nonnegative offset")
+    if type(active_only) is not bool:
+        raise ValueError("active_only must be true or false")
     with store.read_meta() as db:
         if getattr(db, "dialect", "sqlite") == "sqlite":
             db.execute("BEGIN")
@@ -100,15 +105,18 @@ def listing(store, limit=6, offset=0, server_id=None, purpose=None):
             field = _expression(db, ("purpose",))
             where += " AND " + ("COALESCE(" + field + ",'policy')" if purpose == "policy" else field) + "=?"
             args += (purpose,)
-        total = int(db.execute("SELECT COUNT(*) FROM sessions WHERE " + where, args).fetchone()[0])
         active = _expression(db, ("status",)) + "='active' AND " + _expression(db, ("starts_at",)) + "<=? AND " + _expression(db, ("expires_at",)) + ">?"
         current = stamp()
-        active_total = int(db.execute("SELECT COUNT(*) FROM sessions WHERE " + where + " AND " + active, args + (current, current)).fetchone()[0])
+        if active_only:
+            where += " AND " + active
+            args += (current, current)
+        total = int(db.execute("SELECT COUNT(*) FROM sessions WHERE " + where, args).fetchone()[0])
+        active_total = total if active_only else int(db.execute("SELECT COUNT(*) FROM sessions WHERE " + where + " AND " + active, args + (current, current)).fetchone()[0])
         order = _expression(db, ("starts_at",)) + " DESC,id DESC"
         # LIMIT is below the scalar/array projection, never after Python decode.
         sql = "SELECT " + _projection(db) + " FROM (SELECT id,data FROM sessions WHERE " + where + " ORDER BY " + order + " LIMIT ? OFFSET ?) sessions"
         items = [_summary(row) for row in db.execute(sql, args + (limit, offset))]
-        return {"items": items, "total": total, "active_total": active_total, "limit": limit, "offset": offset, "has_more": offset + limit < total, "server_id": server_id, "summary_only": True, **({"purpose": purpose} if purpose is not None else {})}
+        return {"items": items, "total": total, "active_total": active_total, "limit": limit, "offset": offset, "has_more": offset + limit < total, "server_id": server_id, "summary_only": True, **({"purpose": purpose} if purpose is not None else {}), **({"active_only": True} if active_only else {})}
 
 
 def header(db, identifier):

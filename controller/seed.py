@@ -189,6 +189,34 @@ def tick_synthetic_hosts(store, at=None):
             store._put(db, "servers", server)
 
 
+def seed_traffic_discovery(store):
+    from .learning import TRAFFIC_PURPOSE, evidence_expiry
+
+    session_id, server_id = "discover-traffic-billing", "srv-bill-01"
+    at = now()
+    end = at - timedelta(minutes=1)
+    port = {"port": 8443, "protocol": "tcp"}
+    with store.lock, store.meta() as db:
+        baseline = store._get(db, "sessions", "learn-payments-web") or {}
+        server = store._get(db, "servers", server_id) or {}
+        if baseline.get("created_by") != "demo.seed" or not server.get("synthetic") or store._get(db, "sessions", session_id):
+            return False
+        store._put(db, "sessions", {
+            "id": session_id, "name": "Billing API traffic · synthetic", "server_ids": [server_id],
+            "purpose": TRAFFIC_PURPOSE, "policy_action": "observe", "traffic_collection_mode": "hits",
+            "selection_mode": "manual", "ports": [port], "status": "expired", "synthetic": True,
+            "starts_at": stamp(at-timedelta(minutes=18)), "expires_at": stamp(end),
+            "ended_at": stamp(end), "evidence_expires_at": evidence_expiry(end), "created_by": "demo.seed",
+        })
+    for index, (source, count) in enumerate((("10.24.20.21", 31), ("10.32.5.10", 12), ("192.0.2.54", 4))):
+        observed = stamp(at - timedelta(minutes=5 + 2 * index))
+        store.enqueue_flows(server_id, {
+            "batch_id": f"demo-traffic-{index}", "session_id": session_id,
+            "events": [{**port, "source_ip": source, "count": count, "first_seen": observed, "last_seen": observed}],
+        })
+    return True
+
+
 def seed(store):
     from .maintenance import seed_disabled
     if seed_disabled(store):
@@ -197,6 +225,8 @@ def seed(store):
     if store.all("servers"):
         seed_cloud_hosts(store)
         mark_synthetic_hosts(store)
+        if seed_traffic_discovery(store):
+            store.process_flows()
         return
     records = [
         ("srv-web-01", "pay-web-01", "10.24.10.11", "rhel", "9.4", "payments", "Mumbai", "production", "web", [22, 80, 443]),
@@ -260,6 +290,7 @@ def seed(store):
         port = 8080 if identifier == "srv-api-01" else [80, 443, 22][index % 3]
         event_time = now() - timedelta(minutes=1 + index)
         store.enqueue_flows(identifier, {"batch_id": f"demo-{index}", "session_id": session["id"], "events": [{"source_ip": source, "port": port, "protocol": "tcp", "verdict": "denied" if source.startswith(("192.0.2.", "198.51.100.")) else "allowed", "count": 12 + (index * 71) % 1800, "first_seen": stamp(event_time - timedelta(minutes=2)), "last_seen": stamp(event_time)}]})
+    seed_traffic_discovery(store)
     store.process_flows()
     store.evaluate_health()
     store.audit("demo.initialized", "system", {"synthetic": True, "servers": len(records)})

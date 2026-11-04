@@ -15,6 +15,7 @@ import secrets
 import uuid
 from datetime import timedelta
 
+from .learning import is_policy_session, require_policy_session
 from .store import digest, now, parse_time, stamp
 from .firewall import WorkflowConflict
 
@@ -277,6 +278,7 @@ def authorized(store, db, value, *, plan_id=None, plan_digest=None, server_id=No
 
 def learning_requester(store, db, session, actor, principal=None):
     """Capture who requested automation before discovery; no access grant yet."""
+    require_policy_session(session)
     if isinstance(principal, dict) and principal.get("auth_type") == "session":
         requester, mode = identity(store, db, actor, principal), "single_admin"
     elif _lab(store):
@@ -309,6 +311,7 @@ def _learning_target(session, server):
 
 def _learning_scope(store, db, session):
     from .review_limits import MAX_REVIEW_BYTES, encoded_size
+    require_policy_session(session)
     if session.get("policy_action") != "auto_allow" or session.get("selection_mode") != "discovered" or session.get("status") != "active" or not parse_time(session["starts_at"]) <= now() < parse_time(session["expires_at"]):
         raise ValueError("Only an active discovered auto-allow session can receive initial authority")
     if session.get("discovery_pending_server_ids"):
@@ -330,6 +333,8 @@ def _learning_scope(store, db, session):
 
 
 def learning_authorized(store, db, session, server=None):
+    if not is_policy_session(session):
+        return False
     if session.get("initial_approval_mode") == "lab_only":
         return _lab(store)
     proof_value = session.get("initial_approval_proof")
@@ -387,6 +392,7 @@ def learning_preview(store, session_id, value, actor, principal=None):
         session = store._get(db, "sessions", session_id)
         if not session:
             raise KeyError(session_id)
+        require_policy_session(session)
         maker = identity(store, db, actor, principal)
         requester = session.get("initial_approval_requester", {})
         scope = _learning_scope(store, db, session)
@@ -428,6 +434,7 @@ def learning_confirm(store, session_id, value, actor, principal=None):
         session = store._get(db, "sessions", session_id)
         if not session:
             raise KeyError(session_id)
+        require_policy_session(session)
         plan = session.get("initial_approval_plan")
         if not plan or value.get("preview_id") != plan["id"] or plan["status"] not in ("draft", "awaiting_second_confirmation") or parse_time(plan["expires_at"]) <= now() or plan["scope"] != _learning_scope(store, db, session):
             raise WorkflowConflict("Initial auto-allow scope changed, expired or no longer awaits approval; prepare a fresh review", {})

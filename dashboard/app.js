@@ -51,7 +51,7 @@ function showWorkspaceView(view, advancedControls = false) {
   if (changed) {
     if ($('#modal').open) closeModal();
     if (state.view === 'settings') platformClearDraft();
-    if (state.view === 'traffic') state.trafficLearningSessionsOpen = false;
+    if (state.discoveryHistoryOpen && discoveryViewPurpose()) state.discoveryHistoryOpen[discoveryViewPurpose()] = false;
     closeDrawer();
     closeAccountMenu();
     state.filtersOpen = view !== 'overview';
@@ -112,7 +112,7 @@ function restoreWorkspaceView() {
 }
 function migrateLegacyHash(){const destination=R.legacyDestination(location.pathname,location.hash,location.search);if(destination){persistScope();location.replace(destination);return true;}return false;}
 const restoredScope=restoreScope();
-const state = {policyTab:['policies','rollouts','default-deny'].includes(sessionStorage.getItem('prithak-policy-tab'))?sessionStorage.getItem('prithak-policy-tab'):'policies',data:null,filtersOpen:R.viewFromPath(location.pathname)!=='overview',cluster:null,clusterError:false,firewallData:null,firewallError:'',firewallLoading:false,firewallSnapshots:{},firewallSnapshotErrors:{},drawerTab:'services',detailData:null,activeFirewallPlan:null,view:R.viewFromPath(location.pathname),search:restoredScope.search,filters:restoredScope.filters,alertIncludeResolved:restoredScope.alertIncludeResolved,flowServer:restoredScope.flowServer,window:restoredScope.window,role:'read_only',user:null,authType:null,authProvider:'',passwordChangeRequired:false,csrfToken:'',authConfig:null,authError:'',accessUsers:[],accessError:'',accessLoaded:false,accessLoading:false,reservations:[],reservationsLoaded:false,reservationsLoading:false,token:sessionStorage.getItem('segment-token') || '',lastSync:null,activity:[],detail:null,polling:false};
+const state = {policyTab:['policies','rollouts','default-deny'].includes(sessionStorage.getItem('prithak-policy-tab'))?sessionStorage.getItem('prithak-policy-tab'):'policies',data:null,filtersOpen:R.viewFromPath(location.pathname)!=='overview',cluster:null,clusterError:false,controllerUnavailable:false,firewallData:null,firewallError:'',firewallLoading:false,firewallSnapshots:{},firewallSnapshotErrors:{},drawerTab:'services',detailData:null,activeFirewallPlan:null,view:R.viewFromPath(location.pathname),search:restoredScope.search,filters:restoredScope.filters,alertIncludeResolved:restoredScope.alertIncludeResolved,flowServer:restoredScope.flowServer,window:restoredScope.window,role:'read_only',user:null,authType:null,authProvider:'',passwordChangeRequired:false,csrfToken:'',authConfig:null,authError:'',accessUsers:[],accessError:'',accessLoaded:false,accessLoading:false,reservations:[],reservationsLoaded:false,reservationsLoading:false,token:sessionStorage.getItem('segment-token') || '',lastSync:null,activity:[],detail:null,polling:false};
 
 if(state.view==='settings'&&/[?&]setup=(?:verified|failed)(?:&|$)/.test(location.search||''))state.platformTab='setup';
 state.networkControlOpen = R.advancedPolicies(location.pathname, location.search);
@@ -208,7 +208,7 @@ function currentPolicy(server){return F.policyStatus(server)==='current';}
 function policyBadge(server){const status=F.policyStatus(server);return status==='current'?badge('Current'):managedBadge(status);}
 function tagsHTML(tags={}, all=false){return Object.entries(tags).slice(0,all?100:3).map(([key,value],index)=>`<span class="tag ${['teal','','purple'][index%3]}" title="${h(key)}=${h(value)}">${h(all?`${key}=${value}`:value)}</span>`).join('') || '<span class="host-os">No tags</span>';}
 function sessionTitle(session){const ids=session.server_ids || [];return session.name || (ids.length===1?serverName(ids[0]):`${num(session.server_count ?? ids.length)} endpoints`);}
-function visibleFlows(){if(state.view==='traffic'&&trafficCatalogueEnabled())return trafficCataloguePage().items;const cutoff=Date.now()-state.window*1000;const servers=new Map((state.data?.servers||[]).map(server=>[server.id,server]));return (state.data?.flows||[]).filter(flow=>(state.flowServer==='all'||flow.server_id===state.flowServer)&&num(date(flow.last_seen)?.getTime())>=cutoff&&F.matchFlow(flow,servers.get(flow.server_id),state.filters,state.search));}
+function visibleFlows(){if(state.view==='traffic'&&trafficCatalogueEnabled())return trafficCataloguePage().items;const cutoff=Date.now()-state.window*1000;const servers=new Map((state.data?.servers||[]).map(server=>[server.id,server]));const trafficIds=state.view==='traffic'?new Set((state.data?.learning_sessions||[]).filter(session=>session.purpose==='traffic').map(session=>session.id)):null;return (state.data?.flows||[]).filter(flow=>(!trafficIds||trafficIds.has(flow.session_id))&&(state.flowServer==='all'||flow.server_id===state.flowServer)&&num(date(flow.last_seen)?.getTime())>=cutoff&&F.matchFlow(flow,servers.get(flow.server_id),state.filters,state.search));}
 function canWrite(){return !state.passwordChangeRequired&&['admin','super_admin'].includes(state.role);}
 function acknowledged(alert){return !!alert.acknowledged || alert.status==='acknowledged';}
 
@@ -252,6 +252,43 @@ function overviewQuickFiltersHTML(){
 }
 
 
+function renderSidebarStatus() {
+  const cluster = state.cluster;
+  const nodes = cluster?.nodes || [];
+  const ready = node => node.status === 'healthy' && node.ready === true;
+  const currentNode = nodes.find(node => node.id === cluster?.controller_id);
+  const controller = $('#sidebar-controller-health');
+  const name = $('#controller-display-name');
+  const label = $('#connection-label');
+  const displayName = state.data?.meta?.controller_display_name || 'Controller';
+  const tone = state.controllerUnavailable ? 'offline' : !state.lastSync ? 'pending' : currentNode && !ready(currentNode) ? 'warning' : 'healthy';
+  const status = {offline: 'unavailable', pending: 'connecting', warning: 'not ready', healthy: 'connected'}[tone];
+  if (name.textContent !== displayName) name.textContent = displayName;
+  if (label.textContent !== status) label.textContent = status;
+  controller.dataset.state = tone;
+  controller.title = `${displayName} ${status}`;
+
+  const ha = $('#sidebar-ha-health');
+  ha.hidden = state.data?.meta?.ha !== true;
+  if (ha.hidden) return;
+
+  let haStatus = 'Checking HA status';
+  let haTone = 'pending';
+  if (state.controllerUnavailable || state.clusterError || cluster && cluster.ha !== true) {
+    haStatus = 'HA status unavailable';
+    haTone = 'offline';
+  } else if (cluster) {
+    const count = nodes.filter(ready).length;
+    haTone = count === 0 ? 'offline' : count > 1 && count === nodes.length ? 'healthy' : 'warning';
+    haStatus = nodes.length === 1 && count === 1 ? 'HA · Only one controller reporting' :
+      nodes.length ? `HA · ${count}/${nodes.length} controllers ready` : 'HA · No controllers reporting';
+  }
+  const haLabel = $('#sidebar-ha-label');
+  if (haLabel.textContent !== haStatus) haLabel.textContent = haStatus;
+  ha.dataset.state = haTone;
+  ha.title = haStatus;
+}
+
 function renderChrome(){
   const unack=state.alertGlobalCounts?.unacknowledged_count??(state.data?.alerts||[]).filter(alert=>!acknowledged(alert) && !alert.resolved_at && alert.status!=='resolved').length;
   const navigationViews=Object.entries(views).filter(([key])=>key!=='access');
@@ -264,14 +301,9 @@ function renderChrome(){
   $('#demo-banner').hidden=state.authType!=='demo';
   const version = state.data?.meta?.version;
   $('#controller-version').textContent = version ? `v${version}` : '—';
-  const controllerName = $('#controller-display-name');
-  if (controllerName) {
-    controllerName.textContent = state.data?.meta?.controller_display_name || 'Controller';
-    controllerName.title = controllerName.textContent;
-  }
+  renderSidebarStatus();
   renderAccountMenu();
   renderPolicyDeploymentsChrome();
-  $('#connection-label').textContent=state.lastSync?'Controller connected':'Connecting to controller';
   const createLabel = {policies: 'Create policy', locations: 'Create location', services: 'Create service group'}[state.view];
   const createButton = $('#enroll-button');
   createButton.innerHTML = createLabel ? icon('plus') + createLabel : '';
@@ -314,7 +346,7 @@ function chartHTML(){
     if(page?.loading)sampleNote='Loading communication samples…';
     else if(page?.error)sampleNote='Could not load communication samples.';
     else if(page?.counts_by_unit.sample_minutes>0)sampleNote=`${format(page.counts_by_unit.sample_minutes)} samples match your filters on other pages of Observed sources.`;
-    else sampleNote='No samples in this window. Start Discover traffic with Count traffic hits turned off to collect samples.';
+    else sampleNote='No samples in this window. For Count traffic hits sessions, choose Connections or Denied packets. Start Discover traffic with Count traffic hits turned off to collect samples.';
   }
   return `<section class="card"><div class="card-header"><div><h2 class="card-title">${traffic?'Traffic by time':activeFilterCount()?'Filtered observed traffic':'Observed traffic'}</h2>${traffic?'':`<p class="card-subtitle">${unitLabel} grouped by last observation; units are never summed</p>`}</div>${headerControl}</div>${unitControls}
     <div class="chart-topline"><strong>${compact(total)}</strong><span>${unitLabel}${traffic?'':` · last ${state.window/3600}h`}</span></div>
@@ -375,7 +407,7 @@ function flowGraphHTML(){
   const nodes=sources.map((source,index)=>`<rect x="12" y="${sourceY(index)-18}" width="165" height="36" rx="6" fill="#fafafb" stroke="#e7e7ed"/><circle cx="27" cy="${sourceY(index)}" r="3" fill="#b0b0bf"/><text x="39" y="${sourceY(index)+4}">${h(source)}</text>`).join('')+destinations.map((destination,index)=>{const [id,port,protocol]=destination.split('|');const hostname=serverName(id);return `<rect x="354" y="${destY(index)-21}" width="190" height="42" rx="6" fill="#fff5f6" stroke="#f1d8dc"/><text x="366" y="${destY(index)-2}">${h(hostname.length>25?hostname.slice(0,23)+'…':hostname)}</text><text x="366" y="${destY(index)+12}" class="flow-label">${num(port)}/${h(protocol)}</text>`;}).join('');
   return `<section class="card"><div class="card-header"><div><h2 class="card-title">Source → service map</h2></div></div><div class="flow-map"><svg viewBox="0 0 558 ${Math.max(165,64+Math.max(sources.length,destinations.length)*55)}" role="img" aria-label="Observed traffic from source addresses to endpoint services"><text x="12" y="20" class="flow-label">OBSERVED SOURCES</text><text x="354" y="20" class="flow-label">ENDPOINT SERVICES</text>${edges}${nodes}${!sources.length?'<text x="279" y="100" text-anchor="middle">No sources to map</text>':''}</svg></div></section>`;
 }
-function trafficHTML(){if(trafficCatalogueEnabled())return trafficCatalogueHTML();const flows=visibleFlows();return `${filterBarHTML('traffic')}${trafficControlsHTML()}<div class="traffic-layout">${flowGraphHTML()}${chartHTML()}</div><div class="section-line"><h2>Observed sources<span>${flows.length} relationships</span></h2></div><section class="card"><div class="table-scroll"><table><thead><tr><th>Source IP</th><th>Endpoint</th><th>Service</th><th>Observation</th><th class="number-cell">Count</th><th>Last observed</th></tr></thead><tbody>${flows.map(flow=>`<tr><td class="mono">${h(flow.source_ip)}</td><td><button class="text-button" data-action="server" data-id="${h(flow.server_id)}">${h(serverName(flow.server_id))}</button></td><td><span class="service-pill">${num(flow.port)}/${h(flow.protocol)}</span></td><td>${captureEvidenceHTML(flow)}</td><td class="number-cell">${captureCountHTML(flow)}</td><td title="${h(timestamp(flow.last_seen))}">${age(flow.last_seen)}</td></tr>`).join('') || '<tr><td colspan="6"><div class="empty-state" style="padding:35px">No observations for this endpoint and time window.</div></td></tr>'}</tbody></table></div><div class="table-footer"><span>Showing up to 500 aggregated relationships</span><span>Retention: ${num(state.data.meta?.traffic_retention_hours || 24)} hours</span></div></section><div style="margin-top:24px">${learningHTML()}</div>${hitMonitoringHTML()}`;}
+function trafficHTML(){if(trafficCatalogueEnabled())return trafficCatalogueHTML();const flows=visibleFlows();return `${filterBarHTML('traffic')}${learningHTML()}<p class="help-text">This controller provides a limited traffic summary. Open a discovery session to see its observations.</p>${trafficControlsHTML()}<div class="traffic-layout">${flowGraphHTML()}${chartHTML()}</div><div class="section-line"><h2>Observed sources<span>${flows.length} relationships</span></h2></div><section class="card"><div class="table-scroll"><table><thead><tr><th>Source IP</th><th>Endpoint</th><th>Service</th><th>Observation</th><th class="number-cell">Count</th><th>Last observed</th></tr></thead><tbody>${flows.map(flow=>`<tr><td class="mono">${h(flow.source_ip)}</td><td><button class="text-button" data-action="server" data-id="${h(flow.server_id)}">${h(serverName(flow.server_id))}</button></td><td><span class="service-pill">${num(flow.port)}/${h(flow.protocol)}</span></td><td>${captureEvidenceHTML(flow)}</td><td class="number-cell">${captureCountHTML(flow)}</td><td title="${h(timestamp(flow.last_seen))}">${age(flow.last_seen)}</td></tr>`).join('') || '<tr><td colspan="6"><div class="empty-state" style="padding:35px">No observations for this endpoint and time window.</div></td></tr>'}</tbody></table></div><div class="table-footer"><span>Showing up to 500 aggregated relationships</span><span>Retention: ${num(state.data.meta?.traffic_retention_hours || 24)} hours</span></div></section>${hitMonitoringHTML()}`;}
 function alertsHTML(){const page=alertCataloguePage(),alerts=[...page.items].sort((a,b)=>(date(b.created_at)||0)-(date(a.created_at)||0));return `${filterBarHTML('alerts')}<div class="alert-view-controls"><label><input type="checkbox" id="show-resolved-alerts" ${state.alertIncludeResolved?'checked':''}> Include recovered / resolved alerts</label><span>${page.remote?(page.total===null?'…':format(page.total)):alerts.length} results in selected scope</span></div><div class="inline-notice">Health checks continue independently of traffic learning. An offline agent makes service status unknown; it does not prove the services are down.</div>${alerts.length?`<div class="alert-list">${alerts.map(alert=>{const resolved=!!alert.resolved_at||alert.status==='resolved';const ack=acknowledged(alert);const kind=resolved?'info':['critical','high','error'].includes(alert.severity)?'':'warning';return `<article class="card alert-card ${ack||resolved?'acknowledged':''}"><span class="alert-symbol ${kind}">${icon(resolved?'check':kind==='warning'?'warning':'alerts')}</span><div class="alert-body"><h2 class="alert-title">${h(alert.title || humanize(alert.kind || alert.type || 'Endpoint alert'))}</h2><p class="alert-message">${h(alert.message || (typeof alert.detail==='string'?alert.detail:'') || 'Review the endpoint for more details.')}</p>${alertServiceDetailsHTML(alert)}${securityAlertDetailsHTML(alert)}<div class="alert-meta"><button class="text-button" data-action="server" data-id="${h(alert.server_id)}">${h(serverName(alert.server_id))}</button><span>${timestamp(alert.created_at)}</span><span>${h(resolved?(alert.resolution_reason==='expectation_withdrawn'?'Expectation withdrawn':'Recovered'):ack?'Acknowledged':alert.severity||'Warning')}</span></div></div>${!resolved&&!ack?`<button class="button secondary small" data-action="ack-alert" data-id="${h(alert.id)}" ${!canWrite()?'disabled':''}>Acknowledge</button>`:''}</article>`;}).join('')}</div>`:emptyHTML(page.loading?'Loading alerts':'No alerts to review',page.error?'Alert history could not be loaded. Use Retry below.':'The health evaluator will report service changes and missing heartbeats here.','check')}${alertCatalogueFooter(page)}`;}
 function humanize(value){return String(value).replace(/[_.-]/g,' ').replace(/^\w/,char=>char.toUpperCase());}
 function activityHTML(){return auditCatalogueHTML();}
@@ -408,30 +440,41 @@ async function changeTrafficWindow(seconds){
     toast(error.message,true);
   }
 }
-async function refreshOverviewExtras(){
+async function refreshClusterStatus(){
   if(state.extrasLoading)return;
   state.extrasLoading=true;
-  try{state.cluster=await api('/cluster');state.clusterError=false;}
-  catch{state.cluster=null;state.clusterError=true;}
+  const generation = accessAsync.generation;
+  try {
+    const cluster = await api('/cluster');
+    if (generation !== accessAsync.generation) return;
+    state.cluster = cluster;
+    state.clusterError = false;
+  } catch {
+    if (generation !== accessAsync.generation) return;
+    state.cluster = null;
+    state.clusterError = true;
+  }
   finally{state.extrasLoading=false;}
+  renderSidebarStatus();
   if(state.data&&state.view==='overview'&&!$('#modal').open&&!document.activeElement?.matches('input,select,textarea')&&!$$('.filter-menu[open]').length)render();
 }
 
 function refreshWorkspaceView() {
+  if (state.view === 'overview' || state.data?.meta?.ha === true) refreshClusterStatus();
   switch (state.view) {
     case 'overview':
-      refreshOverviewExtras();
       refreshFirewallData();
       if (state.alertCatalogue?.remote && state.alertCatalogue.scopeKey !== alertCatalogueEmptyScopeKey()) loadAlertCatalogue(0);
       break;
     case 'policies':
+      refreshDiscoveryView('policy');
       refreshFirewallData();
       refreshManagedRollouts();
       if (state.networkControlOpen) loadNetworkControl();
       break;
     case 'traffic':
       loadHitMonitors();
-      if (state.trafficLearningSessionsOpen && !$('#modal').open) loadTrafficLearningHistory({quiet: true});
+      refreshDiscoveryView('traffic');
       if (trafficCatalogueEnabled() && !state.trafficCatalogue?.loading) loadTrafficCatalogue(state.trafficCatalogue?.offset || 0, {fresh: true});
       break;
     case 'firewall': loadFirewallActivation(); break;
@@ -451,9 +494,9 @@ async function load({quiet=false,sessionChecked=false}={}){
   try{
     if(!sessionChecked&&state.authType&&state.authType!=='demo')applyDashboardIdentity(await api('/auth'));
     if(state.passwordChangeRequired){showLocalPasswordChange(true);return;}
-    const result=await api('/overview');if(state.passwordChangeRequired){showLocalPasswordChange(true);return;}state.data={...result,servers:result.servers||[],groups:result.groups||[],service_groups:result.service_groups||[],policies:result.policies||[],locations:result.locations||[],learning_policies:result.learning_policies||[],learning_sessions:result.learning_sessions||[],alerts:result.alerts||[],flows:result.flows||[]};learningReceiveOverview(result);defaultDenyInvalidateReview();policyCatalogueReceiveOverview(result);alertsReceiveOverview(result);L.setCatalog(state.data.locations);F.setGroups(state.data.groups);sourceBanksReceiveOverview();refreshPolicyDeployments({quiet:true});if($('#modal').open&&$('#modal-title').textContent==='Server groups'){const scroll=$('#modal').scrollTop;showGroups();$('#modal').scrollTop=scroll;}if(state.window!==3600&&!(state.view==='traffic'&&trafficCatalogueEnabled())){const seconds=state.window,identity=workspaceCSVIdentity();const traffic=await api(`/flows?window=${seconds}`);if(state.window===seconds&&state.data&&identity===workspaceCSVIdentity())state.data.flows=traffic.items||[];}state.lastSync=new Date();openWorkspaceAfterSignIn();$('#global-error').hidden=true;$$('.connection-dot').forEach(dot=>dot.classList.remove('offline'));if(!platformHasDraft() && !$('#modal').open && !document.activeElement?.matches('input,select,textarea') && !$$('.filter-menu[open]').length)render();else renderChrome();refreshWorkspaceView();
+    const result=await api('/overview');if(state.passwordChangeRequired){showLocalPasswordChange(true);return;}state.data={...result,servers:result.servers||[],groups:result.groups||[],service_groups:result.service_groups||[],policies:result.policies||[],locations:result.locations||[],learning_policies:result.learning_policies||[],learning_sessions:result.learning_sessions||[],alerts:result.alerts||[],flows:result.flows||[]};learningReceiveOverview(result);defaultDenyInvalidateReview();policyCatalogueReceiveOverview(result);alertsReceiveOverview(result);L.setCatalog(state.data.locations);F.setGroups(state.data.groups);sourceBanksReceiveOverview();refreshPolicyDeployments({quiet:true});if($('#modal').open&&$('#modal-title').textContent==='Server groups'){const scroll=$('#modal').scrollTop;showGroups();$('#modal').scrollTop=scroll;}if(state.window!==3600&&!(state.view==='traffic'&&trafficCatalogueEnabled())){const seconds=state.window,identity=workspaceCSVIdentity();const traffic=await api(`/flows?window=${seconds}`);if(state.window===seconds&&state.data&&identity===workspaceCSVIdentity())state.data.flows=traffic.items||[];}state.lastSync=new Date();state.controllerUnavailable=false;openWorkspaceAfterSignIn();$('#global-error').hidden=true;if(!platformHasDraft() && !$('#modal').open && !document.activeElement?.matches('input,select,textarea') && !$$('.filter-menu[open]').length)render();else renderChrome();refreshWorkspaceView();
   }
-  catch(error){if(error.status===401){clearDashboardIdentity();state.data=null;closeDrawer();if(state.platformRecoveryReconnect)state.authError='Database recovery may have restarted the controller and invalidated this session. Sign in and reopen Recovery to verify the durable outcome.';else if(state.platformRuntimePending)state.authError='Controller authentication changed during activation or joining. Sign in with the existing cluster credentials, then refresh Platform settings.';$('#view-content').innerHTML=emptyHTML('Sign in required',state.platformRuntimePending?'Sign in with approved existing-cluster credentials to check the deployment operation.':'Your session has ended. Sign in again to view the workspace.','access');showLogin();}else{if($('#workspace-shell').hidden){showWorkspaceConnection(error);return;}$('#global-error').hidden=false;$('#global-error').textContent=`Controller unavailable: ${error.message}. Existing server policies remain in place. Retrying automatically.`;$$('.connection-dot').forEach(dot=>dot.classList.add('offline'));$('#connection-label').textContent='Controller unavailable';if(!state.data)$('#view-content').innerHTML=emptyHTML('Could not load the workspace','Check the controller connection and try again.','info','Retry connection','refresh');if(!quiet)toast(error.message,true);}}
+  catch(error){if(error.status===401){clearDashboardIdentity();state.data=null;closeDrawer();if(state.platformRecoveryReconnect)state.authError='Database recovery may have restarted the controller and invalidated this session. Sign in and reopen Recovery to verify the durable outcome.';else if(state.platformRuntimePending)state.authError='Controller authentication changed during activation or joining. Sign in with the existing cluster credentials, then refresh Platform settings.';$('#view-content').innerHTML=emptyHTML('Sign in required',state.platformRuntimePending?'Sign in with approved existing-cluster credentials to check the deployment operation.':'Your session has ended. Sign in again to view the workspace.','access');showLogin();}else{if($('#workspace-shell').hidden){showWorkspaceConnection(error);return;}$('#global-error').hidden=false;$('#global-error').textContent=`Controller unavailable: ${error.message}. Existing server policies remain in place. Retrying automatically.`;state.controllerUnavailable=true;renderSidebarStatus();if(!state.data)$('#view-content').innerHTML=emptyHTML('Could not load the workspace','Check the controller connection and try again.','info','Retry connection','refresh');if(!quiet)toast(error.message,true);}}
   finally{state.polling=false;}
 }
 
@@ -590,7 +633,7 @@ async function handleAction(event){
   if(action?.startsWith('platform-'))return platformAction(button);
   if(action?.startsWith('recommendation-'))return recommendationAction(button);
   if(action?.startsWith('learned-policy-'))return learnedPolicyAction(button);
-  if(['traffic-learning-sessions','traffic-learning-refresh','learning-session-page','learning-host-scope','learning-host-page'].includes(action))return learningHistoryAction(button);
+  if(['traffic-learning-sessions','policy-learning-sessions','discovery-status-refresh','learning-session-page','learning-host-scope','learning-host-page'].includes(action))return learningHistoryAction(button);
   if(action?.startsWith('service-group-'))return serviceGroupAction(button);
   if(action==='learning-refresh-preview')return refreshLearningPreview();
   if(action?.startsWith('metadata-'))return metadataAction(button);
@@ -642,7 +685,7 @@ async function handleAction(event){
     state.filters.ports=[button.dataset.port];
     return navigate('servers');
   }
-  if(action==='stop-learning')return showConfirm('Stop this learning session?','The agent will stop collection on its next policy sync. Existing access policy stays active, and recorded observations are retained.','Stop learning','confirm-stop',id);
+  if(action==='stop-learning'){const traffic=button.dataset.purpose==='traffic';return showConfirm(traffic?'Stop traffic collection?':'Stop policy discovery?',traffic?'Agents stop collection on their next sync. Observations are retained.':'Agents stop discovering sources on their next sync. Policies already applied stay active.',traffic?'Stop collection':'Stop policy discovery','confirm-stop',id);}
   if(action==='confirm-stop'){button.disabled=true;const success=await mutate(`/learning/${encodeURIComponent(id)}/stop`,{method:'POST',body:{}},'Learning session stopped. Agents receive the update on their next sync.');if(!success)button.disabled=false;return;}
   if(action==='delete-policy')return reviewPolicyRemoval(id);
   if(action==='confirm-delete'){if(!canWrite()){formError(new Error('Read Only access cannot change the workspace.'));return;}const policy=state.activePolicyRemoval;if(!policy||policy.id!==id){formError(new Error('Reload the exact policy and review its removal first.'));return;}button.disabled=true;const success=await mutate(`/policies/${encodeURIComponent(id)}`,{method:'DELETE',body:{expected_revision:policy.revision}},'Policy deleted. Follow endpoint cleanup and traffic evidence in Rollouts.');if(!success)button.disabled=false;return;}
@@ -660,11 +703,7 @@ document.addEventListener('click',handleWorkspaceLink);
 document.addEventListener('click',handleAction);
 document.addEventListener('keydown',event=>{if(event.key==='Enter'&&['service-filter-input','custom-tag-filter-input'].includes(event.target.id)){event.preventDefault();applyFilterEntry(event.target.id==='service-filter-input'?'ports':'custom');return;}if(event.key==='Enter' && event.target.matches('.server-row'))openServer(event.target.dataset.id);if(event.key==='Escape' && state.detail)closeDrawer();});
 document.addEventListener('input',event=>{accessInput(event);platformMarkDraft(event.target);if(firewallActivationInput(event)||networkControlInput(event))return;if(platformUpdateInput(event)||platformSetupInput(event))return;if(platformSigningInput(event)||platformSIEMInput(event)||platformApplicationPortInput(event)||platformRecoveryInput(event)||platformNotificationInput(event)||platformEndpointCertificateInput(event))return;if(platformAgentSettingsInput(event))return;if(platformApplianceInput(event))return;if(platformHAInput(event)||platformInput(event))return;if(event.target.id==='recommendation-name'&&recommendationChange(event))return;if(serviceGroupInput(event))return;if(event.target.id==='location-catalog-search'){const position=event.target.selectionStart;state.locationSearch=event.target.value;render();const input=$('#location-catalog-search');input?.focus();if(position!==null)input?.setSelectionRange(position,position);return;}if(event.target.matches?.('[data-endpoint-search]')&&endpointPickerInput(event.target))return;if(event.target.id==='policy-selector')updatePolicyTargets();if(event.target.id==='group-selector')updateGroupPreview();if(['server-search','traffic-search','alerts-search','firewall-search'].includes(event.target.id)){state.search=event.target.value;refreshSearchResults();}});
-document.addEventListener('change',event=>{accessChange(event);if(defaultDenyChange(event))return;if(hitMonitorChange(event))return;if(agentInstallationChange(event))return;if(firewallChange(event))return;platformMarkDraft(event.target);if(platformAgentUpgradeScopeChange(event))return;if(firewallActivationInput(event)||networkControlInput(event))return;if(platformUpdateInput(event)||platformSetupInput(event))return;if(platformApplicationPortInput(event)||platformNotificationChange(event))return;if(platformAgentSettingsChange(event))return;if(platformApplianceChange(event)||platformCertificateChange(event))return;if(endpointPickerInput(event.target)||recommendationChange(event)||learningChange(event)||policyServiceChange(event)||serviceGroupInput(event))return;if(metadataChange(event))return;if(event.target.id==='traffic-history-purpose'){
-  state.learningHistoryPurpose=event.target.value;
-  loadTrafficLearningHistory();
-  return;
-}if(event.target.id==='overview-traffic-window')return changeTrafficWindow(num(event.target.value));if(event.target.id==='location-type')$('#location-cloud-fields').hidden=event.target.value!=='cloud';if(event.target.id==='policy-target-type'||event.target.id==='policy-location-id'||['target_groups','target_endpoints'].includes(event.target.name))updatePolicyTargets();if(event.target.id==='group-type'||event.target.id==='group-location-id')updateGroupPreview();if(event.target.dataset.filterCategory){const key=event.target.dataset.filterCategory,value=event.target.value;if(key==='locations'){state.filters.locations=event.target.checked?(state.filters.locations.some(item=>L.equivalent(item,value))?state.filters.locations:[...state.filters.locations,value]):state.filters.locations.filter(item=>!L.equivalent(item,value));}else state.filters[key]=event.target.checked?[...new Set([...state.filters[key],value])]:state.filters[key].filter(item=>item!==value);renderPreservingFilterFocus();}if(event.target.id==='traffic-chart-unit'&&trafficCountUnits.includes(event.target.value)){state.captureUnit=event.target.value;render();document.getElementById('traffic-chart-unit')?.focus();}if(event.target.id==='flow-server-filter'){state.flowServer=event.target.value;render();if(state.hitMonitorId)loadHitMonitorDetails();}if(event.target.id==='show-resolved-alerts'){state.alertIncludeResolved=event.target.checked;render();}});
+document.addEventListener('change',event=>{accessChange(event);if(defaultDenyChange(event))return;if(hitMonitorChange(event))return;if(agentInstallationChange(event))return;if(firewallChange(event))return;platformMarkDraft(event.target);if(platformAgentUpgradeScopeChange(event))return;if(firewallActivationInput(event)||networkControlInput(event))return;if(platformUpdateInput(event)||platformSetupInput(event))return;if(platformApplicationPortInput(event)||platformNotificationChange(event))return;if(platformAgentSettingsChange(event))return;if(platformApplianceChange(event)||platformCertificateChange(event))return;if(endpointPickerInput(event.target)||recommendationChange(event)||learningChange(event)||policyServiceChange(event)||serviceGroupInput(event))return;if(metadataChange(event))return;if(event.target.id==='overview-traffic-window')return changeTrafficWindow(num(event.target.value));if(event.target.id==='location-type')$('#location-cloud-fields').hidden=event.target.value!=='cloud';if(event.target.id==='policy-target-type'||event.target.id==='policy-location-id'||['target_groups','target_endpoints'].includes(event.target.name))updatePolicyTargets();if(event.target.id==='group-type'||event.target.id==='group-location-id')updateGroupPreview();if(event.target.dataset.filterCategory){const key=event.target.dataset.filterCategory,value=event.target.value;if(key==='locations'){state.filters.locations=event.target.checked?(state.filters.locations.some(item=>L.equivalent(item,value))?state.filters.locations:[...state.filters.locations,value]):state.filters.locations.filter(item=>!L.equivalent(item,value));}else state.filters[key]=event.target.checked?[...new Set([...state.filters[key],value])]:state.filters[key].filter(item=>item!==value);renderPreservingFilterFocus();}if(event.target.id==='traffic-chart-unit'&&trafficCountUnits.includes(event.target.value)){state.captureUnit=event.target.value;render();document.getElementById('traffic-chart-unit')?.focus();}if(event.target.id==='flow-server-filter'){state.flowServer=event.target.value;render();if(state.hitMonitorId)loadHitMonitorDetails();}if(event.target.id==='show-resolved-alerts'){state.alertIncludeResolved=event.target.checked;render();}});
 document.addEventListener('submit',async event=>{
   const form=event.target;if(['local-login-form','local-password-form'].includes(form.id))return localAuthSubmit(event);if(state.passwordChangeRequired){event.preventDefault();return;}if(['firewall-activation-form','firewall-activation-review-form'].includes(form.id))return firewallActivationSubmit(event);if(['network-control-form','network-control-review-form'].includes(form.id))return networkControlSubmit(event);if(['platform-update-upload-form','platform-update-review-form'].includes(form.id))return platformUpdateSubmit(event);if(form.id==='platform-signing-recovery-form')return platformSigningSubmit(event);if(['platform-siem-form','platform-siem-review-form','platform-siem-retry-form'].includes(form.id))return platformSIEMSubmit(event);if(form.id==='access-password-reset-form')return accessPasswordResetSubmit(event);if(form.id==='access-saml-form')return accessSAMLSubmit(event);if(form.id==='server-form')return metadataServerSubmit(event);if(['source-bank-selection-form','source-bank-confirm-form'].includes(form.id)){event.preventDefault();return sourceBanksSubmit(form);}if(form.id==='audit-filter-form'){event.preventDefault();return auditCatalogueSubmit(form);}if(['default-deny-selection-form','default-deny-review-form'].includes(form.id))return defaultDenySubmit(event);if(form.id==='risk-catalog-form')return riskSubmit(event);if(['hit-monitor-form','hit-monitor-review-form'].includes(form.id))return hitMonitorSubmit(event);if(['pilot-polling-form','pilot-polling-review-form'].includes(form.id))return pilotPollingSubmit(event);if(['platform-setup-form','platform-setup-review-form'].includes(form.id))return platformSetupSubmit(event);if(form.id==='agent-installation-form')return agentInstallationSubmit(event);if(form.id==='account-profile-form')return accountProfileSubmit(event);if(form.id==='account-preferences-form')return accountPreferencesSubmit(event);if(['platform-application-port-form','platform-application-port-review-form'].includes(form.id))return platformApplicationPortSubmit(event);if(['platform-recovery-request-form','platform-recovery-confirm-form'].includes(form.id))return platformRecoverySubmit(event);if(['platform-notification-form','platform-notification-review-form','platform-notification-send-form'].includes(form.id))return platformNotificationSubmit(event);if(form.id==='platform-internal-suspend-form')return platformInternalSuspendSubmit(event);if(form.id==='platform-endpoint-revoke-form')return platformEndpointCertificateSubmit(event);if(form.id==='platform-endpoint-renewal-form')return platformEndpointRenewalSubmit(event);if(form.id==='platform-agent-settings-form')return platformAgentSettingsSubmit(event);if(form.id==='platform-certificate-form')return platformCertificateSubmit(event);if(form.id==='platform-controller-name-form')return saveControllerDisplayName(event);if(['platform-agent-upgrade-scope-form','platform-agent-upgrade-confirm-form'].includes(form.id))return platformAgentUpgradeSubmit(event);if(['platform-appliance-config-form','platform-appliance-join-form','platform-appliance-storage-form','platform-appliance-review-form','platform-backup-schedule-form'].includes(form.id))return platformApplianceSubmit(event);if(['platform-ha-form','platform-join-form','platform-join-token-form'].includes(form.id))return platformHASubmit(event);if(form.id==='platform-review-form')return platformReviewSubmit(event);if(form.id==='platform-demo-form')return platformDemoSubmit(event);if(form.id==='recommendation-form')return recommendationSubmit(event);if(form.id==='learned-policy-form')return learnedPolicySubmit(event);if(form.id==='service-group-form')return serviceGroupSubmit(event);if(form.id==='learning-form')return learningSubmit(event);if(form.id==='access-user-form')return accessSubmit(event);if(form.id==='server-reservation-form')return reservationSubmit(event);if(form.id?.startsWith('metadata-'))return metadataSubmit(event);if(form.id==='location-form')return locationSubmit(event);if(['managed-rollout-form','managed-restore-form'].includes(form.id))return managedSubmit(event);if(form.id==='firewall-rule-form')return firewallSubmit(event);if(!['login-form','learning-form','policy-form','server-form','group-form'].includes(form.id))return;event.preventDefault();const submit=$('button[type="submit"]',form);submit.disabled=true;const formData=new FormData(form);try{
     if(form.id!=='login-form'&&!canWrite())throw new Error('Read Only access cannot change the workspace.');

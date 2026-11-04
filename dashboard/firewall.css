@@ -6,3 +6,75 @@
 /* Review-critical values and coverage limits remain readable at normal zoom. */
 .security-correlation-targets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 12px;margin:12px 0}.security-correlation-targets .text-button{text-align:left;white-space:normal;overflow-wrap:anywhere;line-height:1.5}@media(max-width:700px){.security-correlation-targets{grid-template-columns:1fr}}
 .firewall-rule-value>code,.firewall-rule-preview>code,.firewall-code{color:#6e6e7a}.firewall-rule-value>small{font-size:10px;color:#868692}.firewall-plan-heading>strong{color:#666672}.firewall-diff pre{color:#7c7c88}.firewall-plan-result strong{color:#767682}.firewall-plan-result small{font-size:10px;color:#8b8b98}.firewall-plan-meta{color:#9a9aa7}.security-monitor-card strong{color:#747480}.security-monitor-card p{color:#878793}.security-monitor-card>small{color:#9797a4}.security-probe-detail dt{color:#9b8c97}.security-probe-detail dd{color:#847782}.security-probe-detail p{color:#93858f}.firewall-snapshot-rules strong{color:#84778e}.firewall-snapshot-rules code{color:#94819f}.firewall-snapshot-rules article>small{color:#a18bab}.firewall-plan-review .badge.neutral,.firewall-rules-card .badge.neutral{color:#83838f}.firewall-result-counts{color:#9992a3}
+
+/* Firewall service maintenance uses the workspace palette with a stronger action hierarchy. */
+dialog:has(.firewall-maintenance-form) {
+  width: min(680px, calc(100% - 24px));
+  background: #fff;
+  border: 1px solid #ebc9ce;
+  border-top: 4px solid #b6192c;
+  box-shadow: 0 18px 60px #440f2036, 0 4px 16px #771b2c1c;
+}
+dialog:has(.firewall-maintenance-form)::backdrop { background: #3215207a; }
+dialog:has(.firewall-maintenance-form) .modal-header { border-bottom-color: #f0dbe0; }
+dialog:has(.firewall-maintenance-form) .modal-header h2 { color: #281b24; font-weight: 750; }
+dialog:has(.firewall-maintenance-form) .modal-header .eyebrow { color: #9c263b; }
+.firewall-maintenance-form .modal-body { padding-top: 18px; padding-bottom: 18px; }
+.firewall-maintenance-note {
+  margin: 0 0 18px;
+  padding: 11px 14px;
+  border: 1px solid #f0ced5;
+  border-left: 3px solid #bd2940;
+  border-radius: 8px;
+  background: #fff6f7;
+  color: #702a3a;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.firewall-maintenance-form .field label { color: #38252d; font-size: 12px; font-weight: 650; }
+.firewall-maintenance-form .field :is(select, input) { border-color: #eacfd5; background: #fff; color: #38252d; }
+.firewall-maintenance-form .field :is(select, input):focus-visible { outline: 2px solid #b6192c; outline-offset: 2px; }
+.firewall-maintenance-scope { border: 0; padding: 0; margin: 0 0 16px; min-inline-size: 0; }
+.firewall-maintenance-scope legend { color: #38252d; font-size: 13px; font-weight: 700; padding: 0; margin-bottom: 7px; }
+.firewall-maintenance-scope legend small { margin-inline-start: 6px; color: #74545e; font-size: 11px; font-weight: 500; }
+.firewall-maintenance-scope .host-checklist { max-height: none; border: 1px solid #ecd5da; border-radius: 8px; }
+.firewall-maintenance-scope .host-checklist:has(> label:nth-of-type(5)) { max-height: min(300px, 45dvh); }
+.firewall-maintenance-scope .host-checklist > p { margin: 0; padding: 9px 12px; color: #74545e; font-size: 12px; }
+.firewall-maintenance-scope .host-checklist .host-check { padding: 8px 11px; border-bottom-color: #f2e0e4; }
+.firewall-maintenance-scope .host-checklist .host-check:has(> input:checked) { background: #fff3f5; }
+.firewall-maintenance-scope .host-checklist .host-check:has(> input:not(:checked, :disabled)):hover { background: #fff8f9; }
+.firewall-maintenance-scope label.host-check > span { min-width: 0; color: #38252d; font-size: 12px; }
+.firewall-maintenance-scope label.host-check > span small { display: block; color: #74545e; font-size: 11px; margin-top: 2px; }
+.firewall-maintenance-form .help-text { color: #74545e; font-size: 11px; }
+.firewall-maintenance-form .modal-footer { gap: 8px; border-color: #f0dbe0; background: #fff; }
+.firewall-maintenance-form .modal-footer .button { min-height: 39px; border-radius: 8px; font-weight: 650; }
+.firewall-maintenance-form .modal-footer .button:focus-visible { outline: 2px solid #b6192c; outline-offset: 3px; }
+.firewall-maintenance-form .modal-footer .button.secondary { color: #652635; border-color: #e6c2ca; }
+.firewall-maintenance-form .modal-footer .button.secondary:hover:not(:disabled) { background: #fff3f5; }
+.firewall-maintenance-form .modal-footer [data-action="firewall-activation-assess"]:not(:disabled),
+.firewall-maintenance-form .modal-footer .button:is(.primary, .danger):not(:disabled) { background: linear-gradient(#d32136, #b31228); border-color: #b31228; color: #fff; box-shadow: 0 1px 0 #ffb9c260 inset, 0 2px 0 #941024, 0 5px 9px #a61b3b30; }
+.firewall-maintenance-form .modal-footer .button[data-action="firewall-activation-assess"]:hover:not(:disabled),
+.firewall-maintenance-form .modal-footer .button:is(.primary, .danger):hover:not(:disabled) { background: #9d1326; border-color: #9d1326; }
+.firewall-maintenance-form:has(button[type="submit"]:not(:disabled)) .modal-footer .button[data-action="firewall-activation-assess"] { background: #fff; border-color: #e6c2ca; color: #652635; box-shadow: none; }
+.firewall-maintenance-form .modal-footer .button:disabled { opacity: 1; background: #fff1f3; border-color: #efc9d0; color: #854d5c; box-shadow: none; }
+.firewall-maintenance-form .form-error { color: #8e1e35; overflow-wrap: anywhere; }
+#firewall-assessment-status > h3 { font-size: 13px; color: #38252d; margin: 0 0 8px; }
+.firewall-assessment-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.firewall-assessment-list > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 3px 10px;
+  border: 1px solid #ecd5da;
+  border-radius: 8px;
+  padding: 8px 11px;
+  color: #38252d;
+  overflow-wrap: anywhere;
+}
+.firewall-assessment-list > li p { grid-column: 1 / -1; margin: 0; color: #74545e; font-size: 11px; }
+.firewall-assessment-pill { border-radius: 999px; padding: 2px 7px; font-size: 10px; font-weight: 700; color: #74283a; background: #fff1f4; }
+.firewall-assessment-pill.blocked { background: #fce1e6; color: #8e1e35; }
+.firewall-assessment-pill.ready { background: #eaf6ee; color: #216543; }
+.firewall-maintenance-target { border: 1px solid #ecd5da; border-radius: 8px; padding: 12px; margin-bottom: 10px; overflow-wrap: anywhere; }
+.firewall-maintenance-target h3 { margin: 0; color: #38252d; }
+.firewall-maintenance-target summary { color: #74283a; cursor: pointer; font-weight: 650; }

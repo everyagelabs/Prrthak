@@ -107,7 +107,7 @@ test('workspace routing preserves modified links and keeps signed-out history pr
  assert.equal(env.element('#workspace-shell').hidden, true);
  assert.deepEqual(env.routeHistory, []);
 });
-test('Super Admin can save the selected controller display name and the workspace header updates', async () => {
+test('Super Admin can save the selected controller display name and the sidebar updates', async () => {
  const runtime = {controller_id: 'node-1', controller_display_name: 'Original'};
  const env = await workspace('settings', {mode: 'entra', role: 'super_admin', responses: {
   '/api/v1/overview': {...fixture, meta: {...fixture.meta, ...runtime}},
@@ -132,6 +132,48 @@ test('Super Admin can save the selected controller display name and the workspac
 test('account shell moves real identity to the top right and keeps controller and agent setup in the sidebar',async()=>{
  const shell=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');assert.doesNotMatch(shell,/sidebar-profile|id="logout-button"|>OP<\/span>/);assert.match(shell,/id="account-menu-toggle"[^>]*aria-haspopup="menu"/);assert.match(shell,/id="account-menu-panel"[^>]*role="menu"/);assert.match(shell,/id="connection-label"/);assert.match(shell,/id="setup-button"/);assert.match(shell,/airtel-payments-bank\.png/);
  const env=await workspace('servers',{mode:'entra',role:'admin',identity:{role:'admin',auth_type:'session',csrf_token:'session-csrf-fixture',user:{id:'own-user',display_name:'Maya <Owner>',email:'maya@example.test',role:'admin',tenant_id:'tenant-one',object_id:'object-one'}}});assert.equal(env.element('#identity-avatar').textContent,'MO');assert.equal(env.element('#identity-name').textContent,'Maya <Owner>');assert.equal(env.element('#role-label').textContent,'Admin');await env.click('account-toggle');assert.equal(env.element('#account-menu-toggle').getAttribute('aria-expanded'),'true');assert.match(env.element('#account-menu-panel').innerHTML,/Maya &lt;Owner&gt;/);assert.doesNotMatch(env.element('#account-menu-panel').innerHTML,/<Owner>/);await env.click('account-profile');const html=env.element('#modal-content').innerHTML;assert.match(html,/Entra-managed identity is read-only/);assert.match(html,/Microsoft Entra ID/);assert.match(html,/maya@example\.test/);assert.match(html,/tenant-one/);assert.doesNotMatch(html,/<form|name="role"|name="display_name"/);assert.equal(mutations(env).length,0);
+});
+test('sidebar shows standalone controller connection and only fetches HA health when active outside Overview', async () => {
+ const shell=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
+ assert.doesNotMatch(shell,/controller-badge/);
+ assert.match(shell,/<aside[\s\S]*id="setup-button"[\s\S]*id="sidebar-controller-health"[\s\S]*id="controller-display-name"[\s\S]*id="sidebar-ha-health"[^>]*hidden[\s\S]*<\/aside>/);
+ const env=await workspace('servers');
+ assert.equal(env.element('#sidebar-controller-health').dataset.state,'healthy');
+ assert.equal(env.element('#sidebar-controller-health').title,'Controller connected');
+ assert.equal(env.element('#sidebar-ha-health').hidden,true);
+ assert.equal(env.requests.some(({url})=>url==='/api/v1/cluster'),false);
+ env.context.apiResponses['/api/v1/overview']={responseStatus:503,data:{error:'Temporarily unavailable'}};
+ await env.run('load()');
+ assert.equal(env.element('#sidebar-controller-health').dataset.state,'offline');
+ assert.equal(env.element('#sidebar-controller-health').title,'Controller unavailable');
+ delete env.context.apiResponses['/api/v1/overview'];
+ await env.run('load()');
+ assert.equal(env.element('#sidebar-controller-health').dataset.state,'healthy');
+});
+test('active HA sidebar reports controller readiness from direct entry and degrades without ready peers', async () => {
+ const overview={...fixture,meta:{...fixture.meta,ha:true,controller_display_name:'Primary DC'}};
+ const primary={id:'primary',status:'healthy',ready:true};
+ const cluster={ha:true,mode:'active-active',controller_id:'primary',nodes:[primary,{id:'secondary',status:'healthy',ready:true}]};
+ const env=await workspace('traffic',{responses:{'/api/v1/overview':overview,'/api/v1/cluster':cluster}});
+ const ha=env.element('#sidebar-ha-health'),controller=env.element('#sidebar-controller-health');
+ assert.equal(controller.title,'Primary DC connected');
+ assert.equal(ha.hidden,false);
+ assert.equal(ha.dataset.state,'healthy');
+ assert.match(ha.title,/2\/2 controllers ready/);
+ env.context.apiResponses['/api/v1/cluster']={...cluster,nodes:[{...primary,ready:false},cluster.nodes[1]]};
+ await env.run('refreshClusterStatus()');
+ assert.equal(controller.dataset.state,'warning');
+ assert.equal(controller.title,'Primary DC not ready');
+ assert.equal(ha.dataset.state,'warning');
+ assert.match(ha.title,/1\/2 controllers ready/);
+ env.context.apiResponses['/api/v1/cluster']={...cluster,nodes:[primary]};
+ await env.run('refreshClusterStatus()');
+ assert.equal(ha.dataset.state,'warning');
+ assert.match(ha.title,/Only one controller reporting/);
+ env.context.apiResponses['/api/v1/cluster']={responseStatus:503,data:{error:'Not available'}};
+ await env.run('refreshClusterStatus()');
+ assert.equal(ha.dataset.state,'offline');
+ assert.equal(ha.title,'HA status unavailable');
 });
 test('account Manage users shortcut preserves existing Super Admin gates and profile access for all three roles',async()=>{
  for(const role of ['read_only','admin','super_admin']){const env=await workspace('servers',{mode:'entra',role});await env.click('account-toggle');const html=env.element('#account-menu-panel').innerHTML;assert.match(html,/My profile|Display preferences/);assert.equal(html.includes('data-action="account-users"'),role==='super_admin');assert.equal(env.element('#navigation').innerHTML.includes('href="/access"'),false);assert.equal(env.element('#view-tabs').innerHTML.includes('href="/access"'),false);await env.click('account-users');assert.deepEqual(env.routeHistory,role==='super_admin'?['/access']:[]);assert.deepEqual(env.navigation,[]);await env.click('account-profile');assert.match(env.element('#modal-content').innerHTML,new RegExp(role==='read_only'?'Read Only':role==='super_admin'?'Super Admin':'Admin'));assert.equal(mutations(env).length,0);}
@@ -571,7 +613,7 @@ test('policy form keeps multiple source groups aligned with each selected port o
 
 test('automatic learning is the rendered default and submits only explicitly selected hosts without a fleet port union',async()=>{
  const env=await workspace('traffic',{mode:'entra',role:'admin'});await env.click('learn');const html=env.element('#modal-content').innerHTML;
- assert.match(html,/name="selection_mode"/);assert.match(html,/value="discovered" selected/);assert.match(html,/Loopback-only listeners are excluded/);assert.match(html,/name="ports" value=""/);assert.doesNotMatch(html,/name="ports"[^>]*required/);assert.match(html,/Opening this dialog does not select the entire scope/);
+ assert.match(html,/name="selection_mode"/);assert.match(html,/value="discovered" selected/);assert.match(html,/Loopback-only listeners are excluded/);assert.match(html,/name="ports" value=""/);assert.doesNotMatch(html,/name="ports"[^>]*required/);assert.match(html,/Each endpoint can run one discovery session at a time/);
  const form=renderedForm(env,'learning-form',{server_ids:['host-1'],selection_mode:'discovered',ports:'22/tcp, 80/tcp',duration:'15',unit:'60'});
  await submitRendered(env,form);const request=mutations(env).find(item=>item.url==='/api/v1/learning');assert.ok(request);assert.deepEqual(JSON.parse(request.options.body),{server_ids:['host-1'],selection_mode:'discovered',duration_seconds:900,policy_action:'observe'});assertCookieMutation(request);
 });
@@ -585,8 +627,8 @@ test('manual learning is an explicit opt in and a service group copies exact por
 test('learning validates explicit hosts, duration and ports and new scopes require typed capture agents',async()=>{
  const env=await workspace('traffic',{mode:'entra',role:'admin'});env.run('state.data.servers[0].capabilities=[]');await env.click('learn');assert.match(env.element('#modal-content').innerHTML,/Agent upgrade required/);
  const form=renderedForm(env,'learning-form',{server_ids:[],selection_mode:'discovered',duration:'1',unit:'3600'});await submitRendered(env,form);assert.equal(mutations(env).length,0);assert.match(env.element('#form-error').textContent,/Select at least one/);
- form.values.server_ids=['host-1'];await submitRendered(env,form);assert.equal(mutations(env).length,0);assert.match(env.element('#form-error').textContent,/upgrade to traffic_capture_v1.*lab-api/);
- form.values.selection_mode='manual';form.values.ports='2022/tcp';await submitRendered(env,form);assert.equal(mutations(env).length,0);assert.match(env.element('#form-error').textContent,/traffic_capture_v1/);
+ form.values.server_ids=['host-1'];await submitRendered(env,form);assert.equal(mutations(env).length,0);assert.match(env.element('#form-error').textContent,/Upgrade these agents to start discovery: lab-api/);
+ form.values.selection_mode='manual';form.values.ports='2022/tcp';await submitRendered(env,form);assert.equal(mutations(env).length,0);assert.match(env.element('#form-error').textContent,/Upgrade these agents to start discovery: lab-api/);
  env.run('state.data.servers[0].capabilities.push("traffic_capture_v1")');
  form.values.selection_mode='manual';form.values.ports='';await submitRendered(env,form);assert.equal(mutations(env).length,0);assert.match(env.element('#form-error').textContent,/exact ports/);
  form.values.ports='2022/tcp';form.values.duration='0';await submitRendered(env,form);assert.equal(mutations(env).length,0);assert.match(env.element('#form-error').textContent,/1 minute and 7 days/);
@@ -712,43 +754,48 @@ test('read-only inventory and policy exports send complete current scopes with C
 function compactSession(id,extra={}){return {id,name:'Window '+id,status:'active',summary_only:true,server_ids:['host-1'],server_count:1,selection_mode:'discovered',policy_action:'observe',starts_at:new Date(Date.now()-60000).toISOString(),expires_at:new Date(Date.now()+600000).toISOString(),discovery_pending_count:0,discovery_error_count:0,discovery_no_listeners_count:0,...extra};}
 function compactSessionPage(items,extra={}){return {items,total:14,active_total:9,offset:0,limit:6,has_more:true,...extra};}
 function compactOverview(items,extra={}){const page=compactSessionPage(items,extra);return {...fixture,learning_sessions:items,learning_session_pagination:{...page,items:undefined},stats:{active_learning:page.active_total}};}
-test('Traffic recent learning history is on demand, capped at 20, and survives background refresh',async()=>{
- const recent=Array.from({length:20},(_,i)=>compactSession('recent-'+i,i===19?{status:'stopped'}:{}));
+test('discovery tabs show only their running sessions and load separate bounded history on demand',async()=>{
+ const runningTraffic=compactSession('traffic-live',{purpose:'traffic',traffic_collection_mode:'sampled'});
+ const runningPolicy=compactSession('policy-live',{policy_action:'auto_allow'});
+ const endedTraffic=Array.from({length:20},(_,i)=>compactSession('traffic-ended-'+i,{purpose:'traffic',status:'stopped'}));
+ const endedPolicy=compactSession('policy-ended',{status:'stopped'});
  for(const catalogue of [false,true]){
-  const overview=compactOverview(recent.slice(0,6),{total:30});
+  const overview=compactOverview([runningTraffic,runningPolicy],{total:30});
   overview.meta={...overview.meta,traffic_query_v1:catalogue};
   const now=new Date().toISOString();
-  const env=await workspace('traffic',{mode:'entra',role:'admin',responses:{
+  const responses={
    '/api/v1/overview':overview,
-   '/api/v1/learning?limit=20&offset=0':compactSessionPage(recent,{limit:20,total:30}),
-   'POST /api/v1/flows/query':options=>({items:[],total:0,endpoint_count:0,counts_by_unit:{connections:0,packets:0,log_records:0},limit:50,offset:0,has_more:false,window_seconds:JSON.parse(options.body).window_seconds,as_of:now,from_time:now,coverage:'None reported.',filter_before_pagination:true})
-  }});
-  const learningReads=()=>env.requests.filter(row=>row.url.startsWith('/api/v1/learning?'));
-  let html=env.element('#view-content').innerHTML;
-  assert.match(html,/aria-expanded="false" aria-controls="traffic-learning-sessions"/);
-  assert.doesNotMatch(html,/Window recent-0|id="traffic-history-purpose"|data-action="discover-traffic"/);
-  assert.match(env.element('#learn-button').innerHTML,/Discover traffic/);
-  assert.equal(learningReads().length,0);
-  await env.click('traffic-learning-sessions');
-  html=env.element('#view-content').innerHTML;
-  assert.match(html,/aria-expanded="true" aria-controls="traffic-learning-sessions"/);
-  assert.match(html,/Latest 20 sessions, live and ended/);
-  assert.match(html,/Window recent-19/);
-  assert.match(html,/>Stopped<\/span>/);
-  assert.doesNotMatch(html,/Previous sessions|Next sessions|Load session history|No ports selected|confirmed collecting/);
-  assert.equal((html.match(/class="learning-card/g)||[]).length,20);
-  assert.equal(learningReads().length,1);
-  await env.run('load({quiet:true})');
+   '/api/v1/learning?limit=20&offset=0&purpose=traffic&active_only=true':compactSessionPage([runningTraffic,runningPolicy],{purpose:'traffic',active_only:true,limit:20,total:1,has_more:false}),
+   '/api/v1/learning?limit=20&offset=0&purpose=traffic':compactSessionPage([...endedTraffic.slice(0,19),endedPolicy],{purpose:'traffic',limit:20,total:30}),
+   '/api/v1/learning?limit=20&offset=0&purpose=policy&active_only=true':compactSessionPage([runningPolicy,runningTraffic],{purpose:'policy',active_only:true,limit:20,total:1,has_more:false}),
+   '/api/v1/learning?limit=20&offset=0&purpose=policy':compactSessionPage([endedPolicy,endedTraffic[0]],{purpose:'policy',limit:20,total:1,has_more:false}),
+   'POST /api/v1/flows/query':options=>({purpose:'traffic',items:[],total:0,endpoint_count:0,counts_by_unit:{connections:0,packets:0,log_records:0},limit:50,offset:0,has_more:false,window_seconds:JSON.parse(options.body).window_seconds,as_of:now,from_time:now,coverage:'None reported.',filter_before_pagination:true})
+  };
+  const env=await workspace('traffic',{mode:'entra',role:'admin',responses});
+  const html=()=>env.element('#view-content').innerHTML,historyReads=()=>env.requests.filter(row=>row.url.includes('/learning?limit=20')&&!row.url.includes('active_only'));
   await new Promise(setImmediate);
-  assert.match(env.element('#view-content').innerHTML,/Window recent-19/);
-  env.run('state.search="missing-endpoint";render()');
-  assert.match(env.element('#view-content').innerHTML,/No matching sessions in recent history/);
+  assert.match(html(),/aria-expanded="false" aria-controls="traffic-learning-sessions"/);
+  assert.match(html(),/Window traffic-live[\s\S]*View observed traffic[\s\S]*Stop collection/);
+  assert.doesNotMatch(html(),/Window policy-|Review policy recommendations|policy-learning-sessions|Window traffic-ended/);
+  assert.match(env.element('#learn-button').innerHTML,/Discover traffic/);
+  assert.equal(historyReads().length,0);
   await env.click('traffic-learning-sessions');
-  const reads=learningReads().length;
-  await env.run('load({quiet:true})');
-  assert.equal(learningReads().length,reads);
-  assert.doesNotMatch(env.element('#view-content').innerHTML,/id="traffic-history-purpose"/);
-  assert.equal(env.requests.some(row=>row.url==='/api/v1/learning'&&row.options.method==='POST'),false);
+  assert.match(html(),/Latest|latest 20 traffic sessions/);
+  assert.match(html(),/Window traffic-ended-18/);
+  assert.doesNotMatch(html(),/Window traffic-ended-19|Window policy-ended|Previous sessions|Next sessions|id="traffic-history-purpose"/);
+  assert.equal(historyReads().length,1);
+  await env.run('load({quiet:true})');await new Promise(setImmediate);
+  assert.match(html(),/Window traffic-ended-18/);
+  env.run('state.search="missing-endpoint";render()');
+  assert.match(html(),/No matching ended sessions in recent history/);
+  env.run('state.search="";navigate("policies")');await new Promise(setImmediate);
+  assert.match(html(),/Window policy-live[\s\S]*Review policy recommendations[\s\S]*Stop policy discovery/);
+  assert.doesNotMatch(html(),/Window traffic-|View observed traffic|Window policy-ended/);
+  assert.match(env.element('#learn-button').innerHTML,/Discover policy/);
+  await env.click('policy-learning-sessions');
+  assert.match(html(),/Window policy-ended/);
+  assert.doesNotMatch(html(),/Window traffic-ended/);
+  assert.deepEqual(mutations(env).filter(row=>row.url.startsWith('/api/v1/learning')),[]);
  }
 });
 test('server drawer has independent paged history and returning to page one keeps the fresh GET result',async()=>{
@@ -757,7 +804,7 @@ test('server drawer has independent paged history and returning to page one keep
  await env.click('learning-session-page',{serverId:'host-1',offset:'0'});assert.match(env.element('#server-drawer').innerHTML,/Window fresh-first/);assert.doesNotMatch(env.element('#server-drawer').innerHTML,/Window host-first-0/);assert.equal(mutations(env).length,0);
 });
 test('large compact membership stays exact while frozen host ports and failures load as a bounded separate page',async()=>{
- const ids=Array.from({length:20000},(_,i)=>'endpoint-'+i);ids[19999]='host-1';const session=compactSession('large',{server_ids:ids,server_count:20000,policy_action:'auto_allow',initial_approval_state:'waiting_for_discovery',discovery_pending_count:1}),page={session_id:'large',items:[{server_id:'host-1',ports:[{port:443,protocol:'tcp'}],status:'ready'},{server_id:'endpoint-1',ports:[{port:5432,protocol:'tcp'}],status:'ready'},{server_id:'endpoint-2',ports:[],status:'pending',pending:true},{server_id:'endpoint-3',ports:[],status:'error',error:'<script>not executable</script>'}],total:20000,limit:50,offset:19950,has_more:false},env=await workspace('traffic',{mode:'entra',role:'read_only',responses:{'/api/v1/overview':compactOverview([session],{total:1,has_more:false}),'/api/v1/learning?limit=20&offset=0':compactSessionPage([session],{limit:20,total:1,has_more:false}),'/api/v1/learning/large/hosts?limit=50&offset=19950':page}});
+ const ids=Array.from({length:20000},(_,i)=>'endpoint-'+i);ids[19999]='host-1';const session=compactSession('large',{purpose:'traffic',server_ids:ids,server_count:20000,discovery_pending_count:1}),page={session_id:'large',items:[{server_id:'host-1',ports:[{port:443,protocol:'tcp'}],status:'ready'},{server_id:'endpoint-1',ports:[{port:5432,protocol:'tcp'}],status:'ready'},{server_id:'endpoint-2',ports:[],status:'pending',pending:true},{server_id:'endpoint-3',ports:[],status:'error',error:'<script>not executable</script>'}],total:20000,limit:50,offset:19950,has_more:false},env=await workspace('traffic',{mode:'entra',role:'read_only',responses:{'/api/v1/overview':compactOverview([session],{total:1,has_more:false}),'/api/v1/learning?limit=20&offset=0&purpose=traffic&active_only=true':compactSessionPage([session],{purpose:'traffic',active_only:true,limit:20,total:1,has_more:false}),'/api/v1/learning/large/hosts?limit=50&offset=19950':page}});
  await env.click('traffic-learning-sessions');const html=env.element('#view-content').innerHTML;assert.match(html,/20[ ,]000 endpoints/);assert.match(html,/Window large/);assert.doesNotMatch(html,/No ports selected/);env.run('globalThis.nameCalls=0;globalThis.originalServerName=serverName;serverName=()=>{nameCalls++;return "host"}');assert.equal(env.run('sessionTitle({server_ids:Array.from({length:20000},(_,i)=>String(i))})'),'20000 endpoints');assert.equal(env.run('nameCalls'),0);env.run('serverName=originalServerName');
  await env.click('learning-host-scope',{id:'large',serverId:'host-1'});const scope=env.element('#modal-content').innerHTML;assert.match(scope,/19951–19954 of 20[ ,]000 endpoints/);assert.match(scope,/not proof that traffic was collected or firewall allowances applied/);const rows=scope.match(/<article class="learning-session-host">[\s\S]*?<\/article>/g);assert.match(rows[0],/443\/tcp/);assert.doesNotMatch(rows[0],/5432\/tcp/);assert.match(rows[1],/5432\/tcp/);assert.doesNotMatch(rows[1],/443\/tcp/);assert.match(rows[2],/Fresh discovery pending/);assert.match(rows[3],/&lt;script&gt;/);assert.doesNotMatch(scope,/<script>/);assert.match(rows[0],/data-server-id="host-1"/);assert.equal(mutations(env).length,0);
 });
@@ -840,7 +887,7 @@ test('learned policy removal stays visible as pending or blocked until endpoint 
 
 test('a discovered auto-allow session can limit itself to 443 while leaving other inventory services outside its request',async()=>{
  const env=await workspace('traffic',{mode:'entra',role:'admin'});env.run('state.data.servers[0].capabilities.push("learning_auto_allow_v1");state.data.servers[0].listeners=[{port:22,protocol:"tcp"},{port:443,protocol:"tcp"},{port:80,protocol:"tcp"}]');await env.click('learn');const html=env.element('#modal-content').innerHTML;
- assert.match(html,/Limit learning to selected ports/);assert.match(html,/name="port_filter" value="" placeholder="443\/tcp" disabled/);assert.match(html,/Other discovered services remain visible in inventory/);
+ assert.match(html,/Limit to selected ports/);assert.match(html,/name="port_filter" value="" placeholder="443\/tcp" disabled/);assert.match(html,/The agent includes only matching network listeners/);
  const form=renderedForm(env,'learning-form',{server_ids:['host-1'],selection_mode:'discovered',policy_action:'auto_allow',auto_allow_confirmed:'on',port_filter_enabled:'on',port_filter:'443/tcp',ports:'22/tcp, 80/tcp',duration:'1',unit:'3600'});await submitRendered(env,form);
  const request=mutations(env)[0],body=JSON.parse(request.options.body);assert.deepEqual(body,{server_ids:['host-1'],selection_mode:'discovered',duration_seconds:3600,policy_action:'auto_allow',auto_allow_confirmed:true,port_filter:[{port:443,protocol:'tcp'}]});assert.equal(body.ports,undefined);assertCookieMutation(request);assert.equal(body.port_filter.some(port=>[22,80].includes(port.port)),false);
 });
@@ -854,12 +901,12 @@ test('a discovery port limit validates only when enabled and does not alter manu
 });
 test('cached preview sends the exact port filter and hides unselected host listeners without modifying inventory',async()=>{
  const env=await workspace('traffic',{mode:'entra',role:'admin',responses:{'POST /api/v1/learning/preview':{servers:[{server_id:'host-1',hostname:'web-one',supported:true,ports:[{port:22,protocol:'tcp'},{port:443,protocol:'tcp'},{port:80,protocol:'tcp'}]},{server_id:'host-2',hostname:'other-host',supported:true,ports:[{port:22,protocol:'tcp'}]}]}}});await env.click('learn');const form=renderedForm(env,'learning-form',{selection_mode:'discovered',port_filter_enabled:'on',port_filter:'443/tcp'});form.values.server_ids=['host-1','host-2'];
- await env.run('refreshLearningPreview()');const request=mutations(env)[0];assert.deepEqual(JSON.parse(request.options.body),{server_ids:['host-1','host-2'],port_filter:[{port:443,protocol:'tcp'}]});const preview=env.element('#learning-preview').innerHTML;assert.match(preview,/Only 443\/tcp will be learned or automatically allowed/);assert.match(preview,/443\/tcp/);assert.doesNotMatch(preview,/22\/tcp|80\/tcp/);assert.match(preview,/No selected network listeners in cached inventory/);assert.equal(env.run('state.data.servers[0].listeners[0].port'),2022);
+ await env.run('refreshLearningPreview()');const request=mutations(env)[0];assert.deepEqual(JSON.parse(request.options.body),{server_ids:['host-1','host-2'],port_filter:[{port:443,protocol:'tcp'}]});const preview=env.element('#learning-preview').innerHTML;assert.match(preview,/Only 443\/tcp will be observed/);assert.match(preview,/443\/tcp/);assert.doesNotMatch(preview,/22\/tcp|80\/tcp/);assert.match(preview,/No selected network listeners in cached inventory/);assert.equal(env.run('state.data.servers[0].listeners[0].port'),2022);
 });
 test('saved service groups copy into the optional discovery limit and no-match session scopes stay explicit',async()=>{
  const env=await workspace('traffic');await env.click('learn');env.element('#learning-port-filter-enabled').checked=true;env.element('#learning-mode').value='discovered';env.context.filterChange={target:{id:'learning-port-filter-enabled'}};env.run('learningChange(filterChange)');assert.equal(env.element('#learning-port-filter-fields').hidden,false);assert.equal(env.element('#learning-port-filter').required,true);assert.equal(env.element('#learning-port-filter').disabled,false);
  env.context.filterChange={target:{id:'learning-filter-service-group',value:'web-ports'}};env.run('learningChange(filterChange)');assert.equal(env.element('#learning-port-filter').value,'443/tcp, 8443/tcp');
- env.context.filteredSession={id:'443-session',status:'active',selection_mode:'discovered',policy_action:'auto_allow',port_filter:[{port:443,protocol:'tcp'}],server_ids:['host-1'],starts_at:new Date(Date.now()-60000).toISOString(),expires_at:new Date(Date.now()+3600000).toISOString(),server_ports:{'host-1':[]},discovery_results:{'host-1':{status:'no_listeners'}}};env.context.filteredHost=host;assert.match(env.run('learningHostSessionHTML(filteredSession,filteredHost)'),/No selected network listeners/);env.context.apiResponses['/api/v1/learning?limit=20&offset=0']=compactSessionPage([env.context.filteredSession],{limit:20,total:1,has_more:false});env.run('closeModal()');await env.click('traffic-learning-sessions');const html=env.run('learningHTML()');assert.match(html,/Automatic · only 443\/tcp/);assert.match(html,/No selected network listeners/);assert.doesNotMatch(html,/Awaiting agents/);
+ env.context.filteredSession={id:'443-session',purpose:'traffic',status:'active',selection_mode:'discovered',policy_action:'auto_allow',port_filter:[{port:443,protocol:'tcp'}],server_ids:['host-1'],starts_at:new Date(Date.now()-60000).toISOString(),expires_at:new Date(Date.now()+3600000).toISOString(),server_ports:{'host-1':[]},discovery_results:{'host-1':{status:'no_listeners'}}};env.context.filteredHost=host;assert.match(env.run('learningHostSessionHTML(filteredSession,filteredHost)'),/No selected network listeners/);env.context.apiResponses['/api/v1/learning?limit=20&offset=0&purpose=traffic&active_only=true']=compactSessionPage([env.context.filteredSession],{purpose:'traffic',active_only:true,limit:20,total:1,has_more:false});env.run('closeModal()');await env.run("refreshDiscoveryPage('traffic',true)");const html=env.run('learningHTML()');assert.match(html,/Automatic · only 443\/tcp/);assert.match(html,/No selected network listeners/);assert.doesNotMatch(html,/Awaiting agents/);
 });
 
 test('Policies keeps managed and learned access on one page with service actions in details',async()=>{
@@ -1726,7 +1773,7 @@ test('Read Only Traffic finds older matching relationships beyond the overview p
  const at=new Date().toISOString(),before=new Date(Date.now()-3600000).toISOString();
  const other={...host,id:'payment-host',hostname:'payments-app',tags:{application:'payments'},listeners:[{port:443,protocol:'tcp'}]},preview={server_id:other.id,source_ip:'192.0.2.2',port:443,protocol:'tcp',verdict:'allowed',capture_kind:'accepted_connection',capture_backend:'conntrack',count_unit:'connections',address_family:'ipv4',count:1,first_seen:at,last_seen:at};
  const overview={...structuredClone(fixture),servers:[structuredClone(host),other],flows:[preview],meta:{...fixture.meta,traffic_query_v1:true}};
- const query=options=>{const value=JSON.parse(options.body),filtered=value.server_ids?.includes('host-1')&&value.ports.includes('443/tcp');return {items:filtered?[{...preview,server_id:'host-1',source_ip:'198.51.100.99',count:7}]:[preview],total:filtered?1:602,endpoint_count:filtered?1:2,counts_by_unit:{connections:filtered?7:608,packets:0,log_records:0},limit:50,offset:value.offset,has_more:!filtered,window_seconds:value.window_seconds,as_of:value.as_of||at,from_time:before,coverage:'Complete matching retained relationships; graph shows only the loaded page.',filter_before_pagination:true};};
+ const query=options=>{const value=JSON.parse(options.body),filtered=value.server_ids?.includes('host-1')&&value.ports.includes('443/tcp');return {purpose:'traffic',items:filtered?[{...preview,server_id:'host-1',source_ip:'198.51.100.99',count:7}]:[preview],total:filtered?1:602,endpoint_count:filtered?1:2,counts_by_unit:{connections:filtered?7:608,packets:0,log_records:0},limit:50,offset:value.offset,has_more:!filtered,window_seconds:value.window_seconds,as_of:value.as_of||at,from_time:before,coverage:'Complete matching retained relationships; graph shows only the loaded page.',filter_before_pagination:true};};
  const env=await workspace('traffic',{mode:'entra',role:'read_only',responses:{'/api/v1/overview':overview,'POST /api/v1/flows/query':query}});
  env.run("state.filters.application=['billing'];state.filters.ports=['443/tcp'];render()");await new Promise(setImmediate);
  const request=env.requests.filter(row=>row.url==='/api/v1/flows/query').at(-1),body=JSON.parse(request.options.body);assert.deepEqual(body.server_ids,['host-1']);assert.deepEqual(body.ports,['443/tcp']);assertCookieMutation(request);
@@ -1735,7 +1782,7 @@ test('Read Only Traffic finds older matching relationships beyond the overview p
 
 test('Read Only Traffic page actions reach the shared API and show exact full-scope counts beyond500',async()=>{
  const at=new Date().toISOString(),before=new Date(Date.now()-3600000).toISOString(),overview={...structuredClone(fixture),meta:{...fixture.meta,traffic_query_v1:true}};
- const env=await workspace('traffic',{mode:'entra',role:'read_only',responses:{'/api/v1/overview':overview,'POST /api/v1/flows/query':options=>{const query=JSON.parse(options.body),count=Math.min(50,507-query.offset);return {items:Array.from({length:count},(_,index)=>({server_id:'host-1',source_ip:`198.51.${Math.floor((query.offset+index)/255)}.${(query.offset+index)%255}`,port:8443,protocol:'tcp',count:1,verdict:'allowed',count_unit:'connections',capture_kind:'accepted_connection',capture_backend:'conntrack',address_family:'ipv4',first_seen:at,last_seen:at})),total:507,endpoint_count:1,counts_by_unit:{connections:507,packets:0,log_records:0},limit:50,offset:query.offset,has_more:query.offset+count<507,window_seconds:query.window_seconds,as_of:query.as_of||at,from_time:before,coverage:'All matching retained traffic before pagination.',filter_before_pagination:true};}}});
+ const env=await workspace('traffic',{mode:'entra',role:'read_only',responses:{'/api/v1/overview':overview,'POST /api/v1/flows/query':options=>{const query=JSON.parse(options.body),count=Math.min(50,507-query.offset);return {purpose:'traffic',items:Array.from({length:count},(_,index)=>({server_id:'host-1',source_ip:`198.51.${Math.floor((query.offset+index)/255)}.${(query.offset+index)%255}`,port:8443,protocol:'tcp',count:1,verdict:'allowed',count_unit:'connections',capture_kind:'accepted_connection',capture_backend:'conntrack',address_family:'ipv4',first_seen:at,last_seen:at})),total:507,endpoint_count:1,counts_by_unit:{connections:507,packets:0,log_records:0},limit:50,offset:query.offset,has_more:query.offset+count<507,window_seconds:query.window_seconds,as_of:query.as_of||at,from_time:before,coverage:'All matching retained traffic before pagination.',filter_before_pagination:true};}}});
  await env.click('traffic-catalogue-page',{offset:'500'});const request=env.requests.filter(row=>row.url==='/api/v1/flows/query').at(-1);assert.equal(JSON.parse(request.options.body).offset,500);assertCookieMutation(request);assert.match(env.element('#view-content').innerHTML,/501–507 of 507 matching relationships/);assert.match(env.element('#view-content').innerHTML,/Charts show the current page\./);assert.equal(env.run('visibleFlows().length'),7);assert.match(env.run("filterResultText('traffic')"),/507 matching relationships/);
 });
 
@@ -2205,7 +2252,7 @@ test('Policies offers discovery and a manual policy saves exact enrolled endpoin
  const action=env.element('#learn-button');
  assert.equal(action.hidden,false);assert.match(action.innerHTML,/Discover policy/);
  action.eventListeners.click[0]();assert.equal(env.element('#modal-title').textContent,'Discover policy');
- assert.match(env.element('#modal-content').innerHTML,/name="policy_action" value="auto_allow"/);
+ assert.match(env.element('#modal-content').innerHTML,/name="policy_action"[\s\S]*value="auto_allow" selected/);
  env.run('showPolicy()');assert.match(env.element('#modal-content').innerHTML,/Specific endpoints by IP or name/);
  const form=renderedForm(env,'policy-form',{name:'Exact Billing endpoint',target_type:'endpoints',target_endpoints:['host-1'],mode:'enforce'});
  form.querySelectorAll=selector=>selector==='.rule-row'?[policyRow({rule_type:'port',rule_port:'8443',rule_protocol:'tcp',rule_sources:'192.0.2.10',rule_selector:'',rule_location_id:''})]:[];

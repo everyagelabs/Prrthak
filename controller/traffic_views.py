@@ -11,8 +11,10 @@ import json
 import re
 import tempfile
 
+from .approval_views import _expression
 from .evidence_views import EXPORT_SLOTS, ExportBusy
 from .inventory_views import endpoint_labels, rows
+from .learning import TRAFFIC_PURPOSE
 from .store import now, parse_time, stamp
 from .traffic_capture import COUNT_UNITS, public as capture_public
 
@@ -26,13 +28,15 @@ COVERAGE = "Filtered over all retained processed learning observations. Connecti
 
 
 def _validate(store, value, *, export=False):
-    allowed = {"window_seconds", "server_ids", "search_server_ids", "ports", "search", "as_of"}
+    allowed = {"window_seconds", "server_ids", "search_server_ids", "ports", "search", "as_of", "purpose"}
     if not export:
         allowed |= {"limit", "offset"}
     if value is None:
         value = {}
     if not isinstance(value, dict) or set(value) - allowed:
         raise ValueError("Provide supported traffic navigation fields only")
+    if "purpose" in value and value["purpose"] != TRAFFIC_PURPOSE:
+        raise ValueError("Traffic purpose must be traffic when supplied")
     result = {"window_seconds": 3600, "server_ids": None, "search_server_ids": [], "ports": [], "search": "", **({} if export else {"limit": 50, "offset": 0}), **value}
     if type(result["window_seconds"]) is not int or not 60 <= result["window_seconds"] <= store.retention_hours * 3600:
         raise ValueError("Traffic window is outside retained history")
@@ -75,9 +79,24 @@ def _ids(db, field, selected):
     return field + " IN (" + source + ")", [json.dumps(selected)]
 
 
-def _grouped(db, value):
+def _traffic_session_ids(db, value):
+    if value.get("purpose") != TRAFFIC_PURPOSE:
+        return None
+    purpose = _expression(db, ("purpose",))
+    starts = _expression(db, ("starts_at",))
+    expires = _expression(db, ("expires_at",))
+    # Metadata and traffic use separate databases. Carry only session IDs with
+    # admission windows overlapping the requested observation window.
+    sql = f"SELECT id FROM sessions WHERE {purpose}=? AND {starts}<=? AND {expires}>=?"
+    return [row[0] for row in db.execute(sql, (TRAFFIC_PURPOSE, value["as_of"], value["from_time"]))]
+
+
+def _grouped(db, value, session_ids=None):
     clause = ["capture_processed=1", "last_seen>=?", "last_seen<=?"]
     args = [value["from_time"], value["as_of"]]
+    if session_ids is not None:
+        text, parameters = _ids(db, "session_id", session_ids)
+        clause.append(text); args += parameters
     if value["server_ids"] is not None:
         text, parameters = _ids(db, "server_id", value["server_ids"])
         clause.append(text); args += parameters
@@ -108,15 +127,21 @@ def _grouped(db, value):
 
 def listing(store, value=None):
     value = _validate(store, value)
+    session_ids = None
+    if value.get("purpose") == TRAFFIC_PURPOSE:
+        with store.read_meta() as db:
+            session_ids = _traffic_session_ids(db, value)
     with store.read_traffic() as db:
         if getattr(db, "dialect", "sqlite") == "sqlite":
             db.execute("BEGIN")
-        grouped, args = _grouped(db, value)
+        grouped, args = _grouped(db, value, session_ids)
         counts = ",".join("COALESCE(SUM(CASE WHEN count_unit=? THEN count ELSE 0 END),0)" for _ in COUNT_UNITS)
         summary = db.execute("SELECT COUNT(*),COUNT(DISTINCT server_id)," + counts + " FROM (" + grouped + ") relationships", COUNT_UNITS + args).fetchone()
         result = [capture_public(dict(row)) for row in db.execute(grouped + " ORDER BY " + ORDER + " LIMIT ? OFFSET ?", args + (value["limit"], value["offset"]))]
     total = int(summary[0])
-    return {"items": result, "total": total, "endpoint_count": int(summary[1]), "counts_by_unit": {name: int(summary[index]) for index, name in enumerate(COUNT_UNITS, 2)}, "limit": value["limit"], "offset": value["offset"], "has_more": value["offset"] + len(result) < total, "window_seconds": value["window_seconds"], "as_of": value["as_of"], "from_time": value["from_time"], "coverage": COVERAGE, "filter_before_pagination": True}
+    scoped = {"purpose": TRAFFIC_PURPOSE} if session_ids is not None else {}
+    coverage = COVERAGE.replace("processed learning observations", "processed traffic discovery observations") if scoped else COVERAGE
+    return {"items": result, "total": total, "endpoint_count": int(summary[1]), "counts_by_unit": {name: int(summary[index]) for index, name in enumerate(COUNT_UNITS, 2)}, "limit": value["limit"], "offset": value["offset"], "has_more": value["offset"] + len(result) < total, "window_seconds": value["window_seconds"], "as_of": value["as_of"], "from_time": value["from_time"], "coverage": coverage, "filter_before_pagination": True, **scoped}
 
 
 def _cell(value):
@@ -146,10 +171,11 @@ def csv_spool(store, value=None, *, max_rows=None, max_bytes=None):
             write((*FIELDS, *DESTINATION_FIELDS))
             with store.read_meta() as db:
                 destinations = endpoint_labels(db)
+                session_ids = _traffic_session_ids(db, value)
             with store.read_traffic() as db:
                 if getattr(db, "dialect", "sqlite") == "sqlite":
                     db.execute("BEGIN")
-                grouped, args = _grouped(db, value)
+                grouped, args = _grouped(db, value, session_ids)
                 if int(db.execute("SELECT COUNT(*) FROM (" + grouped + ") relationships", args).fetchone()[0]) > max_rows:
                     raise ValueError("Complete traffic CSV exceeds its row bound; narrow the endpoint/time scope")
                 for row in rows(db, grouped + " ORDER BY " + ORDER, args, batch_size=64):

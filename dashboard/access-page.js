@@ -28,6 +28,7 @@ function clearDashboardIdentity(){
   if(typeof platformClearAgentUpgradeState==='function')platformClearAgentUpgradeState();
   if(typeof clearAgentInstallation==='function')clearAgentInstallation();
   accessAsync.generation++;accessAsync.users++;accessAsync.providers++;state.accessBusy=false;
+  state.lastSync=null;state.controllerUnavailable=false;state.cluster=null;state.clusterError=false;
   state.role='read_only';state.user=null;state.authType=null;state.authProvider='';state.passwordChangeRequired=false;state.csrfToken='';state.token='';
   state.accessUsers=[];state.accessProviders=null;state.accessLoaded=false;state.accessLoading=false;state.accessError='';state.serverDeletePlan=null;sessionStorage.removeItem('segment-token');
 }

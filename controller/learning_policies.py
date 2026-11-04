@@ -16,6 +16,7 @@ from datetime import timedelta
 from urllib.parse import urlsplit
 
 from .firewall import WorkflowConflict
+from .learning import is_policy_session, require_policy_session
 from .store import digest, now, parse_time, stamp, validate_port
 
 MAX_RULES = 64
@@ -173,12 +174,11 @@ def _protected(server, port, protocol):
     return ""
 
 
-def _row_public(row, server, *, purpose=None):
-    from .traffic_capture import public as capture_public
+def _row_public(row, server, *, policy_session=True):
+    from .traffic_capture import SAMPLE_UNIT, public as capture_public
     result = capture_public(row)
     result["hostname"] = server.get("hostname", row["server_id"])
-    from .learning import TRAFFIC_PURPOSE
-    if purpose == TRAFFIC_PURPOSE:
+    if not policy_session or result.get("count_unit") == SAMPLE_UNIT:
         result["eligible_for_auto"] = False
         result["excluded_reason"] = "Discover traffic is observe-only"
         return result
@@ -209,8 +209,7 @@ def _active(session):
 
 def _automatic(store, db, session, server, rows, evidence_overflow=False):
     from .host_default_deny import guarded
-    from .learning import TRAFFIC_PURPOSE
-    if guarded(server) or session.get("purpose") == TRAFFIC_PURPOSE:
+    if guarded(server) or not is_policy_session(session):
         return
     if session.get("policy_action", "observe") != "auto_allow" or session.get("selection_mode") != "discovered" or session.get("auto_allow_confirmed") is not True or server["id"] in session.get("auto_allow_paused_server_ids", []) or not _active(session):
         return
@@ -311,10 +310,11 @@ def reconcile(store, limit=100):
                     if session.get("purpose") == TRAFFIC_PURPOSE:
                         for (source, protocol, port, kind), (count, second) in batch["peaks"].items():
                             record_burst(store, db, server, source, protocol, port, kind, second, count)
-                    if session.get("purpose") != TRAFFIC_PURPOSE:
+                    policy_session = is_policy_session(session)
+                    if policy_session:
                         session["evidence_revision"] = session.get("evidence_revision", 0) + 1
                         store._put(db, "sessions", session)
-                    if session.get("policy_action")=="auto_allow":
+                    if policy_session and session.get("policy_action")=="auto_allow":
                         count=db.execute("SELECT COUNT(*) FROM learning_evidence WHERE session_id=? AND server_id=?",(session["id"],server["id"])).fetchone()[0]
                         overflow=count>3*MAX_IPSET_SOURCES
                         if count>MAX_IPSET_SOURCES and not overflow:
@@ -541,15 +541,26 @@ def recommendations(store, session_id, limit=200, offset=0, server_id=None):
         coverage_ids=coverage_all[:100]
         servers={identifier:server_view(db,identifier,ssh=False) for identifier in coverage_ids}
         for identifier in {row['server_id'] for row in page}:servers[identifier]=server_view(db,identifier)
-        rows=[_row_public(row,servers.get(row['server_id'],{}), purpose=session['purpose']) for row in page]
-        policies,policy_total=policy_summaries(db,session_id)
+        policy_session = is_policy_session(session)
+        rows=[_row_public(row,servers.get(row['server_id'],{}), policy_session=policy_session) for row in page]
+        policies, policy_total, pending, pending_total = [], 0, [], 0
+        if policy_session:
+            policies,policy_total=policy_summaries(db,session_id)
+            initial = session.get("initial_approval_plan")
+            initial_pending = initial and session.get("status") == "active" and initial.get("status") in ("draft", "awaiting_second_confirmation") and parse_time(initial["expires_at"]) > now()
+            pending,pending_total=pending_summaries(db,session_id,99 if initial_pending else 100)
+            if initial_pending:
+                pending.append(pending_summary({**initial, "kind": "initial_learning"}));pending_total+=1
         statuses=discovery_statuses(db,session_id,coverage_ids)
-        coverage = [{"server_id": identifier, "hostname": servers.get(identifier, {}).get("hostname", identifier), "learning_coverage": servers.get(identifier, {}).get("learning_coverage"), "collector_state": servers.get(identifier, {}).get("collector_state", "unknown"), "discovery_status": statuses.get(identifier,"manual")} for identifier in coverage_ids]
-        initial = session.get("initial_approval_plan")
-        initial_pending = initial and session.get("status") == "active" and initial.get("status") in ("draft", "awaiting_second_confirmation") and parse_time(initial["expires_at"]) > now()
-        pending,pending_total=pending_summaries(db,session_id,99 if initial_pending else 100)
-        if initial_pending:
-            pending.append(pending_summary({**initial, "kind": "initial_learning"}));pending_total+=1
+        coverage = []
+        for identifier in coverage_ids:
+            server = servers[identifier]
+            receipt = server.get("learning_coverage") or {}
+            matches_session = receipt.get("session_id") == session_id
+            coverage.append({"server_id": identifier, "hostname": server.get("hostname", identifier),
+                             "learning_coverage": receipt if matches_session else None,
+                             "collector_state": server.get("collector_state", "unknown") if matches_session else "unknown",
+                             "discovery_status": statuses.get(identifier, "manual")})
         return {"session_id": session_id, "purpose": session["purpose"], **({"traffic_collection_mode": session["traffic_collection_mode"]} if "traffic_collection_mode" in session else {}), "evidence_expires_at": session["evidence_expires_at"], "evidence_expired": not available, "policy_action": session.get("policy_action", "observe"), "observation_kinds":session.get("observation_kinds",[]), "evidence_revision": session.get("evidence_revision", 0), "rows": rows, "total_rows": total, "limit": limit, "offset": offset, "has_more": offset + limit < total, "order": "server_id,id", "server_id": server_id, "coverage": {"servers": coverage, "total_servers":len(coverage_all),"limit":100,"offset":0,"has_more":len(coverage_all)>100,"rate_limited": any((row["learning_coverage"] or {}).get("rate_limited", True) for row in coverage), "message": "Transport connections, denied packets, sampled minutes and legacy logs have separate count units. Backend support, loss and gaps limit coverage; empty evidence does not prove no hits or application success. Coverage status lists up to 100 hosts; use server_id for another exact member."}, "generated_policies": policies, "generated_policy_total": policy_total, "pending_approvals": pending,"pending_approval_total":pending_total}
 
 
@@ -593,14 +604,9 @@ def _target_fingerprint(server):
     return digest({"id": server["id"], "ips": sorted(server.get("ips", [])), "protection": server.get("protection", {}), "listeners": server.get("listeners", []), "capabilities": server.get("capabilities", []), "tags": server.get("tags", {}), "location_id": server.get("location_id")})
 
 
-def _require_policy_session(session):
-    from .learning import TRAFFIC_PURPOSE
-    if session.get("purpose") == TRAFFIC_PURPOSE:
-        raise PermissionError("Discover traffic evidence cannot create firewall policy")
-
-
 def preview(store, session_id, value, actor, *, principal=None):
     from .review_limits import MAX_REVIEW_BYTES, encoded_size
+    from .traffic_capture import SAMPLE_UNIT
     if not isinstance(value, dict):
         raise ValueError("Recommendation preview must be an object")
     rows = value.get("row_ids", [])
@@ -613,7 +619,7 @@ def preview(store, session_id, value, actor, *, principal=None):
         session = store._get(db, "sessions", session_id)
         if session is None:
             raise KeyError(session_id)
-        _require_policy_session(session)
+        require_policy_session(session)
         if isinstance(value.get("expected_evidence_revision"), bool) or not isinstance(value.get("expected_evidence_revision"), int) or value.get("expected_evidence_revision") != session.get("evidence_revision", 0):
             raise WorkflowConflict("Observed evidence changed; reload and review again", {})
         chosen_ids=sorted(set(rows))
@@ -621,6 +627,8 @@ def preview(store, session_id, value, actor, *, principal=None):
         if set(rows) - set(evidence):
             raise ValueError("Selected recommendation rows do not belong to this session")
         chosen = [evidence[identifier] for identifier in sorted(set(rows))]
+        if any(row.get("count_unit") == SAMPLE_UNIT for row in chosen):
+            raise PermissionError("Sampled traffic evidence cannot create firewall policy")
         if any(row.get("source_error") for row in chosen):
             raise ValueError("Non-unicast/invalid source evidence cannot become a learning policy")
         services = _services({_triple(row) for row in chosen})
@@ -665,7 +673,7 @@ def apply(store, session_id, value, actor, *, principal=None):
         session = store._get(db, "sessions", session_id)
         if session is None:
             raise KeyError(session_id)
-        _require_policy_session(session)
+        require_policy_session(session)
         if plan.get("kind") == "policy_change":
             raise ValueError("Use the learned-policy change confirmation route for this preview")
         if plan["status"] == "applied":

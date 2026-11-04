@@ -80,6 +80,26 @@ def purpose_for(value):
     return purpose
 
 
+def is_policy_session(session):
+    # Older policy sessions omit purpose. Traffic-specific options cannot
+    # authorize an overlay even if a restored record is missing its purpose.
+    return session.get("purpose") in (None, "policy") and "traffic_collection_mode" not in session
+
+
+def require_policy_session(session):
+    if not is_policy_session(session):
+        raise PermissionError("Discover traffic evidence cannot create firewall policy")
+
+
+def _requested_policy_action(value, purpose):
+    action = value.get("policy_action", "observe")
+    if action not in ("observe", "auto_allow"):
+        raise ValueError("policy_action must be observe or auto_allow")
+    if purpose == TRAFFIC_PURPOSE and (action != "observe" or value.get("auto_allow_confirmed") is True):
+        raise ValueError("Discover traffic is observe-only")
+    return action
+
+
 def requires_long_capture(session):
     return session.get("purpose") == TRAFFIC_PURPOSE and parse_time(session["expires_at"]) - parse_time(session["starts_at"]) > STANDARD_DURATION
 
@@ -106,9 +126,10 @@ def evidence_expiry(cutoff):
 def assignment(session, identifier):
     if session.get("purpose") == TRAFFIC_PURPOSE:
         # Report updates and other endpoints' evidence never change a signed lease.
-        fields = ("id", "purpose", "selection_mode", "policy_action", "observation_kinds",
+        fields = ("id", "purpose", "selection_mode", "observation_kinds",
                   "starts_at", "expires_at", "status", "stopped_at")
         result = {field: session[field] for field in fields if field in session}
+        result["policy_action"] = "observe"
         if requires_sampled_capture(session):
             # Explicit hit counting keeps the existing signed wire shape for old agents.
             result["traffic_collection_mode"] = "sampled"
@@ -130,6 +151,7 @@ def assignment(session, identifier):
 def preview(store, value):
     purpose = purpose_for(value)
     collection_mode = traffic_collection_mode(value, purpose)
+    _requested_policy_action(value, purpose)
     ids = server_ids(value)
     port_filter = requested_port_filter(value)
     hosts = []
@@ -153,13 +175,9 @@ def create_session(store, value, actor, *, principal=None):
     port_filter = requested_port_filter(value)
     if mode == "manual" and port_filter:
         raise ValueError("port_filter is for fresh discovery; manual learning uses ports")
-    policy_action = value.get("policy_action", "observe")
+    policy_action = _requested_policy_action(value, purpose)
     from .traffic_capture import observation_kinds
     kinds = observation_kinds(value.get("observation_kinds"))
-    if policy_action not in ("observe", "auto_allow"):
-        raise ValueError("policy_action must be observe or auto_allow")
-    if purpose == TRAFFIC_PURPOSE and policy_action != "observe":
-        raise ValueError("Discover traffic is observe-only")
     if policy_action == "auto_allow" and (mode != "discovered" or value.get("auto_allow_confirmed") is not True):
         raise ValueError("Automatic source allows require fresh service discovery and explicit auto_allow_confirmed consent")
     duration = value.get("duration_seconds", 3600)

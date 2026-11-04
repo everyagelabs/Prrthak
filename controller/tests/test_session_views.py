@@ -93,6 +93,25 @@ class SessionViewChecks:
             empty = views.listing(self.store, server_id=identifier, limit=1)
             self.assertEqual((empty["total"], empty["items"], empty["has_more"]), (0, [], False))
 
+    def test_active_only_and_purpose_filter_before_paging(self):
+        current = now()
+        traffic = {**self.stopped, "id": "traffic-live", "status": "active", "purpose": "traffic",
+                   "server_ids": [self.ids[0]], "starts_at": stamp(current - timedelta(minutes=2)),
+                   "expires_at": stamp(current + timedelta(minutes=10))}
+        ended = {**traffic, "id": "traffic-ended", "status": "stopped", "starts_at": stamp(current - timedelta(minutes=1))}
+        with self.store.meta() as db:
+            self.store._put(db, "sessions", traffic)
+            self.store._put(db, "sessions", ended)
+        scope = {"server_id": self.ids[0], "limit": 1}
+        live = views.listing(self.store, purpose="traffic", active_only=True, **scope)
+        self.assertEqual((live["items"][0]["id"], live["total"], live["active_total"], live["has_more"], live["active_only"]),
+                         ("traffic-live", 1, 1, False, True))
+        history = views.listing(self.store, purpose="traffic", **scope)
+        self.assertEqual((history["items"][0]["id"], history["total"], history["active_total"], history["has_more"]),
+                         ("traffic-ended", 2, 1, True))
+        legacy = views.listing(self.store, purpose="policy", active_only=True, **scope)
+        self.assertEqual((legacy["items"][0]["id"], legacy["total"], legacy["active_total"]), ("session-live", 1, 1))
+
     def test_header_keeps_exact_membership_and_only_navigation_for_initial_review(self):
         loads = self.array_parser()
         with patch.object(Store, "_all", side_effect=AssertionError("No global session parse")), patch.object(views, "json", SimpleNamespace(loads=loads)), self.store.read_meta() as db:

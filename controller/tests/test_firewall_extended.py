@@ -56,6 +56,27 @@ class ExtendedFirewallTests(unittest.TestCase):
                 self.assertEqual({row["old_value"] for row in plan["operations_by_server"]["host"]}, {old})
                 self.queue(plan)
 
+    def test_explicit_decision_preserves_direct_arguments_and_only_replaces_permanent_target(self):
+        direct = "ipv4 filter INPUT 0 -s 10.4.0.0/24  -j   ACCEPT -p tcp --dport 8080"
+        self.report(rules=[{**rule, "value": direct} if rule["kind"] == "direct" else rule for rule in self.rules])
+        for kind, old, zone, scopes, expected in (
+            ("direct", direct, "", ["runtime", "permanent"], direct.replace("ACCEPT", "REJECT")),
+            ("target", "ACCEPT", "public", ["permanent"], "REJECT"),
+        ):
+            with self.subTest(kind=kind):
+                request = {"name": "Reviewed verdict", "server_ids": ["host"],
+                           "rule_key": firewall.fingerprints("permanent", zone, kind, old)[1],
+                           "operation": "replace", "decision": "reject", "scopes": scopes}
+                plan = self.store.create_firewall_change(request, "admin")
+                self.assertTrue(plan["requires_double_confirmation"])
+                self.assertEqual({row["scope"] for row in plan["preview"]["after"]}, set(scopes))
+                self.assertEqual({row["value"] for row in plan["preview"]["after"]}, {expected})
+        with self.assertRaisesRegex(ValueError, "view-only"):
+            self.store.create_firewall_change({**request, "scopes": ["runtime"]}, "admin")
+        with self.assertRaisesRegex(ValueError, "does not support changing its decision"):
+            self.store.create_firewall_change({**request, "rule_key": firewall.fingerprints(
+                "permanent", "public", "forward_port", self.redirect)[1]}, "admin")
+
     def test_missing_capabilities_or_scope_evidence_fail_closed(self):
         self.report(caps=[])
         with self.assertRaisesRegex(ValueError, "Upgrade"):

@@ -876,7 +876,7 @@ class Store:
                 session = self._get(db, "sessions", coverage.get("session_id"))
                 if not session or identifier not in session["server_ids"]:
                     raise ValueError("Learning coverage does not belong to endpoint")
-                normalized_coverage = {"session_id": session["id"]}
+                normalized_coverage = {"session_id": session["id"], "purpose": session.get("purpose") or "policy"}
                 for key in ("started_at", "ended_at"):
                     if coverage.get(key):
                         normalized_coverage[key] = stamp(parse_time(coverage[key]))
