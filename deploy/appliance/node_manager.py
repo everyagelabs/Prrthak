@@ -733,7 +733,7 @@ class Manager:
     def status(self):
         blockers=[]
         try:states=self.engine.states()
-        except Blocked:states={};blockers.append('Local Docker/Compose status is unavailable')
+        except Blocked:states={name:'unknown' for name in SERVICES};blockers.append('Local Docker/Compose status is unavailable')
         manifest=self.manifest();desired=self.desired();state=self.state();settings=self.installed
         database_compatible=True
         try:database_runtime_settings(self.root,settings)

@@ -287,6 +287,14 @@ class ApplianceManagerTests(unittest.TestCase):
         for name in ('database','etcd'):
             with self.assertRaises(appliance.Blocked):self.manager.operate('start',name)
         self.assertEqual(self.shared['calls'],[])
+    def test_unavailable_docker_status_does_not_report_stopped_services(self):
+        manifest=self.full();manifest['local_node']['role']='database_voter'
+        appliance.atomic(self.root/'config/manifest.json',manifest)
+        with patch.object(self.manager.engine,'states',side_effect=appliance.Blocked('injected Compose failure')):
+            status=self.manager.status()
+        self.assertIn('Local Docker/Compose status is unavailable',status['blockers'])
+        self.assertEqual({row['id']:(row['state'],row['enabled']) for row in status['services']},
+                         {name:('unknown',True) for name in appliance.SERVICES})
     def test_fixed_actions_reject_arbitrary_services_and_commands(self):
         with self.assertRaises(appliance.Blocked):self.manager.operate('restart','../../other')
         for body in ({'action':'shell','request_id':'a'*32,'command':'id'},{'action':'status','request_id':'../x'}):

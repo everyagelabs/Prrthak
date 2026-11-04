@@ -2,10 +2,22 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
-function workspace(write=false){const calls=[],c={state:{view:'risk'},URLSearchParams,canWrite:()=>write,num:v=>Number(v)||0,h:v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'),badge:(v)=>String(v),$:()=>null,$$:()=>[],showModal:(...args)=>calls.push(args)};vm.createContext(c);vm.runInContext(fs.readFileSync(require.resolve('../risk-page.js'),'utf8'),c);return {c,calls};}
+function workspace(write=false){const calls=[],c={state:{view:'risk'},URLSearchParams,canWrite:()=>write,num:v=>Number(v)||0,h:v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'),timestamp:v=>new Date(v).toISOString(),badge:(v)=>String(v),$:()=>null,$$:()=>[],showModal:(...args)=>calls.push(args)};vm.createContext(c);vm.runInContext(fs.readFileSync(require.resolve('../risk-page.js'),'utf8'),c);return {c,calls};}
 test('reasons and service metadata are escaped in findings and discovered-port highlights',()=>{const {c}=workspace();vm.runInContext(`riskState.findings={items:[{server_id:'x',hostname:'<host>',ips:[],port:23,protocol:'tcp',name:'Telnet',reason:'<img src=x onerror=bad()>',recommendation:'<next>',severity:'high',source_ids:[]}],total:1,server_count:1};riskState.findingsScope=riskScope();`,c);const html=c.riskHTML();assert.match(html,/Why marked risky/);assert.match(html,/&lt;img/);assert.doesNotMatch(html,/<img/);const badge=c.riskyPortBadge({risky_ports:[{port:23,protocol:'tcp',reason:'<reason>',severity:'high'}]},{port:23,protocol:'tcp'});assert.match(badge,/Risky port/);assert.match(badge,/risk-port-reason/);assert.doesNotMatch(badge,/<reason>/);});
 test('Read Only cannot open the catalogue editor and empty pages never claim item1',async()=>{const {c,calls}=workspace();vm.runInContext("riskState.tab='catalog';riskState.catalog={revision:3,rules:[]};",c);assert.doesNotMatch(c.riskHTML(),/Edit catalogue/);await c.riskAction({dataset:{action:'risk-catalog-edit'}});assert.equal(calls.length,0);vm.runInContext("riskState.tab='findings';riskState.findings={items:[],total:0};riskState.findingsScope=riskScope();",c);assert.match(c.riskHTML(),/0–0 of 0/);});
 test('catalogue editor freezes revision at opening rather than using a later refresh',async()=>{const {c,calls}=workspace(true);vm.runInContext("riskState.catalog={revision:7,rules:[]};",c);await c.riskAction({dataset:{action:'risk-catalog-edit'}});assert.match(calls[0][1],/data-revision="7"/);});
+test('risk findings use shared form and table styles, with an empty state outside the scroll region',()=>{
+ const {c}=workspace();
+ vm.runInContext('riskState.findings={items:[],total:0,server_count:0,classification_pending_servers:0};riskState.findingsScope=riskScope();',c);
+ const html=c.riskHTML();
+ assert.match(html,/class="card table-card risk-card"/);
+ for(const [id,label] of [['risk-search','Search'],['risk-severity','Severity'],['risk-port','Exact port']]){
+   assert.ok(html.includes(`<div class="field"><label for="${id}">${label}</label>`));
+ }
+ assert.match(html,/class="table-footer"/);
+ assert.match(html,/class="empty-state risk-empty-state"/);
+ assert.doesNotMatch(html,/class="table-scroll"/);
+});
 test('newer filtered requests supersede stale in-flight responses',async()=>{const {c}=workspace();const pending=[];c.api=url=>new Promise(resolve=>pending.push({url,resolve}));const older=c.riskLoad(true);vm.runInContext("riskState.severity='high';",c);const newer=c.riskLoad(true);assert.equal(pending.length,6);pending[3].resolve({revision:2,rules:[]});pending[4].resolve({items:[],total:2});pending[5].resolve({controls:[]});await newer;pending[0].resolve({revision:1,rules:[]});pending[1].resolve({items:[],total:99});pending[2].resolve({controls:[]});await older;assert.equal(vm.runInContext('riskState.findings.total',c),2);});
 
 test('ordinary refresh reloads findings while caching reference data and coalescing concurrent loads',async()=>{

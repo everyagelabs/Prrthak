@@ -11,8 +11,16 @@ function platformSetupBannerHTML(){
   return `<section class="card platform-panel"><div class="platform-panel-heading"><span class="platform-feature-icon">${icon('settings')}</span><div><h2>Complete controller setup</h2><p>Configure controller settings. Set up SAML SSO from Manage users.</p></div></div><p class="platform-intro">The installer creates the private configuration automatically. Review and activate settings from Setup.</p><button class="button primary" type="button" data-action="platform-tab" data-tab="setup">Open setup</button></section>`;
 }
 function platformSetupProbeFieldsHTML(field,editable){
-  const disabled=editable?'':'disabled';
-  return `<h3>SSH health checks</h3><p class="help-text">Use an IP assigned to this controller host and the exact endpoint networks it may probe. Agents must include this source in their protected management CIDRs.</p><div class="field-row"><div class="field"><label for="setup-ssh-probe-source">Controller host source IP</label><input id="setup-ssh-probe-source" name="SEG_MANAGEMENT_PROBE_SOURCE_IP" value="${field('SEG_MANAGEMENT_PROBE_SOURCE_IP')}" placeholder="192.0.2.10" maxlength="128" ${disabled}></div><div class="field"><label for="setup-ssh-probe-targets">Endpoint target CIDRs</label><input id="setup-ssh-probe-targets" name="SEG_MANAGEMENT_PROBE_TARGET_CIDRS" value="${field('SEG_MANAGEMENT_PROBE_TARGET_CIDRS')}" placeholder="192.0.2.20/32, 192.0.2.32/28" maxlength="2048" ${disabled}></div></div>`;
+  const disabled=editable?'':'disabled',source=field('SEG_MANAGEMENT_PROBE_SOURCE_IP'),targets=field('SEG_MANAGEMENT_PROBE_TARGET_CIDRS');
+  return `<details id="setup-ssh-probe" class="platform-advanced"${source||targets?' open':''}>
+    <summary>Advanced SSH reachability checks</summary>
+    <p class="help-text">Agents communicate with the controller over mutual TLS. For firewall changes that protect SSH access, the controller reads the SSH service banner and ends the connection before authentication.</p>
+    <p class="help-text">Leave both fields blank for inventory and monitoring. Managed enforcement and whole-server default deny require an approved SSH probe path.</p>
+    <div class="field-row">
+      <div class="field"><label for="setup-ssh-probe-source">Controller host source IP</label><input id="setup-ssh-probe-source" name="SEG_MANAGEMENT_PROBE_SOURCE_IP" value="${source}" placeholder="192.0.2.10" maxlength="128" ${disabled}><small>Use a host IP allowed by the endpoints’ protected management CIDRs.</small></div>
+      <div class="field"><label for="setup-ssh-probe-targets">Endpoint target CIDRs</label><input id="setup-ssh-probe-targets" name="SEG_MANAGEMENT_PROBE_TARGET_CIDRS" value="${targets}" placeholder="192.0.2.20/32, 192.0.2.32/28" maxlength="2048" ${disabled}><small>List only the endpoint networks this controller may check.</small></div>
+    </div>
+  </details>`;
 }
 function platformSetupSigningOpen(){
   return state.platformSetupSigningOpen===true||state.platformTab==='signing';

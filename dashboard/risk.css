@@ -1,1 +1,30 @@
 .risk-table{width:100%;min-width:1000px;table-layout:fixed}.risk-table th,.risk-table td{white-space:normal;vertical-align:top;overflow-wrap:anywhere;line-height:1.5}.risk-table td small{display:block;margin-top:6px;color:var(--muted,#777987);font-size:11px}.risk-table th:nth-child(4),.risk-table th:nth-child(5){width:25%}.risk-table a{text-decoration:underline;text-underline-offset:2px}.risk-port-reason{display:block;max-width:38rem;white-space:normal;font-size:11px;font-weight:400;color:var(--muted,#777987)}
+
+.risk-card { min-width: 0; }
+.risk-card-copy { margin: 0; padding: 14px 21px 16px; }
+.risk-card-copy > :last-child { margin-bottom: 0; }
+.risk-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(8rem, 1fr) minmax(6rem, .7fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.risk-filters .field { min-width: 0; margin: 0; }
+.risk-filters .field input,
+.risk-filters .field select,
+.risk-filters .button { min-height: 40px; }
+.risk-empty-state { padding: 30px 21px; border-top: 1px solid var(--line); }
+.risk-empty-state p { margin: 0; color: var(--muted); }
+.risk-table-note { border-top: 1px solid var(--line); }
+.risk-card .table-footer > div { display: flex; gap: 12px; }
+
+@media (max-width: 950px) {
+  .risk-filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .risk-card-copy { padding-inline: 17px; }
+}
+@media (max-width: 500px) {
+  .risk-filters { grid-template-columns: minmax(0, 1fr); }
+}

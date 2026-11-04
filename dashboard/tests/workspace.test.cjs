@@ -1038,9 +1038,14 @@ test('unused local HA services have no controls while stopped services on a vote
  const haServices=[{id:'database',name:'PostgreSQL 16 / Patroni'},{id:'etcd',name:'etcd quorum'}];
  const localServices=enabled=>[applianceState.services[0],...haServices.map(service=>({...service,state:'stopped',enabled,can_restart:true,can_stop:true}))];
  const standalone=await applianceWorkspace({'/api/v1/platform/appliance':{...applianceState,manager_available:true,services:localServices(false)}});
- await standalone.click('platform-tab',{tab:'services'});
  let html=standalone.element('#view-content').innerHTML;
- assert.equal((html.match(/Not used on this node/g)||[]).length,2);
+ assert.equal((html.match(/Not required on this node/g)||[]).length,2);
+ assert.match(html,/standalone controller stores its data in SQLite/);
+ assert.match(html,/Required on HA database voters for shared database storage and failover/);
+ assert.match(html,/Required on HA database voters for quorum and database leader election/);
+ await standalone.click('platform-tab',{tab:'services'});
+ html=standalone.element('#view-content').innerHTML;
+ assert.equal((html.match(/Not required on this node/g)||[]).length,2);
  assert.match(html,/standalone controller stores its data in SQLite/);
  assert.match(html,/Appliance node manager.*prthak-appliance-manager\.service.*>Reachable/);
  assert.doesNotMatch(html,/data-id="(?:database|etcd)" data-service-action/);
@@ -1051,13 +1056,28 @@ test('unused local HA services have no controls while stopped services on a vote
  await voter.click('platform-tab',{tab:'services'});
  html=voter.element('#view-content').innerHTML;
  assert.equal((html.match(/class="badge danger"><i><\/i>Stopped/g)||[]).length,2);
+ assert.match(html,/Required on this HA database voter for shared database storage and failover/);
  assert.match(html,/data-id="database" data-service-action="restart"/);
  assert.match(html,/data-id="etcd" data-service-action="restart"/);
- assert.doesNotMatch(html,/Not used on this node|standalone controller/);
+ assert.doesNotMatch(html,/Not required on this node|standalone controller/);
  const unreachable=await applianceWorkspace({'/api/v1/platform/appliance':{...applianceState,manager_available:false,services:[]}});
  await unreachable.click('platform-tab',{tab:'services'});
  assert.match(unreachable.element('#view-content').innerHTML,/Appliance node manager.*class="badge danger"><i><\/i>Unreachable/);
  assert.doesNotMatch(unreachable.element('#view-content').innerHTML,/data-action="platform-appliance-service-review"/);
+});
+test('service health explains management-only HA and keeps unreported voter status distinct',async()=>{
+ const sharedPlatform={...productionPlatform,runtime:{...productionPlatform.runtime,ha:true,storage:'postgresql'}};
+ const haServices=[{id:'database',name:'PostgreSQL 16 / Patroni'},{id:'etcd',name:'etcd quorum'}];
+ const management=await applianceWorkspace({'/api/v1/platform/status':sharedPlatform,'/api/v1/platform/appliance':{...applianceState,services:haServices.map(service=>({...service,state:'stopped',enabled:false}))}});
+ let html=management.element('#view-content').innerHTML;
+ assert.equal((html.match(/Not required on this node/g)||[]).length,2);
+ assert.match(html,/This management controller connects to the shared database/);
+ assert.doesNotMatch(html,/stores its data in SQLite/);
+ const voter=await applianceWorkspace({'/api/v1/platform/status':sharedPlatform,'/api/v1/platform/appliance':{...applianceState,services:haServices.map(service=>({...service,state:'unknown',enabled:true}))}});
+ html=voter.element('#view-content').innerHTML;
+ assert.equal((html.match(/class="badge warning"><i><\/i>Not reported/g)||[]).length,2);
+ assert.match(html,/Required on this HA database voter for quorum and database leader election/);
+ assert.doesNotMatch(html,/Not required on this node|>Stopped<|management controller connects/);
 });
 test('backup scheduling saves exact local timezone, weekday, interval and retention with stale revision protection',async()=>{
  const env=await applianceWorkspace();await env.click('platform-tab',{tab:'backups'});await new Promise(setImmediate);const html=env.element('#view-content').innerHTML;assert.match(html,/Automatic backups/);assert.match(html,/value="Asia\/Kolkata"/);assert.match(html,/Last successful run/);const form=renderedForm(env,'platform-backup-schedule-form',{enabled:'on',frequency:'weekly',time:'02:30',timezone:'Asia/Kolkata',weekday:'5',interval_hours:'24',retention_count:'14'});await submitRendered(env,form);const request=mutations(env)[0];assert.equal(request.url,'/api/v1/platform/backup-schedule');assert.deepEqual(JSON.parse(request.options.body),{expected_revision:3,enabled:true,frequency:'weekly',time:'02:30',timezone:'Asia/Kolkata',weekday:5,interval_hours:24,retention_count:14});assertCookieMutation(request);
@@ -1462,6 +1482,32 @@ test('GUI controller setup is Super Admin only and presents reviewed runtime and
  const env=await guiSetupWorkspace();let html=env.element('#view-content').innerHTML;assert.match(html,/Controller setup/);assert.match(html,/No manual .env editing/);assert.match(html,/Use recommended pilot profile/);assert.match(html,/type="password"[^>]*autocomplete="new-password"/);assert.doesNotMatch(html,/<textarea|name="environment"/);env.run('platformSetupInput({target:{id:"setup-enable-entra",checked:true}})');assert.equal(env.element('#setup-entra-fields').hidden,false);
  await env.click('platform-setup-preset');assert.equal(env.element('#setup-meta-pool').value,'8');assert.equal(env.element('#setup-workers').value,'');assert.equal(env.run('platformHasDraft()'),true);
  for(const role of ['admin','read_only']){const other=await guiSetupWorkspace({}, {mode:'entra',role});await other.click('platform-tab',{tab:'setup'});assert.equal(other.run('state.platformTab'),'overview');assert.equal(other.requests.some(row=>row.url==='/api/v1/platform/setup'),false);await other.click('platform-setup-login');assert.equal(other.requests.some(row=>row.url==='/api/v1/platform/setup/login'),false);}
+});
+
+test('SSH reachability fields are advanced, retain saved values and can be cleared as a pair',async()=>{
+ const env=await guiSetupWorkspace();
+ let html=env.element('#view-content').innerHTML;
+ assert.match(html,/<details id="setup-ssh-probe" class="platform-advanced">/);
+ assert.match(html,/SSH service banner and ends the connection before authentication/);
+ assert.match(html,/Leave both fields blank for inventory and monitoring/);
+ const source='SEG_MANAGEMENT_PROBE_SOURCE_IP',targets='SEG_MANAGEMENT_PROBE_TARGET_CIDRS';
+ const values=guiSetupValues({[source]:'192.0.2.10',[targets]:'192.0.2.20/32'});
+ env.context.setupInfo=guiSetupStatus({environment:values});
+ html=env.run('state.platformSetup=setupInfo; platformSetupHTML()');
+ assert.match(html,/<details id="setup-ssh-probe" class="platform-advanced" open>/);
+ assert.match(html,/name="SEG_MANAGEMENT_PROBE_SOURCE_IP" value="192\.0\.2\.10"/);
+ assert.match(html,/name="SEG_MANAGEMENT_PROBE_TARGET_CIDRS" value="192\.0\.2\.20\/32"/);
+ const form=renderedForm(env,'platform-setup-form',values);
+ env.context.setupForm=form;
+ let payload=env.run('platformSetupPayload(setupForm)');
+ assert.equal(payload.environment[source],values[source]);
+ assert.equal(payload.environment[targets],values[targets]);
+ form.values[source]='';
+ assert.throws(()=>env.run('platformSetupPayload(setupForm)'),/Enter both/);
+ form.values[targets]='';
+ payload=env.run('platformSetupPayload(setupForm)');
+ assert.equal(payload.environment[source],'');
+ assert.equal(payload.environment[targets],'');
 });
 
 test('initial Entra setup sends the secret once, clears its field and requires a verified candidate before exact activation',async()=>{

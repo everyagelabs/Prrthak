@@ -85,7 +85,7 @@ function platformApplianceOverviewHTML(){
       <div class="table-scroll"><table><thead><tr><th>Controller</th><th>Site</th><th>Reported health</th><th>Last heartbeat</th></tr></thead>
       <tbody>${nodes.map(node=>`<tr><td><strong>${h(node.id || node.name)}</strong></td><td>${h(node.site || 'Not reported')}</td><td>${platformHealthBadge(node.health ?? node.ready ?? node.status ?? node.state)}</td><td>${h(timestamp(node.last_seen))}</td></tr>`).join('') || '<tr><td colspan="4">No controller health has been reported.</td></tr>'}</tbody></table></div>
     </section>
-    ${services.length||info.installed===true?`<section class="card platform-panel"><h2>Appliance service health</h2><dl class="detail-grid">${services.map(service=>`<div><dt>${h(service.name || service.id)}</dt><dd>${applianceServiceBadge(service)}</dd></div>`).join('')}${info.installed===true?`<div><dt>Appliance node manager</dt><dd>${applianceManagerBadge(info)}</dd></div>`:''}</dl></section>`:''}
+    ${services.length||info.installed===true?`<section class="card platform-panel"><h2>Appliance service health</h2><dl class="detail-grid">${services.map(service=>`<div><dt>${h(service.name || service.id)}</dt><dd>${applianceServiceStatusHTML(service)}</dd></div>`).join('')}${info.installed===true?`<div><dt>Appliance node manager</dt><dd>${applianceManagerBadge(info)}</dd></div>`:''}</dl></section>`:''}
     ${!canManagePlatform()?'<div class="inline-notice">Your role can view platform health. Super Admins manage platform settings.</div>':''}`;
 }
 function platformApplianceClusterHTML(){
@@ -98,15 +98,23 @@ function platformApplianceStorageHTML(){
 function applianceServiceUnused(service){
   return service.enabled===false&&['database','etcd'].includes(service.id);
 }
-function applianceServiceBadge(service){
+function applianceServiceStatusHTML(service){
   const unused=applianceServiceUnused(service);
   const running=['active','running'].includes(service.state);
   const stopped=['stopped','exited'].includes(service.state);
-  const inactive=unused&&stopped;
-  const label=inactive?'Not used on this node':humanize(service.state || 'Not reported');
+  const unreported=!service.state||service.state==='unknown';
+  const label=unreported?'Not reported':unused&&stopped?'Not required on this node':humanize(service.state);
   const unexpected=(unused&&running)||(service.enabled===true&&stopped);
   const failed=unexpected||['failed','dead'].includes(service.state);
-  return badge(label,failed?'danger':running?'':'neutral');
+  const status=badge(label,failed?'danger':running?'':unreported&&service.enabled===true?'warning':'neutral');
+  const purpose={database:'shared database storage and failover',etcd:'quorum and database leader election'}[service.id];
+  if(!purpose||(running&&!unused))return status;
+  const runtime=state.platformInfo?.runtime || {};
+  let context='';
+  if(unused&&runtime.ha===false&&runtime.storage==='sqlite')context='This standalone controller stores its data in SQLite. ';
+  if(unused&&runtime.ha===true&&runtime.storage==='postgresql')context='This management controller connects to the shared database. ';
+  const requirement=service.enabled===true?'this HA database voter':'HA database voters';
+  return `${status}<small class="help-text">${h(`${context}Required on ${requirement} for ${purpose}.`)}</small>`;
 }
 function applianceManagerBadge(info){
   return info.manager_available===true?badge('Reachable'):info.manager_available===false?badge('Unreachable','danger'):badge('Not reported','neutral');
@@ -116,14 +124,12 @@ function applianceServiceRowHTML(service){
   const enabled=unused?'HA database voters only':service.enabled===true?'Enabled':service.enabled===false?'Disabled':'Not reported';
   const disabled=applianceOperational()?'':'disabled';
   const actions=unused?'&mdash;':`<div class="platform-backup-actions"><button class="text-button" data-action="platform-appliance-service-review" data-id="${h(service.id)}" data-service-action="restart" ${service.can_restart===true?disabled:'disabled'}>Restart</button>${service.can_stop===true?`<button class="text-button danger-text" data-action="platform-appliance-service-review" data-id="${h(service.id)}" data-service-action="stop" ${disabled}>Stop</button>`:''}</div>`;
-  return `<tr><td><strong>${h(service.name || service.id)}</strong></td><td>${applianceServiceBadge(service)}</td><td>${enabled}</td><td>${actions}</td></tr>`;
+  return `<tr><td><strong>${h(service.name || service.id)}</strong></td><td>${applianceServiceStatusHTML(service)}</td><td>${enabled}</td><td>${actions}</td></tr>`;
 }
 function platformApplianceServicesHTML(){
   const info=appliance(),services=info.services || [];
-  const runtime=state.platformInfo?.runtime;
-  const storageNote=runtime?.ha===false&&runtime.storage==='sqlite'&&services.some(applianceServiceUnused)?'<p class="help-text">This standalone controller stores its data in SQLite. PostgreSQL with Patroni and etcd run on database voters in a high-availability deployment.</p>':'';
   const managerRow=info.installed===true?`<tr><td><strong>Appliance node manager</strong><br><small>prthak-appliance-manager.service</small></td><td>${applianceManagerBadge(info)}</td><td>Host systemd</td><td>&mdash;</td></tr>`:'';
-  return `${platformApplicationPortHTML()}${applianceDisabledNotice()}<section class="card platform-panel"><div class="section-line"><h2>Appliance services</h2><div class="toolbar-group">${platformOperationHistoryLinkHTML()}<button class="text-button" data-action="platform-refresh">Refresh health</button></div></div><p class="platform-intro">Review a service action before it runs. A controller restart can briefly disconnect the dashboard.</p>${storageNote}<div class="table-scroll"><table><thead><tr><th>Service</th><th>Reported state</th><th>Configuration</th><th>Actions</th></tr></thead><tbody>${managerRow}${services.map(applianceServiceRowHTML).join('') || '<tr><td colspan="4">No managed service state has been reported by this appliance.</td></tr>'}</tbody></table></div></section>`;
+  return `${platformApplicationPortHTML()}${applianceDisabledNotice()}<section class="card platform-panel"><div class="section-line"><h2>Appliance services</h2><div class="toolbar-group">${platformOperationHistoryLinkHTML()}<button class="text-button" data-action="platform-refresh">Refresh health</button></div></div><p class="platform-intro">Review a service action before it runs. A controller restart can briefly disconnect the dashboard.</p><div class="table-scroll"><table><thead><tr><th>Service</th><th>Reported state</th><th>Configuration</th><th>Actions</th></tr></thead><tbody>${managerRow}${services.map(applianceServiceRowHTML).join('') || '<tr><td colspan="4">No managed service state has been reported by this appliance.</td></tr>'}</tbody></table></div></section>`;
 }
 function platformBackupScheduleHTML(){
   const schedule=state.platformBackupSchedule,loaded=!!schedule,s=schedule || {},frequency=s.frequency || 'daily';
