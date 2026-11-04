@@ -84,10 +84,11 @@
   font-size: 11px;
   line-height: 1.45;
 }
-.pseg-topology-tools {display:flex;gap:5px;flex-shrink:0}
+.pseg-topology-tools {display:flex;gap:5px;flex-wrap:wrap}
 .pseg-topology-tools .button {font-size:10px;min-height:26px;padding:4px 7px}
 .pseg-topology-tools .button svg {width:13px;height:13px}
 .pseg-topology-tools .button[aria-pressed=true] {background:#fff1f4;color:#b71231}
+.pseg-topology-tools select {max-width:150px}
 
 .pseg-map-wrap {
   border-block: 1px solid #f8eaf0;
@@ -95,11 +96,16 @@
   background: #fffcfd;
 }
 .pseg-map {display:block;width:100%;min-width:470px;max-width:1000px;margin-inline:auto}
+.pseg-country-shape {stroke:#d796a8;stroke-width:1.2;stroke-linejoin:round;filter:drop-shadow(0 5px 8px #72263716)}
 .pseg-map-label {fill:#935368;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase}
 .pseg-empty {fill:#786474;font-size:15px;font-weight:600}
 .pseg-leader {fill:none;stroke:#ad8393;stroke-width:1;pointer-events:none}
 .pseg-site-halo {fill:#ffc1cf;stroke:#fff;stroke-width:1}
 .pseg-site-point {fill:#e31939;stroke:#fff;stroke-width:1.6}
+.pseg-site-point.is-warning {fill:#be7924}
+.pseg-site-point.is-offline {fill:#94788a}
+.pseg-site-pulse {fill:none;stroke:#e31939;stroke-width:1.5;transform-box:fill-box;transform-origin:center;animation:pseg-pin 2.6s ease-out infinite}
+@keyframes pseg-pin {from{transform:scale(.8);opacity:.9}to{transform:scale(2);opacity:0}}
 .pseg-site-button {cursor:pointer;outline:none}
 .pseg-site-button rect {fill:#fff;stroke:#e9d1d9;filter:drop-shadow(0 3px 4px #72263715)}
 .pseg-site-button:focus-visible rect,
@@ -122,8 +128,8 @@
   animation:pseg-trace 4s linear infinite;
 }
 @keyframes pseg-trace {to{stroke-dashoffset:-100}}
-.pseg-topology[data-paused=true] .pseg-edge-pulse {display:none}
-@media(prefers-reduced-motion:reduce){.pseg-edge.is-current .pseg-edge-pulse{display:none;animation:none}}
+.pseg-topology[data-paused=true] :is(.pseg-edge-pulse,.pseg-site-pulse) {display:none}
+@media(prefers-reduced-motion:reduce){.pseg-topology :is(.pseg-edge-pulse,.pseg-site-pulse){display:none;animation:none}}
 .pseg-topology-footer,.pseg-topology-legend,.pseg-topology-legend span {display:flex;align-items:center}
 .pseg-topology-footer {
   min-height: 38px;
@@ -138,6 +144,13 @@
 .pseg-topology-legend span {gap:6px}
 .pseg-topology-legend i {width:18px;border-top:2px solid #e61a39}
 .pseg-topology-legend span+span i {border-top:1px dashed #937589}
+.pseg-off-map {display:flex;flex-wrap:wrap;gap:5px;align-items:center;padding:8px 15px 11px;border-top:1px solid #f8eaf0;color:#6c6273;font-size:10px}
+.pseg-off-map strong {margin-right:4px}
+.pseg-off-map button {display:inline-flex;align-items:center;gap:4px;border:1px solid #eee5eb;border-radius:5px;padding:4px 6px;color:#62586c;background:#fbf8fa;font-size:10px}
+.pseg-off-map button:hover,.pseg-off-map a:hover {color:#9e1431;border-color:#dba7b9}
+.pseg-off-map small {color:#716879}
+.pseg-off-map i {width:6px;height:6px;border-radius:50%;flex:none}
+.pseg-compact-sites {display:none}
 
 .overview-services {display:flex;flex-direction:column}
 .overview-service-total {
@@ -240,6 +253,8 @@
 
 @media(max-width:640px) {
   .pseg-map {min-width:0}
+  .pseg-map :is(.pseg-site-button,.pseg-leader) {display:none}
+  .pseg-compact-sites {display:flex}
   .overview-panel-head {padding:11px 12px;flex-wrap:wrap}
   .overview-page .stat-card .stat-note {overflow-wrap:anywhere}
   .overview-site-chips button,.overview-site-chips a {overflow-wrap:anywhere}

@@ -66,15 +66,21 @@ async function refreshFirewallActivationAssessment(){
   const response=await api('/firewall-activation/query',{method:'POST',body:{server_ids:result.jobs.map(job=>job.server_id),limit:result.jobs.length}});
   if(!$('#modal').open||$('#firewall-activation-form')!==result.form||currentFirewallAssessment(result.form)!==result)return;
   let ready=true,expires=Infinity;
+  const now=Date.now();
   const byEndpoint=new Map((response.items||[]).map(item=>[item.server_id,item]));
   const lines=result.jobs.map(job=>{
    const item=byEndpoint.get(job.server_id),receipt=item?.receipt;
    const matches=receipt?.id===job.id&&receipt?.plan_digest===job.plan_digest;
    const deadline=matches?Date.parse(receipt.checked_at)+180000:0;
-   const passed=matches&&receipt.status==='assessed'&&deadline>Date.now();
+   const passed=matches&&receipt.status==='assessed'&&deadline>now;
    if(passed)expires=Math.min(expires,deadline);
    else ready=false;
-   const detail=passed?'Ready to review':matches?(receipt.error||(receipt.status==='assessed'?'Assessment expired. Request a fresh assessment.':`Assessment ${receipt.status}. Open endpoint details for the reason.`)):item?.job?.id&&item.job.id!==job.id?'Assessment replaced. Request a fresh assessment.':'Waiting for the agent to report its assessment.';
+   let detail;
+   if(passed)detail='Ready to review';
+   else if(matches)detail=receipt.error||(receipt.status==='assessed'?'Assessment expired. Request a fresh assessment.':`Assessment ${receipt.status}. Open endpoint details for the reason.`);
+   else if(item?.job?.id&&item.job.id!==job.id)detail='Assessment replaced. Request a fresh assessment.';
+   else if(Date.parse(item?.job?.expires_at||job.expires_at)<=now)detail='Assessment request expired before the agent responded. Check the agent connection and request a fresh assessment.';
+   else detail='Waiting for the agent to report its assessment.';
    return `<li><strong>${h(item?.hostname||job.server_id)}</strong> · ${h(detail)}</li>`;
   });
   result.ready=ready;result.expires=expires;

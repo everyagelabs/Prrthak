@@ -54,6 +54,7 @@ check:
 	node --check dashboard/app.js
 	node --check dashboard/filters.js
 	node --check dashboard/topology.js
+	node --check dashboard/country-outlines.js
 	node --check dashboard/routing.js
 	node --check dashboard/services.js
 	node --check dashboard/service-groups-page.js

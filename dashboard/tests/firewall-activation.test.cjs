@@ -36,6 +36,22 @@ test('starting firewalld waits for the exact assessment and a blocked review has
  f.c.showFirewallActivationReview({...plan(),can_apply:false,blockers:['Assessment blocked']});
  assert.doesNotMatch(f.modals.at(-1).html,/name="confirmation_phrase"|name="acknowledge_downtime"/);
 });
+test('a matching receipt unlocks review and an unanswered request shows expiry',async()=>{
+ const job={id:'fresh',server_id:'host-one',plan_digest:'fresh-digest',expires_at:new Date(Date.now()-1000).toISOString()};
+ let receipt=null;
+ const f=fixture(url=>url.endsWith('/assess')?{items:[job]}:{
+   items:[{server_id:job.server_id,hostname:'billing-one',job,receipt}]
+ });
+ const selection=f.element('#firewall-activation-form');
+ Object.assign(selection,form(),{fields:{'button[type="submit"]':{disabled:true}}});
+ await f.c.firewallActivationAction({dataset:{action:'firewall-activation-assess'}});
+ assert.match(f.element('#firewall-assessment-status').innerHTML,/Assessment request expired before the agent responded/);
+ assert.equal(selection.fields['button[type="submit"]'].disabled,true);
+ receipt={id:job.id,plan_digest:job.plan_digest,status:'assessed',checked_at:new Date().toISOString()};
+ await f.c.refreshFirewallActivationAssessment();
+ assert.match(f.element('#firewall-assessment-status').innerHTML,/Ready to review/);
+ assert.equal(selection.fields['button[type="submit"]'].disabled,false);
+});
 test('exact review displays translated source/port/action and both fresh confirmation controls',()=>{
  const f=fixture(),review=plan();f.c.showFirewallActivationReview(review);const html=f.modals[0].html;assert.match(html,/10.30.0.0\/24/);assert.match(html,/8443\/tcp/);assert.match(html,/2022/);assert.match(html,/native-baseline/);assert.match(html,/No second administrator is required/);assert.match(html,/<input id="firewall-activation-ack" name="acknowledge_downtime" type="checkbox">/);assert.equal(f.c.firewallActivationReviewUsable(review,review.challenge,false),false);assert.equal(f.c.firewallActivationReviewUsable(review,'yes',true),false);assert.equal(f.c.firewallActivationReviewUsable(review,review.challenge,true),true);review.can_apply=false;assert.equal(f.c.firewallActivationReviewUsable(review,review.challenge,true),false);
 });

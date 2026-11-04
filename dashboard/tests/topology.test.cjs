@@ -6,7 +6,7 @@ const now = Date.parse('2026-10-30T10:00:00Z');
 const stamp = seconds => new Date(now - seconds * 1000).toISOString();
 const server = (id, dc = 'DC-1', extra = {}) => ({
   id, hostname:id, location_id:dc?'loc-'+dc:null,
-  location:dc?{id:'loc-'+dc,name:dc,type:'datacenter'}:null,
+  location:dc?{id:'loc-'+dc,name:dc,type:'datacenter',country_code:'IN',latitude:19+(Number(dc.split('-').at(-1))||0),longitude:77}:null,
   ips:[id === 'web' ? '10.1.0.2' : '10.1.0.1'], status:'healthy', last_seen:stamp(10), ...extra
 });
 const source = server('source');
@@ -20,8 +20,46 @@ test('inventory without observations creates site markers but no links', () => {
   assert.match(html,/class="pseg-map" viewBox="0 0 760 425"/);
   assert.match(html,/class="pseg-site-button".*data-location-key="location:loc-DC-1"/);
   assert.match(html,/No observed links/);
+  assert.match(html,/pseg-site-pulse/);
   assert.doesNotMatch(html,/class="pseg-edge |Recent activity|packets\/s|connections\/s|Live packets/i);
   assert.match(render({servers:[]}),/No endpoints match this scope/);
+});
+
+test('countries are selectable and only matching geographic sites get map pins', () => {
+  const india = server('delhi','IN',{location:{id:'loc-IN',name:'Noida facility',location:'Noida, India',type:'datacenter'}});
+  const australia = server('sydney','AU',{location:{id:'loc-AU',name:'Sydney facility',location:'Sydney, Australia',type:'datacenter'}});
+  const html = render({servers:[india,australia],country:'AU'});
+  assert.match(html,/aria-label="Infrastructure in Australia"/);
+  assert.match(html,/class="pseg-country-shape"/);
+  assert.match(html,/<option value="AU" selected>Australia/);
+  assert.match(html,/<option value="IN">India/);
+  assert.match(html,/data-location-key="location:loc-AU"/);
+  assert.doesNotMatch(html,/data-location-key="location:loc-IN"/);
+  assert.match(render({servers:[india,australia],country:'IN'}),/aria-label="Infrastructure in India"/);
+});
+
+test('a saved country can show its outline before the site has a pin', () => {
+  const facility = server('dc','NL',{location:{id:'loc-NL',name:'DC 17',type:'datacenter',country_code:'NL'}});
+  const html = render({servers:[facility]});
+  assert.match(html,/aria-label="Infrastructure in Netherlands"/);
+  assert.match(html,/Needs map coordinates/);
+  assert.doesNotMatch(html,/class="pseg-site-point/);
+  facility.location.latitude = 52.3702;
+  facility.location.longitude = 4.8952;
+  assert.match(render({servers:[facility]}),/class="pseg-site-point/);
+});
+
+test('AWS map pins use a known region or consistent regional hostnames', () => {
+  const aws = server('aws','AWS',{location:{id:'loc-AWS',name:'AWS',type:'cloud',provider:'aws'}});
+  const generic = render({servers:[aws]});
+  assert.match(generic,/Unmapped sites/);
+  assert.doesNotMatch(generic,/class="pseg-site-point/);
+  const regional = {...aws,hostname:'ip-10-0-0-10.ap-south-1.compute.internal'};
+  assert.match(render({servers:[regional]}),/aria-label="Infrastructure in India"/);
+  const mixed = [regional,{...aws,id:'other',hostname:'ip-10-0-0-11.ap-southeast-2.compute.internal'}];
+  assert.match(render({servers:mixed}),/Unmapped sites/);
+  assert.match(render({servers:[regional],inventory:mixed}),/Unmapped sites/);
+  assert.match(render({servers:[{...regional,location:{...aws.location,region:'ap-southeast-2'}}]}),/aria-label="Infrastructure in Australia"/);
 });
 test('recent observations connect managed source and destination sites', () => {
   const html = render({flows:[flow]});
@@ -74,7 +112,7 @@ test('large fleets render at most six map sites and disclose the off-map remaind
   const html = render({servers});
   assert.equal((html.match(/class="pseg-site"/g) || []).length,6);
   assert.match(html,/7 data centres/);
-  assert.match(html,/1 additional location off map/);
+  assert.match(html,/Additional sites in India/);
   assert.match(PSegraTopology.healthHTML(servers,now),/140 of 140 endpoints reporting/);
 });
 test('demo observations are visibly identified and unknown targets produce no links', () => {
@@ -97,6 +135,7 @@ test('site health uses the configured heartbeat timeout',()=>{
   const healthy=render({servers:[configured]});
   assert.match(healthy,/pseg-health-dot is-healthy/);
   assert.doesNotMatch(healthy,/pseg-health-dot is-offline/);
+  assert.doesNotMatch(healthy,/pseg-site-pulse/);
   const stale={...configured,last_seen:stamp(901)};
   assert.match(render({servers:[stale]}),/pseg-health-dot is-offline/);
   assert.match(PSegraTopology.healthHTML([stale],now),/0 of 1 endpoint reporting/);

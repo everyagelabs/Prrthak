@@ -14,6 +14,20 @@ if [ "$#" -eq 5 ] && [ "$1" = haproxy ] && [ "$2" = -W ] && [ "$3" = -db ] &&
         fi
         sleep 1
     done
+    # Older offline updaters retain the installed router configuration. Add
+    # forwarding to its local routes at startup without changing that file.
+    # Keep the router's certificate-verified health checks on the TLS ports.
+    umask 077
+    config=$(mktemp /tmp/prthak-haproxy.XXXXXX)
+    awk '
+        /^[[:blank:]]+server[[:blank:]]+local[[:blank:]]+controller:878[789][[:blank:]]/ {
+            port = $3
+            sub(/^controller:/, "", port)
+            sub(/controller:878[789]/, "controller:" (10000 + port) " send-proxy-v2 port " port)
+        }
+        { print }
+    ' /config/haproxy.cfg > "$config"
+    set -- haproxy -W -db -f "$config"
 fi
 
 exec docker-entrypoint.sh "$@"

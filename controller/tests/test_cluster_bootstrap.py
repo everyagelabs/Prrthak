@@ -3,6 +3,7 @@ from controller.tests import private_pg as pg_fixture
 
 import copy
 from datetime import timedelta
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
 import json
@@ -230,6 +231,29 @@ class ClusterBootstrapTests(BootstrapFixture, unittest.TestCase):
         with patch("controller.cluster_bootstrap.now", return_value=now() + timedelta(minutes=6)):
             self.assertIsInstance(bootstrap.enroll(self.api, {**body, "cluster_password": self.cluster_password}, "192.0.2.9"), dict)
         self.assertEqual(len(self.api._config()["members"]), 2)
+
+    def test_failed_bootstrap_prunes_only_expired_peer_attempts(self):
+        _, body = self.enrollment(password="incorrect-cluster-password")
+        store = self.api.app.store
+        at = now()
+        prefix = bootstrap.PASSWORD_ATTEMPT_PREFIX
+        expired = prefix + "a" * 64
+        current = prefix + "b" * 64
+        unrelated = "applianceXauth:" + "c" * 64
+        with store.meta() as db:
+            for identifier, until in ((expired, at), (current, at + timedelta(minutes=1)), (unrelated, at)):
+                store._put(db, "maintenance_settings", {"id": identifier, "count": 3, "until": stamp(until)})
+
+        for peer in ("::ffff:c000:209", "192.0.2.9"):
+            with self.assertRaisesRegex(PermissionError, "credentials were not accepted"):
+                bootstrap.enroll(self.api, body, peer)
+
+        key = prefix + hashlib.sha256(b"192.0.2.9").hexdigest()
+        with store.read_meta() as db:
+            self.assertIsNone(store._get(db, "maintenance_settings", expired))
+            for identifier in (current, unrelated):
+                self.assertEqual(store._get(db, "maintenance_settings", identifier)["count"], 3)
+            self.assertEqual(store._get(db, "maintenance_settings", key)["count"], 2)
 
     def test_first_three_distinct_sites_are_voters_then_unlimited_management_nodes(self):
         self.enroll(identifier="node-2", site="site-1", address="10.70.0.2")
@@ -500,8 +524,12 @@ class SharedBootstrapPostgresTests(BootstrapFixture, unittest.TestCase):
 
     def test_genuine_managed_pg_password_limiter_is_shared_across_controllers(self):
         key, body = self.enrollment(identifier="node-3", site="site-3", address="10.70.0.3", password="incorrect-password-for-shared-test")
+        for api in (self.api, self.other):
+            store = api.app.store
+            store.enable_worker_pool(metadata_max=2, traffic_max=1)
+            self.addCleanup(store.close_worker_pool)
         for api in (self.api, self.other) * 4:
-            with self.assertRaises(PermissionError):
+            with self.assertRaisesRegex(PermissionError, "credentials were not accepted"):
                 bootstrap.enroll(api, body, "192.0.2.44")
         with self.assertRaisesRegex(PermissionError, "limited"):
             bootstrap.enroll(self.other, {**body, "cluster_password": self.cluster_password}, "192.0.2.44")

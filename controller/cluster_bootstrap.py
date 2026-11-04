@@ -27,11 +27,13 @@ from urllib.parse import urlsplit
 
 from .appliance import CONFIG_ID, Appliance, ManagerUnavailable, NodeClient, origin, verify_password
 from .firewall import WorkflowConflict
+from .http_limits import network_peer
 from .platform import _private_json, _read_json
 from .store import digest, now, parse_time, stamp
 
 
 DATABASE_RUNTIME_PROFILE = "postgres16-alpine3.24-musl-v1"
+PASSWORD_ATTEMPT_PREFIX = "appliance_auth:"
 
 
 def require_database_runtime(report):
@@ -471,6 +473,24 @@ def _install_enrollment(api, enrolled, peer, peer_ca, actor):
         api.app.store.audit("appliance.password_join_authorized", actor, {"deployment_id": config["deployment_id"], "node_id": identity["id"]}, db)
 
 
+class _RejectedClusterPassword(PermissionError):
+    pass
+
+
+@contextmanager
+def _enrollment_metadata(store):
+    rejection = None
+    with store.lock, store.meta() as db:
+        try:
+            yield db
+        except _RejectedClusterPassword as error:
+            # Commit the failed attempt through the storage context, including
+            # when PostgreSQL manages it with a pooled transaction.
+            rejection = error
+    if rejection is not None:
+        raise rejection
+
+
 def enroll(api, body, peer_ip):
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
@@ -481,7 +501,7 @@ def enroll(api, body, peer_ip):
     node_id, site, node_ip = api.manager._join_identity(body)
     action = body.get("action")
     own_runtime = api._database_runtime()
-    with api.app.store.lock, api.app.store.meta() as db:
+    with _enrollment_metadata(api.app.store) as db:
         from .provider_lifecycle import assert_join_current
         assert_join_current(api.app, db)
         config = api._config(db)
@@ -498,18 +518,23 @@ def enroll(api, body, peer_ip):
             from .internal_certificates import assert_member_active
             assert_member_active(member)
         if action == "password-bootstrap":
-            key_id = "appliance_auth:" + hashlib.sha256(peer_ip.encode()).hexdigest()
-            attempts = api.app.store._get(db, "maintenance_settings", key_id) or {"id": key_id, "count": 0, "until": stamp(now() + timedelta(minutes=5))}
-            if parse_time(attempts["until"]) <= now():
-                attempts.update(count=0, until=stamp(now() + timedelta(minutes=5)))
+            at = now()
+            key_id = PASSWORD_ATTEMPT_PREFIX + hashlib.sha256(network_peer(peer_ip).encode()).hexdigest()
+            attempts = api.app.store._get(db, "maintenance_settings", key_id)
+            new_window = attempts is None or parse_time(attempts["until"]) <= at
+            if new_window:
+                attempts = {"id": key_id, "count": 0, "until": stamp(at + timedelta(minutes=5))}
             if attempts["count"] >= 8:
                 raise PermissionError("Cluster password attempts are temporarily limited")
             if not verify_password(body.get("cluster_password"), config.get("password_hash")):
+                if new_window:
+                    from .approval_views import _expression
+                    expiry = _expression(db, ("until",))
+                    db.execute(f"DELETE FROM maintenance_settings WHERE substr(id,1,?)=? AND ({expiry})<=?",
+                               (len(PASSWORD_ATTEMPT_PREFIX), PASSWORD_ATTEMPT_PREFIX, stamp(at)))
                 attempts["count"] += 1
                 api.app.store._put(db, "maintenance_settings", attempts)
-                # Commit the limiter independently of the rejected HTTP request.
-                getattr(db, "connection", db).commit()
-                raise PermissionError("Cluster enrollment credentials were not accepted")
+                raise _RejectedClusterPassword("Cluster enrollment credentials were not accepted")
             try:
                 public = serialization.load_pem_public_key(body.get("transport_public_key", "").encode())
                 if not isinstance(public, rsa.RSAPublicKey) or public.key_size < 3072:

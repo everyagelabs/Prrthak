@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 
 from .app import handler_for
 from .listener_address import format_listener
+from .proxy_protocol import router_client_address
 
 LOG = logging.getLogger("Prṛthak.controller")
 
@@ -50,7 +51,8 @@ def application(app):
             return [value]
         request = object.__new__(handler_type)
         request.connection = connection
-        request.client_address = (environ.get("REMOTE_ADDR", ""), int(environ.get("REMOTE_PORT") or 0))
+        request.client_address = getattr(connection, "_prthak_proxy_address", None) or (
+            environ.get("REMOTE_ADDR", ""), int(environ.get("REMOTE_PORT") or 0))
         request.command = environ["REQUEST_METHOD"]
         request.path = environ.get("RAW_URI") or environ.get("PATH_INFO", "/") + ("?" + environ["QUERY_STRING"] if environ.get("QUERY_STRING") else "")
         request.request_version = environ.get("SERVER_PROTOCOL", "HTTP/1.1")
@@ -103,7 +105,7 @@ def application(app):
     return dispatch
 
 
-def serve(app, host, port, *, certificate, private_key, ca, workers=1, threads=32, extra_binds=()):
+def serve(app, host, port, *, certificate, private_key, ca, workers=1, threads=32, extra_binds=(), router_proxy_ports=()):
     try:
         from gunicorn.app.base import BaseApplication
     except ImportError:
@@ -115,6 +117,18 @@ def serve(app, host, port, *, certificate, private_key, ca, workers=1, threads=3
         context = factory()
         context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.verify_mode = ssl.CERT_OPTIONAL
+        if router_proxy_ports:
+            wrap = context.wrap_socket
+
+            def wrap_socket(transport, **options):
+                address = None
+                if transport.getsockname()[1] in router_proxy_ports:
+                    address = router_client_address(transport)
+                connection = wrap(transport, **options)
+                connection._prthak_proxy_address = address
+                return connection
+
+            context.wrap_socket = wrap_socket
         return context
 
     def worker_started(worker):
@@ -138,10 +152,11 @@ def serve(app, host, port, *, certificate, private_key, ca, workers=1, threads=3
     class Production(BaseApplication):
         def load_config(self):
             address = format_listener(host, port)
-            options = {"bind": [address, *extra_binds], "workers": workers, "threads": threads, "worker_class": "controller.gunicorn_worker.BoundedThreadWorker",
+            private_binds = [format_listener(host, port) for port in router_proxy_ports]
+            options = {"bind": [address, *extra_binds, *private_binds], "workers": workers, "threads": threads, "worker_class": "controller.gunicorn_worker.BoundedThreadWorker",
                        "worker_connections": 2048, "backlog": 512, "timeout": 90, "graceful_timeout": 30, "keepalive": 5,
                        "certfile": str(certificate), "keyfile": str(private_key), "ca_certs": str(ca), "cert_reqs": ssl.CERT_OPTIONAL,
-                       "ssl_context": tls_context, "do_handshake_on_connect": False, "forwarded_allow_ips": "", "secure_scheme_headers": {},
+                       "ssl_context": tls_context, "do_handshake_on_connect": False, "forwarded_allow_ips": "", "secure_scheme_headers": {}, "proxy_protocol": "off",
                        "limit_request_line": 4094, "limit_request_fields": 100, "limit_request_field_size": 8190,
                        "post_worker_init": worker_started, "worker_exit": worker_stopped, "accesslog": None, "errorlog": "-", "loglevel": "warning"}
             for name, value in options.items():

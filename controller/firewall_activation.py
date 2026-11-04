@@ -371,7 +371,7 @@ def listing(store, value=None):
     from .approval_views import _expression
     from .traffic_views import _ids
     job_fields = ("id", "operation", "target_operation", "status", "server_id", "plan_digest", "baseline_digest", "protection_digest", "configuration_digest", "created_by", "created_at", "expires_at", "updated_at", "error")
-    receipt_fields = ("id", "operation", "target_operation", "status", "checked_at", "error", "baseline_digest")
+    receipt_fields = ("id", "operation", "target_operation", "status", "checked_at", "error", "baseline_digest", "plan_digest")
     with store.read_meta() as db:
         where, args = _ids(db, "id", sorted(set(ids))) if ids is not None else ("1=1", [])
         total = int(db.execute("SELECT COUNT(*) FROM servers WHERE " + where, args).fetchone()[0])

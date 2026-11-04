@@ -21,6 +21,22 @@ class LocationTests(unittest.TestCase):
     def policy(self, **extra):
         return self.store.save_policy({"name": "Located service", "mode": "monitor", "selector": {}, "services": [{"port": 8080, "protocol": "tcp", "sources": ["10.99.0.0/24"]}], **extra}, "admin")
 
+    def test_map_coordinates_round_trip_and_do_not_change_location_identity(self):
+        site = self.location(country_code="au", latitude=-33.8688, longitude=151.2093)
+        self.assertEqual((site["country_code"], site["latitude"], site["longitude"]), ("AU", -33.8688, 151.2093))
+        assigned = self.store.update_server("one", {"location_id": site["id"]}, "admin")
+        self.assertEqual(assigned["location"]["longitude"], 151.2093)
+        update = {"name": "Sydney", "location": "Sydney, Australia", "type": "datacenter"}
+        edited = self.store.save_location(update, "admin", site["id"])
+        self.assertEqual(edited["id"], site["id"])
+        self.assertEqual(edited["longitude"], 151.2093)
+        cleared = self.store.save_location({**update, "latitude": None, "longitude": None}, "admin", site["id"])
+        self.assertEqual(cleared["country_code"], "AU")
+        self.assertNotIn("latitude", cleared)
+        for fields in ({"latitude": -33.8688}, {"longitude": True}, {"latitude": -91}, {"country_code": "AUS"}):
+            with self.subTest(fields=fields), self.assertRaises(ValueError):
+                self.store.save_location({**update, **fields}, "admin", site["id"])
+
     def test_location_must_be_created_first_and_server_has_one_separate_identity(self):
         for identifier in ("missing", ["one", "two"], {"name": "Mumbai"}):
             with self.assertRaises(ValueError):

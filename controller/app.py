@@ -24,6 +24,17 @@ from .http_limits import RateLimited
 
 LOG = logging.getLogger("Prṛthak.controller")
 OFFLINE_UPDATE_WRITE_FENCE = Path("/run/prthak-controller-update/pending")
+PRE_AUTH_LIMITS = {
+    "/api/v1/auth/login": ("GET", "login"),
+    "/api/v1/auth/callback": ("GET", "login"),
+    "/api/v1/auth/local": ("POST", "login"),
+    "/api/v1/auth/saml/login": ("GET", "login"),
+    "/api/v1/auth/saml/callback": ("POST", "login"),
+    "/api/v1/platform/setup/verification": ("POST", "login"),
+    "/api/v1/agent/enroll": ("POST", "enrollment"),
+    "/api/v1/agent/certificates/recover": ("POST", "enrollment"),
+    "/api/v1/platform/cluster/enroll": ("POST", "enrollment"),
+}
 
 
 def offline_update_fenced():
@@ -399,11 +410,14 @@ def handler_for(app):
             if not admitted(request_channel(app, self.connection), method, path):
                 self.response(404, {"error": "This operation is unavailable on this listener"})
                 return
-            if path in ("/api/v1/auth/login", "/api/v1/auth/callback", "/api/v1/auth/local",
-                        "/api/v1/auth/saml/login", "/api/v1/auth/saml/callback", "/api/v1/platform/setup/verification"):
-                app.limits.check("login", self.client_address[0])
-            elif path in ("/api/v1/agent/enroll", "/api/v1/agent/certificates/recover", "/api/v1/platform/cluster/enroll"):
-                app.limits.check("enrollment", self.client_address[0])
+            admission = PRE_AUTH_LIMITS.get(path)
+            if admission:
+                allowed_method, category = admission
+                if method != allowed_method:
+                    self.close_connection = True
+                    self.response(405, {"error": "Method not allowed"}, {"Allow": allowed_method})
+                    return
+                app.limits.check(category, self.client_address[0])
             if method == "GET" and path == "/healthz":
                 self.response(200, {"status": "ok"})
                 return

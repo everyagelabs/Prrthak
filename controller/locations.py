@@ -1,4 +1,5 @@
 """Administrator-created location identities, independent of arbitrary server tags."""
+import re
 import uuid
 
 from .store import now, parse_time, stamp, validate_tags
@@ -84,6 +85,20 @@ def listing(store):
         return sorted(({**record, "server_count": counts.get(record["id"], 0)} for record in store._all(db, "locations")), key=lambda item: item["name"].casefold())
 
 
+def _map_fields(value, old):
+    country = value.get("country_code", old.get("country_code", ""))
+    if not isinstance(country, str) or country and not re.fullmatch(r"[A-Za-z]{2}", country):
+        raise ValueError("Enter a two-letter country code")
+    latitude = value.get("latitude", old.get("latitude"))
+    longitude = value.get("longitude", old.get("longitude"))
+    if latitude is None and longitude is None:
+        return {"country_code": country.upper()} if country else {}
+    if (not country or type(latitude) not in (int, float) or type(longitude) not in (int, float)
+            or not -90 <= latitude <= 90 or not -180 <= longitude <= 180):
+        raise ValueError("Map coordinates require a country code and valid latitude and longitude")
+    return {"country_code": country.upper(), "latitude": latitude, "longitude": longitude}
+
+
 def save(store, value, actor, identifier=None):
     if not isinstance(value, dict):
         raise ValueError("Location must be an object")
@@ -103,12 +118,13 @@ def save(store, value, actor, identifier=None):
             raise KeyError(identifier)
         if old and any(field in value and value[field] != old[field] for field in ("id", "key")):
             raise ValueError("Location identity and canonical key are immutable")
+        geography = _map_fields(value, old or {})
         identifier = identifier or str(uuid.uuid4())
         aliases = sorted(set([name.strip(), *(old.get("aliases", []) if old else []), *([old["name"]] if old else [])]))
         for record in store._all(db, "locations"):
             if record["id"] != identifier and set(index([record])) & {alias.casefold() for alias in aliases}:
                 raise ValueError("Location name is already assigned or reserved by a historical name")
-        result = {"id": identifier, "key": old["key"] if old else "location:" + identifier, "name": name.strip(), "location": place.strip(), "type": kind, "provider": value.get("provider", "").strip(), "region": value.get("region", "").strip(), "aliases": aliases, "created_at": old["created_at"] if old else stamp(), "updated_at": stamp()}
+        result = {"id": identifier, "key": old["key"] if old else "location:" + identifier, "name": name.strip(), "location": place.strip(), "type": kind, "provider": value.get("provider", "").strip(), "region": value.get("region", "").strip(), **geography, "aliases": aliases, "created_at": old["created_at"] if old else stamp(), "updated_at": stamp()}
         if old and old.get("synthetic"):
             result["synthetic"] = True
         store._put(db, "locations", result)

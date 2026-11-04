@@ -1943,7 +1943,7 @@ def serve(manager,run_dir='/run/prthak-appliance',ready=None,*,_test_peer_uid=No
 
 
 def build_appliance_images(engine, release, build):
-    for name in ('base','controller','database','etcd'):private_dir(build/name)
+    for name in ('base','controller','database','etcd','router'):private_dir(build/name)
     for name in ('controller','dashboard'):
         destination=build/'base'/name
         if destination.exists():shutil.rmtree(destination)
@@ -1959,11 +1959,13 @@ def build_appliance_images(engine, release, build):
     shutil.copyfile(release/'deploy/appliance/restore_helper.py',build/'database/restore_helper.py')
     shutil.copyfile(release/'deploy/appliance/Dockerfile.etcd',build/'etcd/Dockerfile')
     shutil.copyfile(release/'deploy/appliance/etcd-build-inputs.json',build/'etcd/etcd-build-inputs.json')
+    shutil.copyfile(release/'deploy/appliance/Dockerfile.router',build/'router/Dockerfile')
+    shutil.copyfile(release/'deploy/appliance/router-entrypoint.sh',build/'router/router-entrypoint.sh')
     engine.run(['build','-t','prthak-controller:appliance-base',str(build/'base')],timeout=1800)
-    for name,image in (('controller',CONTROLLER_IMAGE),('database',DATABASE_IMAGE),('etcd',ETCD_IMAGE)):engine.run(['build','-t',image,str(build/name)],timeout=1800)
-    engine.run(['pull',ROUTER_IMAGE],timeout=600)
+    builds={'controller':CONTROLLER_IMAGE,'database':DATABASE_IMAGE,'etcd':ETCD_IMAGE,'router':'prthak-router:appliance'}
+    for name,image in builds.items():engine.run(['build','-t',image,str(build/name)],timeout=1800)
     images={}
-    for name,image in (('controller',CONTROLLER_IMAGE),('database',DATABASE_IMAGE),('etcd',ETCD_IMAGE)):
+    for name,image in builds.items():
         identifier=engine.run(['image','inspect','--format','{{.Id}}',image]).strip()
         if not re.fullmatch(r'sha256:[a-f0-9]{64}',identifier):raise Blocked('A locally built immutable image identity is required')
         images[name]=identifier

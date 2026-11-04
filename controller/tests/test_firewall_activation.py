@@ -321,7 +321,10 @@ class FirewallActivationTests(unittest.TestCase):
             with self.assertRaises(ValueError): activation.listing(self.store, value)
 
     def test_readonly_http_details_and_rbac_do_not_grant_mutation(self):
-        self.assess(); self.receipt()
+        for policy in self.store.all("policies"):
+            self.store.delete_policy(policy["id"], self.maker["actor"])
+        self.assess("activate_allow_all")
+        receipt = self.receipt()
         app = App(self.store, tokens={"read_only": "reader", "admin": "lab-admin"})
         def request(path, body, token="reader"):
             handler = object.__new__(handler_for(app))
@@ -333,6 +336,13 @@ class FirewallActivationTests(unittest.TestCase):
             handler.response = lambda status, value=None, headers=None: result.update(status=status, value=value)
             handler.dispatch()
             return result
+        summary = request("/firewall-activation/query", {"server_ids": ["target"], "limit": 1})
+        self.assertEqual(summary["status"], 200)
+        item = summary["value"]["items"][0]
+        self.assertEqual(item["receipt"]["id"], item["job"]["id"])
+        self.assertEqual(item["receipt"]["plan_digest"], item["job"]["plan_digest"])
+        self.assertEqual(item["receipt"]["plan_digest"], receipt["plan_digest"])
+        self.assertNotIn("assessment", item["receipt"])
         page = request("/firewall-activation/query", {"server_ids": ["target"], "limit": 1, "details": True})
         self.assertEqual(page["status"], 200)
         self.assertEqual(page["value"]["items"][0]["receipt"]["assessment"]["ssh_ports"], [2022])

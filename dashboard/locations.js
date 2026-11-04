@@ -18,7 +18,7 @@
     const matches=records.filter(record=>[record.name,...(record.aliases || [])].some(alias=>typeof alias==='string'&&alias.trim().toLowerCase()===input.toLowerCase()));
     return matches.length===1?matches[0]:null;
   }
-  function fromRecord(record) { return {id:record.id,key:'location:'+record.id,kind:record.type,label:record.name,location:record.location || '',provider:record.provider || '',region:record.region || '',account:record.account || '',selector:{location_id:record.id},typeLabel:record.type==='cloud'?'Cloud region':'Data centre',synthetic:!!record.synthetic}; }
+  function fromRecord(record) { return {id:record.id,key:'location:'+record.id,kind:record.type,label:record.name,location:record.location || '',provider:record.provider || '',region:record.region || '',account:record.account || '',countryCode:record.country_code || '',latitude:record.latitude,longitude:record.longitude,selector:{location_id:record.id},typeLabel:record.type==='cloud'?'Cloud region':'Data centre',synthetic:!!record.synthetic}; }
   function of(server={}) {
     const id=clean(server.location_id),resolved=id&&(server.location?.id===id?server.location:records.find(record=>record.id===id));
     if(resolved && ['datacenter','cloud'].includes(resolved.type))return fromRecord(resolved);

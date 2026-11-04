@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="/policy-deployments.css">
   <script src="/locations.js" defer></script>
   <script src="/filters.js" defer></script>
+  <script src="/country-outlines.js" defer></script>
   <script src="/topology.js" defer></script>
   <script src="/routing.js" defer></script>
   <script src="/services.js" defer></script>
@@ -108,12 +109,13 @@
     </div>
   </main>
   <div class="app-shell" id="workspace-shell" hidden>
-    <aside class="sidebar" aria-label="Primary navigation">
-      <a class="brand" href="/overview" aria-label="Prṛthak · पृथक् overview"><img class="brand-logo-full" src="/assets/prthak-wordmark.svg" alt="Prṛthak · पृथक्"><img class="brand-logo-compact" src="/assets/prthak-monogram.svg" alt="" aria-hidden="true"></a>
-      <div class="workspace"><span class="workspace-icon" lang="hi">पृ</span><span>Prṛthak workspace<small>Precise access. Protected servers.</small></span><span class="workspace-chevron">⌄</span></div>
-      <div class="nav-caption">WORKSPACE</div>
+    <aside class="sidebar" id="workspace-sidebar" aria-label="Primary navigation">
+      <div class="sidebar-header">
+        <a class="brand" href="/overview" aria-label="Prṛthak · पृथक् overview"><img class="brand-logo-full" src="/assets/prthak-wordmark.svg" alt="Prṛthak · पृथक्"><img class="brand-logo-compact" src="/assets/prthak-monogram.svg" alt="" aria-hidden="true"></a>
+        <button class="icon-button sidebar-toggle" id="sidebar-toggle" type="button" aria-label="Collapse sidebar" title="Collapse sidebar" aria-expanded="true" aria-controls="workspace-sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button>
+      </div>
       <nav id="navigation"></nav>
-      <div class="sidebar-bottom"><div class="agent-note"><span class="connection-dot"></span><span id="connection-label">Connecting to controller</span></div><button class="nav-item" id="setup-button" type="button"><span id="setup-icon"></span>Agent setup<span class="nav-arrow">↗</span></button></div>
+      <div class="sidebar-bottom"><div class="agent-note"><span class="connection-dot"></span><span id="connection-label">Connecting to controller</span></div><button class="nav-item" id="setup-button" type="button" aria-label="Agent setup" title="Agent setup"><span id="setup-icon"></span>Agent setup<span class="nav-arrow" aria-hidden="true">↗</span></button></div>
     </aside>
     <div class="workspace-main">
       <header class="topbar"><div class="breadcrumb"><span id="breadcrumb-icon"></span><span>Workspace</span><span class="slash">/</span><strong id="breadcrumb-page">Overview</strong></div><div class="topbar-tools"><span class="last-updated" id="last-updated">Waiting for first sync</span><div class="topbar-client"><img class="topbar-client-logo" src="/assets/airtel-payments-bank.png" alt="Airtel Payments Bank"><span>Security operations</span></div><span class="controller-badge"><span class="connection-dot"></span><span id="controller-display-name">Controller</span><span id="controller-version">v0.15.0</span></span><button id="refresh-button" class="icon-button" type="button" title="Refresh workspace" aria-label="Refresh workspace"></button><div id="policy-deployments" class="policy-deployments"></div><div class="account-menu" id="account-menu"><button id="account-menu-toggle" class="account-trigger" type="button" data-action="account-toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu-panel" aria-label="Account"><span class="topbar-avatar" id="identity-avatar" aria-hidden="true">?</span><span class="account-trigger-label"><span id="identity-name">Sign in required</span><small id="role-label">Read Only</small></span><span class="account-trigger-chevron" aria-hidden="true">⌄</span></button><div id="account-menu-panel" class="account-dropdown" role="menu" aria-label="Account menu" hidden></div></div></div></header>

@@ -71,7 +71,8 @@ def request_channel(app, connection):
     if not mapping:
         return "combined"
     try:
-        return mapping.get(connection.getsockname()[1], "unknown")
+        port = connection.getsockname()[1]
+        return mapping.get(port) or getattr(app, "router_proxy_channels", {}).get(port, "unknown")
     except (OSError, AttributeError, IndexError):
         return "unknown"
 

@@ -18,6 +18,7 @@ def main():
     parser.add_argument("--listen", default="127.0.0.1:8787")
     parser.add_argument("--control-listen", help="Dedicated endpoint policy/authorization TLS listener")
     parser.add_argument("--discovery-listen", help="Dedicated endpoint inventory/enrollment/traffic TLS listener")
+    parser.add_argument("--appliance-router-proxy", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--data-dir", default=".local/controller")
     parser.add_argument("--demo", action="store_true", help="Loopback-only, synthetic fleet, no authentication")
     parser.add_argument("--init-ca", action="store_true", help="Create local development CA and localhost server certificate, then exit")
@@ -42,6 +43,8 @@ def main():
         parser.error("Synthetic demo uses its loopback combined listener only")
     if args.control_listen and args.http_backend != "gunicorn":
         parser.error("Separated TLS listeners require the production Gunicorn transport")
+    if args.appliance_router_proxy and (args.demo or not args.control_listen):
+        parser.error("Appliance router forwarding requires separated production TLS listeners")
     if args.http_workers is None:
         args.http_workers = 2 if args.ha else 1
     os.umask(0o077)
@@ -122,8 +125,10 @@ def main():
         record_observed(app.platform, args.listen)
     if not args.demo and args.http_backend == "gunicorn":
         from .production_http import serve
+        from .proxy_protocol import ROUTER_PROXY_PORTS
+        app.router_proxy_channels = {port: name for name, port in ROUTER_PROXY_PORTS.items()} if args.appliance_router_proxy else {}
         print(f"Prṛthak controller: https://{format_listener(host, port)} · Gunicorn · verified endpoint mTLS", flush=True)
-        serve(app, host, port, certificate=args.cert, private_key=args.key, ca=args.ca, workers=args.http_workers, threads=args.http_threads, extra_binds=[value for value in (args.control_listen, args.discovery_listen) if value])
+        serve(app, host, port, certificate=args.cert, private_key=args.key, ca=args.ca, workers=args.http_workers, threads=args.http_threads, extra_binds=[value for value in (args.control_listen, args.discovery_listen) if value], router_proxy_ports=tuple(app.router_proxy_channels))
         return
     if not args.demo and os.environ.get("PRTHAK_APPLIANCE") == "1":
         parser.error("Installed appliances require the production Gunicorn transport")

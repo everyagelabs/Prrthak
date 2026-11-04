@@ -136,7 +136,7 @@ if __name__ == '__main__':
         os.environ.update(controller_environment(settings))
         os.environ['SEG_SUPER_ADMIN_TOKEN']=Path('/run/prthak-bootstrap/initial-admin-token').read_text().strip()
         os.environ['PRTHAK_CONTROLLER_ORIGIN']=settings['controller_origin']
-        os.execv(sys.executable,[sys.executable,'-m','controller','--listen','0.0.0.0:8787','--control-listen','0.0.0.0:8788','--discovery-listen','0.0.0.0:8789','--data-dir','/data',
+        os.execv(sys.executable,[sys.executable,'-m','controller','--listen','0.0.0.0:8787','--control-listen','0.0.0.0:8788','--discovery-listen','0.0.0.0:8789','--appliance-router-proxy','--data-dir','/data',
             '--controller-id',settings['node_id'],'--site',settings['site'],
             '--cert','/run/prthak-bootstrap/pki/controller.pem','--key','/run/prthak-bootstrap/pki/controller-key.pem',
             '--ca','/run/prthak-bootstrap/pki/ca.pem','--ca-key','/run/prthak-bootstrap/pki/ca-key.pem'])

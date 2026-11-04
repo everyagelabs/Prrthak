@@ -270,14 +270,16 @@ function renderChrome(){
   renderAccountMenu();
   renderPolicyDeploymentsChrome();
   $('#connection-label').textContent=state.lastSync?'Controller connected':'Connecting to controller';
-  $('#enroll-button').innerHTML=`${icon(['policies','locations','services'].includes(state.view)?'plus':'servers')}${state.view==='policies'?'Create policy':state.view==='locations'?'Create location':state.view==='services'?'Create service group':'Install agent'}`;
+  const createLabel = {policies: 'Create policy', locations: 'Create location', services: 'Create service group'}[state.view];
+  const createButton = $('#enroll-button');
+  createButton.innerHTML = createLabel ? icon('plus') + createLabel : '';
+  createButton.hidden = !createLabel;
+  createButton.disabled = !createLabel || !canWrite() || (state.view !== 'policies' && !['admin', 'super_admin'].includes(state.role));
   const learningLabel = {policies: 'Discover policy', traffic: 'Discover traffic'}[state.view];
   const learnButton = $('#learn-button');
   learnButton.innerHTML = learningLabel ? icon('learning') + learningLabel : '';
   learnButton.hidden = !learningLabel;
   learnButton.disabled = !learningLabel || !canWrite();
-  $('#enroll-button').disabled=!canWrite() || (state.view!=='policies' && !['admin','super_admin'].includes(state.role));
-  $('#enroll-button').hidden=['overview','access','settings','firewall'].includes(state.view);
 }
 
 function statsHTML(){
@@ -368,7 +370,7 @@ function humanize(value){return String(value).replace(/[_.-]/g,' ').replace(/^\w
 function activityHTML(){return auditCatalogueHTML();}
 function emptyHTML(title,description,name='info',label='',action=''){return `<div class="empty-state">${icon(name)}<h2>${h(title)}</h2><p>${h(description)}</p>${label?`<button class="button secondary" data-action="${h(action)}" ${!canWrite()?'disabled':''}>${h(label)}</button>`:''}</div>`;}
 let topologyCleanup=null;
-function render(){const captureDetails=$('.traffic-coverage');if(captureDetails)state.trafficCoverageOpen=captureDetails.open;if(state.passwordChangeRequired){state.data=null;if(!$('#modal').open||$('#modal-title').textContent!=='Change your password')showLocalPasswordChange(true);return;}if(!state.data)return;persistScope();if(topologyCleanup){topologyCleanup();topologyCleanup=null;}renderChrome();$('#overview-quick-filters').innerHTML=state.view==='overview'?overviewQuickFiltersHTML():'';$('#view-content').innerHTML=({overview:overviewHTML,servers:()=>inventoryHTML(false),locations:locationsHTML,services:serviceGroupsHTML,firewall:firewallHTML,policies:policiesHTML,traffic:trafficHTML,risk:()=>riskHTML(),alerts:alertsHTML,activity:activityHTML,settings:settingsHTML,access:accessHTML}[state.view])();if($('#topology-root')&&globalThis.PSegraTopology){topologyCleanup=PSegraTopology.bind($('#topology-root'),{onLocationHelp:showLocationHelp,onLocationSelect:overviewSelectLocation});}}
+function render(){const captureDetails=$('.traffic-coverage');if(captureDetails)state.trafficCoverageOpen=captureDetails.open;if(state.passwordChangeRequired){state.data=null;if(!$('#modal').open||$('#modal-title').textContent!=='Change your password')showLocalPasswordChange(true);return;}if(!state.data)return;persistScope();if(topologyCleanup){topologyCleanup();topologyCleanup=null;}renderChrome();$('#overview-quick-filters').innerHTML=state.view==='overview'?overviewQuickFiltersHTML():'';$('#view-content').innerHTML=({overview:overviewHTML,servers:()=>inventoryHTML(false),locations:locationsHTML,services:serviceGroupsHTML,firewall:firewallHTML,policies:policiesHTML,traffic:trafficHTML,risk:()=>riskHTML(),alerts:alertsHTML,activity:activityHTML,settings:settingsHTML,access:accessHTML}[state.view])();if($('#topology-root')&&globalThis.PSegraTopology){topologyCleanup=PSegraTopology.bind($('#topology-root'),{onLocationHelp:showLocationHelp,onLocationSelect:overviewSelectLocation,onCountryChange:()=>{render();$('#topology-country')?.focus();}});}}
 
 function overviewSelectLocation(key){
   state.filters.locations=[key];
@@ -662,7 +664,28 @@ document.addEventListener('submit',async event=>{
   finally{submit.disabled=false;}
 });
 $('#modal').addEventListener('close',()=>{if(typeof metadataModalClosed==='function'&&metadataAsync.active&&!$('#modal').open)metadataModalClosed();});$('#modal').addEventListener('cancel',event=>{if(state.passwordChangeRequired){event.preventDefault();return;}if(state.accountDialogOpen){event.preventDefault();closeModal();}});$('#modal-close').addEventListener('click',closeModal);$('#drawer-backdrop').addEventListener('click',closeDrawer);
-$('#refresh-button').innerHTML=icon('refresh');$('#refresh-button').addEventListener('click',()=>load());$('#breadcrumb-icon').innerHTML=icon('overview');$('#setup-icon').innerHTML=icon('setup');$('#setup-button').addEventListener('click',showSetup);$('#learn-button').addEventListener('click',()=>showLearning(undefined,{purpose:state.view==='traffic'?'traffic':state.view==='policies'?'automatic':''}));$('#enroll-button').addEventListener('click',()=>state.view==='policies'?showPolicy():state.view==='locations'?showLocationEditor():state.view==='services'?showServiceGroupEditor():showSetup());
+$('#refresh-button').innerHTML=icon('refresh');$('#refresh-button').addEventListener('click',()=>load());$('#breadcrumb-icon').innerHTML=icon('overview');$('#setup-icon').innerHTML=icon('setup');$('#setup-button').addEventListener('click',showSetup);$('#learn-button').addEventListener('click',()=>showLearning(undefined,{purpose:state.view==='traffic'?'traffic':state.view==='policies'?'automatic':''}));
+$('#enroll-button').addEventListener('click', () => {
+  const openEditor = {policies: showPolicy, locations: showLocationEditor, services: showServiceGroupEditor}[state.view];
+  openEditor?.();
+});
+const sidebarToggle = $('#sidebar-toggle');
+const narrowSidebar = window.matchMedia?.('(max-width: 1050px)');
+let sidebarExpanded;
+function renderSidebarWidth() {
+  const expanded = sidebarExpanded ?? !narrowSidebar?.matches;
+  $('#workspace-shell').classList.toggle('sidebar-compact', !expanded);
+  const label = expanded ? 'Collapse sidebar' : 'Expand sidebar';
+  sidebarToggle.setAttribute('aria-expanded', String(expanded));
+  sidebarToggle.setAttribute('aria-label', label);
+  sidebarToggle.title = label;
+}
+sidebarToggle.addEventListener('click', () => {
+  sidebarExpanded = $('#workspace-shell').classList.contains('sidebar-compact');
+  renderSidebarWidth();
+});
+narrowSidebar?.addEventListener('change', renderSidebarWidth);
+renderSidebarWidth();
 window.addEventListener('popstate',restoreWorkspaceView);
 window.addEventListener('hashchange',migrateLegacyHash);
 window.addEventListener('beforeunload',persistScope);
