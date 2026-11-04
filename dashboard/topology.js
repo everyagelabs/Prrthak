@@ -1,187 +1,215 @@
 (function (global) {
   'use strict';
   const L = global.PrithakLocations || (typeof require === 'function' ? require('./locations.js') : null);
-  const LIMIT_DCS = 6, LIMIT_HOSTS = 9, LIMIT_EDGES = 100;
-  let sequence = 0, paused = false;
+  const slots = [
+    {x:420,y:128,left:538,top:49}, {x:294,y:218,left:32,top:228},
+    {x:352,y:291,left:479,top:326}, {x:479,y:225,left:564,top:165},
+    {x:273,y:144,left:31,top:91}, {x:280,y:294,left:38,top:325}
+  ];
+  const external = {key:'external',label:'External / other sources',x:380,y:51};
+  const units = {connections:'transport connections',packets:'denied packets',log_records:'legacy log records',sample_minutes:'communication samples'};
+  let sequence = 0, paused = false, expanded = false;
   const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[char]));
-  const array = value => Array.isArray(value) ? value : [];
-  const text = value => typeof value === 'string' ? value : '';
-  const time = value => { const result = value instanceof Date ? value.getTime() : new Date(value || '').getTime(); return Number.isFinite(result) ? result : null; };
-  const count = value => Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0;
-  const compact = value => count(value) >= 1000000 ? `${(count(value) / 1000000).toFixed(1)}m` : count(value) >= 1000 ? `${(count(value) / 1000).toFixed(1)}k` : String(Math.round(count(value)));
-  const short = (value, length) => { const string = String(value ?? ''); return string.length > length ? `${string.slice(0, length - 1)}…` : string; };
-  const age = (value, now) => { const stamp = time(value); if (stamp === null) return 'Not reported'; const seconds = Math.max(0, (now - stamp) / 1000); return seconds < 60 ? `${Math.floor(seconds)}s ago` : seconds < 3600 ? `${Math.floor(seconds / 60)}m ago` : seconds < 86400 ? `${Math.floor(seconds / 3600)}h ago` : `${Math.floor(seconds / 86400)}d ago`; };
-  const fresh = (value, now, seconds = 180) => { const stamp = time(value); return stamp !== null && stamp <= now + 30000 && now - stamp <= seconds * 1000; };
-  const heartbeatFresh = (server, now) => fresh(server.last_seen, now, count(server.heartbeat_timeout_seconds) || 180);
-  function address(value) {
-    const ip = text(value).trim().toLowerCase();
-    if (!ip) return '';
-    if (ip.includes(':')) { try { return new URL(`http://[${ip}]`).hostname.replace(/^\[|\]$/g, ''); } catch (_) { return ip; } }
-    return ip;
-  }
-  const icon = name => {
-    const shapes = {building:'<path d="M4 21V5l8-3v19M12 8h8v13M2 21h20M7 7h2M7 11h2M7 15h2M15 11h2M15 15h2"/>',cloud:'<path d="M7 18a4 4 0 0 1-.7-7.9A6 6 0 0 1 18 8a5 5 0 0 1 0 10H7Z"/>',network:'<circle cx="5" cy="12" r="2"/><circle cx="18" cy="5" r="2"/><circle cx="18" cy="19" r="2"/><path d="m7 11 9-5M7 13l9 5"/>', server:'<rect x="4" y="3" width="16" height="7" rx="2"/><rect x="4" y="14" width="16" height="7" rx="2"/><path d="M8 6.5h.01M8 17.5h.01M14 6.5h3M14 17.5h3"/>', pause:'<path d="M8 5v14M16 5v14"/>', play:'<path d="m8 5 11 7-11 7Z"/>', fit:'<path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"/>', clock:'<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/>', alert:'<path d="m12 3 10 18H2L12 3Z"/><path d="M12 9v5M12 17h.01"/>', check:'<path d="m5 12 4 4L19 6"/>', plus:'<path d="M12 5v14M5 12h14"/>'};
-    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${shapes[name] || shapes.network}</svg>`;
-  };
+  const time = value => Date.parse(value || '');
+  const count = value => Math.max(0, Number(value) || 0);
+  const short = (value, length) => value.length > length ? value.slice(0,length-1) + '…' : value;
+  const quantity = (n, singular, plural = singular + 's') => n.toLocaleString('en-US') + ' ' + (n === 1 ? singular : plural);
+  const recent = (stamp, now, seconds) => stamp <= now + 30000 && stamp >= now - seconds * 1000;
 
-  function render(input = {}) {
-    const servers = array(input.servers).filter(server => server && typeof server.id === 'string');
-    const flows = array(input.flows).filter(flow => flow && typeof flow.server_id === 'string' && text(flow.source_ip));
-    const alerts = array(input.alerts).filter(alert => alert && (!alert.server_id || servers.some(server => server.id === alert.server_id)));
-    const sessions = array(input.learningSessions ?? input.learning_sessions);
-    const now = time(input.now) ?? (typeof input.now === 'number' && Number.isFinite(input.now) ? input.now : Date.now());
-    const selected = text(input.selectedServerId);
-    const synthetic = servers.some(server => server.synthetic === true);
-    const prefix = `pseg-map-${++sequence}`;
-    const serverById = new Map(servers.map(server => [server.id, server]));
-    const activeTargets = new Set(), activeSessionIds = new Map();
-    sessions.forEach(session => {
-      if (!session || !['active', 'learning'].includes(session.status) || (time(session.expires_at) ?? 0) <= now || (time(session.starts_at) ?? 0) > now) return;
-      array(session.server_ids).forEach(id => { activeTargets.add(id); if (!activeSessionIds.has(id)) activeSessionIds.set(id, new Set()); activeSessionIds.get(id).add(session.id); });
-    });
-    const learning = server => activeTargets.has(server.id) && !server.learning_discovery_pending && !['pending','error','no_listeners','unsupported'].includes(server.learning_discovery_status) && server.collector_status === 'learning' && !server.status_stale && heartbeatFresh(server, now);
-    const status = server => server.status === 'offline' || server.status_stale || !heartbeatFresh(server, now) ? 'offline' : server.status === 'warning' || server.apply_status === 'error' ? 'warning' : 'healthy';
-    const activeCount = servers.filter(learning).length;
-    const locations=L.all(servers), locationByKey=new Map(locations.map(location=>[location.key,location]));
-    const allGroups=locations.map(location=>[location.key,location.members]);
-    const physicalCount=locations.filter(location=>location.kind==='datacenter').length,cloudCount=locations.filter(location=>location.kind==='cloud').length;
-    const displayed = allGroups.slice(0, LIMIT_DCS);
-    const anchors = new Map(), nodes = [], dcBoxes = [];
-    const height=displayed.length?84+Math.ceil(displayed.length/2)*198+14:282;
-    displayed.forEach(([dc, members], index) => {
-      const x = displayed.length === 1 || displayed.length % 2 === 1 && index === displayed.length-1 ? 290 : 22 + index % 2 * 520;
-      const y = 84 + Math.floor(index / 2) * 198;
-      const sorted = [...members].sort((a, b) => (a.id === selected ? -1 : b.id === selected ? 1 : 0) || ({offline:0, warning:1, healthy:2}[status(a)] - {offline:0, warning:1, healthy:2}[status(b)]) || String(a.hostname || a.id).localeCompare(String(b.hostname || b.id)));
-      const hasOverflow = sorted.length > LIMIT_HOSTS;
-      const visible = sorted.slice(0, hasOverflow ? LIMIT_HOSTS - 1 : LIMIT_HOSTS);
-      visible.forEach((server, number) => {
-        const nx = x + 15 + number % 3 * 147, ny = y + 60 + Math.floor(number / 3) * 40;
-        const anchor = {x: nx + 70, y: ny + 17, key: server.id, dc, ids: [server.id]};
-        anchors.set(server.id, anchor);
-        nodes.push({server, x:nx, y:ny, anchor});
-      });
-      let overflow = null;
-      if (hasOverflow) {
-        const hidden = sorted.slice(LIMIT_HOSTS - 1);
-        overflow = {x:x + 15 + 2 * 147, y:y + 60 + 2 * 40, count:hidden.length, ids:hidden.map(server => server.id), key:`dc-overflow-${index}`};
-        hidden.forEach(server => anchors.set(server.id, {x:overflow.x + 70, y:overflow.y + 17, key:overflow.key, dc, ids:overflow.ids}));
+  function address(value) {
+    const ip = String(value || '').trim().toLowerCase();
+    if (!ip.includes(':')) return ip;
+    try { return new URL('http://[' + ip + ']').hostname.slice(1,-1); }
+    catch { return ip; }
+  }
+
+  function siteHealth(site, now) {
+    let healthy = 0, reporting = 0;
+    for (const server of site.members) {
+      if (server.status === 'offline' || server.status_stale ||
+          !recent(time(server.last_seen),now,count(server.heartbeat_timeout_seconds) || 180)) continue;
+      reporting++;
+      if (server.status === 'healthy' && server.apply_status !== 'error') healthy++;
+    }
+    return {healthy,reporting,kind:healthy === site.members.length ? 'healthy' : reporting ? 'warning' : 'offline'};
+  }
+
+  function toolIcon(name) {
+    const shapes = {
+      pause:'<path d="M8 5v14m8-14v14"/>', play:'<path d="m8 5 11 7-11 7Z"/>',
+      expand:'<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>'
+    };
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">' + shapes[name] + '</svg>';
+  }
+
+  function globe(prefix) {
+    return `<defs>
+      <radialGradient id="${prefix}-sphere" cx=".38" cy=".29" r=".72"><stop stop-color="#fff"/><stop offset=".72" stop-color="#fff2f5"/><stop offset="1" stop-color="#fbe0e8"/></radialGradient>
+      <pattern id="${prefix}-dots" width="17" height="17" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r=".8" fill="#e9cdd6" opacity=".62"/></pattern>
+      <clipPath id="${prefix}-clip"><circle cx="374" cy="211" r="159"/></clipPath>
+      <marker id="${prefix}-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="4" markerHeight="4" orient="auto"><path d="M0 0L10 5 0 10Z" fill="context-stroke"/></marker>
+    </defs>
+    <rect width="760" height="425" fill="#fffcfd"/><rect width="760" height="425" fill="url(#${prefix}-dots)"/>
+    <ellipse cx="374" cy="211" rx="246" ry="93" transform="rotate(-16 374 211)" fill="none" stroke="#efd8df" stroke-dasharray="4 8"/>
+    <ellipse cx="374" cy="211" rx="229" ry="97" transform="rotate(17 374 211)" fill="none" stroke="#f3dfe5"/>
+    <circle cx="374" cy="211" r="172" fill="none" stroke="#f4e2e8"/>
+    <circle cx="374" cy="211" r="159" fill="url(#${prefix}-sphere)" stroke="#e9b5c4" stroke-width="1.3"/>
+    <g clip-path="url(#${prefix}-clip)" fill="none" stroke="#eac1cc" stroke-width=".85" opacity=".84">
+      <ellipse cx="374" cy="211" rx="114" ry="159"/><ellipse cx="374" cy="211" rx="63" ry="159"/><path d="M374 52v318"/>
+      <path d="M219 172Q374 209 529 172M215 211Q374 264 533 211M222 255Q374 302 526 255M247 302Q374 336 501 302M245 114Q374 145 503 114"/>
+      <path d="M266 136l13-13 17 4 11-12 19 5 6 13 13 6 4 19-10 9-20-2-9 11-18-5-12-14-14-4Zm54 52 18 7 8 16 16 5 8 16-17 29-9 6-10-16-3-22-11-11Zm60-49 15-11 21 3 12-8 22 1 14 15 20-3 17 11 10 12-18 14-27 7-12 14-17-5-8-17-18-2-6 17-17 5-14-15-11-11 7-12Zm9 51 18-5 16 14 9 23-9 14-11 10-7 17-12-12-8-17 1-15-8-12Zm64 54 14-7 13 9 3 11-8 9-16-5Z" fill="#eac4ce" fill-opacity=".41" stroke="none"/>
+    </g>`;
+  }
+
+  function siteHTML(site, now) {
+    const {x,y,left,top,key,label,typeLabel,members,kind} = site;
+    const health = siteHealth(site,now);
+    const title = `${label} · ${typeLabel} · ${health.healthy}/${members.length} healthy`;
+    const width = 164, attach = left < x ? left + width : left;
+    return `<g class="pseg-site" data-location-type="${escape(kind)}">
+      <path class="pseg-leader" d="M${x} ${y}L${attach + (left < x ? 24 : -24)} ${top + 25}H${attach}"/>
+      <circle class="pseg-site-halo" cx="${x}" cy="${y}" r="9"/><circle class="pseg-site-point" cx="${x}" cy="${y}" r="4.7"/>
+      <g class="pseg-site-button" transform="translate(${left} ${top})" tabindex="0" role="button" data-location-key="${escape(key)}" aria-label="Filter ${escape(title)}"><title>${escape(title)}</title>
+        <rect width="${width}" height="51" rx="8"/><circle class="pseg-health-dot is-${health.kind}" cx="16" cy="18" r="3.4"/>
+        <text class="pseg-site-label" x="26" y="22">${escape(short(label,20))}</text>
+        <text class="pseg-site-meta" x="16" y="39">${escape(typeLabel)} · ${quantity(members.length,'host')}</text>
+      </g>
+    </g>`;
+  }
+
+  function observedLinks(flows, inventory, displayed, sessions, now) {
+    const sitesByServer = new Map(), owners = new Map(), activeByServer = new Map();
+    for (const site of displayed) for (const server of site.members) sitesByServer.set(server.id,site);
+    for (const server of inventory) {
+      for (const ip of server.ips || []) {
+        const key = address(ip);
+        if (key && !owners.has(key)) owners.set(key,server.id);
+        else if (key && owners.get(key) !== server.id) owners.set(key,null);
       }
-      dcBoxes.push({dc, members, x, y, overflow});
-    });
-    const ipOwners = new Map();
-    servers.forEach(server => array(server.ips).forEach(ip => { const key = address(ip); if (!key) return; if (!ipOwners.has(key)) ipOwners.set(key, new Set()); ipOwners.get(key).add(server.id); }));
-    const externalIPs = new Set(), edgeMap = new Map();
-    let omittedTargets = 0, latestObserved = null;
-    flows.forEach(flow => {
-      const target = serverById.get(flow.server_id);
-      if (!target) return;
+    }
+    for (const session of sessions) {
+      if (!['active','learning'].includes(session.status) || !(time(session.expires_at) > now) ||
+          !(time(session.starts_at) <= now)) continue;
+      for (const id of session.server_ids || []) {
+        if (!activeByServer.has(id)) activeByServer.set(id,new Set());
+        activeByServer.get(id).add(session.id);
+      }
+    }
+    const links = new Map(), sourceIPs = new Set(), targetById = new Map(inventory.map(server=>[server.id,server]));
+    for (const flow of flows) {
       const stamp = time(flow.last_seen);
-      if (stamp !== null && stamp <= now + 30000) latestObserved = Math.max(latestObserved ?? 0, stamp);
-      const end = anchors.get(target.id);
-      if (!end) { omittedTargets++; return; }
-      const owners = ipOwners.get(address(flow.source_ip));
-      const sourceId = owners?.size === 1 ? [...owners][0] : null;
-      const start = sourceId && anchors.get(sourceId);
-      const source = start || {x:520, y:56, key:'external', ids:sourceId ? [sourceId] : []};
-      if (!start) externalIPs.add(text(flow.source_ip));
-      const key = `${source.key}\u0000${end.key}`;
-      if (!edgeMap.has(key)) edgeMap.set(key, {start:source, end, ids:new Set(), counts:{connections:0,packets:0,log_records:0}, ports:new Set(), latest:null, active:false, verdicts:new Set()});
-      const edge = edgeMap.get(key);
-      if (sourceId) edge.ids.add(sourceId);
-      edge.ids.add(target.id);
-      const unit = flow.capture_kind === 'accepted_connection' ? 'connections' : flow.capture_kind === 'denied_packet' ? 'packets' : 'log_records';
-      edge.counts[unit] += count(flow.count);
-      edge.ports.add(`${flow.port}/${text(flow.protocol) || 'tcp'}`);
-      edge.verdicts.add(text(flow.verdict));
-      if (stamp !== null) edge.latest = Math.max(edge.latest ?? 0, stamp);
-      edge.active ||= learning(target) && fresh(flow.last_seen, now, 120) && !!flow.session_id && activeSessionIds.get(target.id)?.has(flow.session_id);
-    });
-    const allEdges = [...edgeMap.values()].sort((a, b) => Number(b.active) - Number(a.active) || (b.latest ?? 0) - (a.latest ?? 0));
-    const edges = allEdges.slice(0, LIMIT_EDGES);
-    const edgeHTML = edges.map((edge, index) => {
-      const {start, end} = edge;
-      let d;
-      if (start.key === end.key) d = `M${start.x - 18},${start.y - 16} C${start.x - 45},${start.y - 62} ${start.x + 45},${start.y - 62} ${start.x + 18},${start.y - 16}`;
-      else if (Math.abs(start.y - end.y) < 22) d = `M${start.x},${start.y - 16} C${start.x},${start.y - 55} ${end.x},${end.y - 55} ${end.x},${end.y - 16}`;
-      else { const direction = end.y > start.y ? 1 : -1, startY = start.y + (start.key === 'external' ? 0 : 17 * direction), endY = end.y - 17 * direction, middle = (startY + endY) / 2; d = `M${start.x},${startY} C${start.x},${middle} ${end.x},${middle} ${end.x},${endY}`; }
-      const denied = edge.verdicts.size === 1 && edge.verdicts.has('denied');
-      const counts = Object.entries(edge.counts).filter(([,value]) => value > 0).map(([unit,value]) => `${compact(value)} ${{connections:'transport connections',packets:'denied packets',log_records:'legacy log records'}[unit]}`).join(' / ');
-      const title = `${edge.start.key === 'external' ? 'External / other source' : serverById.get(edge.start.key)?.hostname || 'Grouped hosts'} → ${serverById.get(edge.end.key)?.hostname || 'Grouped hosts'} · ${[...edge.ports].join(', ')} · ${counts} · last observed ${age(edge.latest, now)}`;
-      return `<g class="pseg-edge${edge.active ? ' is-current' : ' is-historical'}${denied ? ' is-denied' : ''}" data-server-ids="${escape(JSON.stringify([...edge.ids]))}" aria-label="${escape(title)}"><title>${escape(title)}</title><path class="pseg-edge-halo" d="${d}"/><path class="pseg-edge-line" d="${d}" marker-end="url(#${prefix}-arrow)"/>${edge.active ? `<path class="pseg-edge-pulse" style="animation-delay:-${index % 7 * .31}s" d="${d}"/>` : ''}</g>`;
+      const end = sitesByServer.get(flow.server_id);
+      if (!end || !flow.source_ip || !Number.isFinite(stamp) || stamp > now + 30000) continue;
+      const sourceIP = address(flow.source_ip);
+      const start = sitesByServer.get(owners.get(sourceIP)) || external;
+      if (start === external) sourceIPs.add(sourceIP);
+      const key = JSON.stringify([start.key,end.key]);
+      if (!links.has(key)) links.set(key,{start,end,counts:{},latest:0,active:false});
+      const link = links.get(key);
+      const unit = flow.count_unit === 'sample_minutes' ? 'sample_minutes' : flow.capture_kind === 'accepted_connection' ? 'connections' : flow.capture_kind === 'denied_packet' ? 'packets' : 'log_records';
+      link.counts[unit] = (link.counts[unit] || 0) + count(flow.count);
+      link.latest = Math.max(stamp,link.latest);
+      const target = targetById.get(flow.server_id);
+      link.active ||= !!target && target.collector_status === 'learning' && !target.learning_discovery_pending &&
+        !['pending','error','no_listeners','unsupported'].includes(target.learning_discovery_status) &&
+        !target.status_stale && target.status !== 'offline' &&
+        recent(time(target.last_seen),now,count(target.heartbeat_timeout_seconds) || 180) &&
+        recent(stamp,now,120) && !!flow.session_id && !!activeByServer.get(flow.server_id)?.has(flow.session_id);
+    }
+    return {links:[...links.values()],sourceIPs};
+  }
+
+  function linkHTML(link, prefix) {
+    const {start,end,active} = link;
+    const path = start === end ?
+      `M${start.x-7} ${start.y-5}c-52 -63 54 -63 14 0` :
+      `M${start.x} ${start.y}Q${(start.x+end.x)/2 + (end.y-start.y)*.26} ${(start.y+end.y)/2 - (end.x-start.x)*.26} ${end.x} ${end.y}`;
+    const summary = Object.keys(units).filter(unit=>link.counts[unit]).map(unit=>link.counts[unit].toLocaleString('en-US') + ' ' + units[unit]).join(' / ');
+    const title = `${start.label} → ${end.label} · ${summary} · ${new Date(link.latest).toISOString()}`;
+    return `<g class="pseg-edge ${active?'is-current':'is-historical'}"><title>${escape(title)}</title>
+      <path class="pseg-edge-line" d="${path}" marker-end="url(#${prefix}-arrow)"/>
+      ${active?`<path class="pseg-edge-pulse" d="${path}" pathLength="100"/>`:''}</g>`;
+  }
+
+  function render({servers=[],inventory=servers,flows=[],learningSessions=[],sessionsLimited=false,now=Date.now()} = {}) {
+    const prefix = 'pseg-globe-' + ++sequence;
+    const locations = L.all(servers);
+    const displayed = locations.slice(0,slots.length).map((site,index)=>({...site,...slots[index]}));
+    const {links,sourceIPs} = observedLinks(flows,inventory,displayed,learningSessions,now);
+    const centres = locations.filter(site=>site.kind==='datacenter').length;
+    const cloud = locations.filter(site=>site.kind==='cloud').length;
+    const note = servers.some(server=>server.synthetic===true) ? 'Synthetic observations' : 'Logical topology';
+    const hidden = locations.length - displayed.length;
+    const linkStatus = !links.length ? 'No observed links' : quantity(links.length,'observed link');
+    return `<section class="card pseg-topology" data-paused="${paused}" data-expanded="${expanded}" aria-label="Infrastructure topology">
+      <header class="overview-panel-head">
+        <div><h2>Infrastructure map</h2><p>${quantity(centres,'data centre')} · ${quantity(cloud,'cloud region')} · Logical layout</p></div>
+        <div class="pseg-topology-tools">
+          <button class="button secondary small" type="button" data-topology-action="location-help">Locations</button>
+          <button class="button secondary small" type="button" data-topology-action="pause" aria-pressed="${paused}">${toolIcon(paused?'play':'pause')}<span>${paused?'Resume':'Pause'}</span></button>
+          <button class="button secondary small" type="button" data-topology-action="expand" aria-label="Expand infrastructure map" aria-pressed="${expanded}">${toolIcon('expand')}</button>
+        </div>
+      </header>
+      <div class="pseg-map-wrap"><svg class="pseg-map" viewBox="0 0 760 425" role="group" aria-label="Logical globe showing site groups and observed communication paths. Coordinates are not geographic.">
+        ${globe(prefix)}
+        ${links.map(link=>linkHTML(link,prefix)).join('')}
+        ${displayed.map(site=>siteHTML(site,now)).join('')}
+        ${sourceIPs.size?`<g class="pseg-external" transform="translate(292 13)"><title>${quantity(sourceIPs.size,'observed source IP')}</title><rect width="176" height="33" rx="6"/><text x="88" y="14" text-anchor="middle">External / other sources</text><text x="88" y="26" text-anchor="middle" class="pseg-site-meta">${quantity(sourceIPs.size,'observed source IP')}</text></g>`:''}
+        <rect x="17" y="16" width="160" height="23" rx="11" fill="#fff0f4"/><text x="28" y="31" class="pseg-map-label">${escape(note)}</text>
+        ${!displayed.length?'<text x="380" y="220" text-anchor="middle" class="pseg-empty">No endpoints match this scope</text>':''}
+      </svg></div>
+      <footer class="pseg-topology-footer"><div class="pseg-topology-legend"><span${sessionsLimited?' title="Animation uses the loaded learning session page"':''}><i></i>Recent observation</span><span><i></i>Historical observation</span></div>
+        <strong>${linkStatus}${hidden?` · ${quantity(hidden,'additional location')} off map`:''}</strong>
+      </footer>
+    </section>`;
+  }
+
+  function healthHTML(servers, now = Date.now()) {
+    const sites = L.all(servers);
+    const reporting = sites.map(site=>siteHealth(site,now).reporting).reduce((sum,value)=>sum+value,0);
+    const chips = sites.slice(0,slots.length).map(site=>{
+      const health = siteHealth(site,now);
+      const title = `${site.label} · ${health.reporting}/${site.members.length} reporting`;
+      return `<button type="button" data-action="overview-location" data-key="${escape(site.key)}" title="${escape(title)}"><i class="pseg-health-dot is-${health.kind}"></i>${escape(site.label)}</button>`;
     }).join('');
-    const nodeHTML = nodes.map(({server, x, y}) => {
-      const kind = status(server), isLearning = learning(server), heartbeat = kind !== 'offline' && heartbeatFresh(server, now);
-      const ports = [...new Set(array(server.listeners).map(listener => listener.port))].slice(0, 3).join(' · ');
-      const label = `${server.hostname || server.id} · ${kind} · heartbeat ${age(server.last_seen, now)}${ports ? ` · listening ${ports}` : ' · no listeners reported'}${isLearning ? ' · collecting observed traffic' : ''}${server.synthetic ? ' · synthetic demo endpoint' : ''}`;
-      return `<g class="pseg-node is-${kind}${heartbeat ? ' has-fresh-heartbeat' : ''}${isLearning ? ' is-learning' : ''}${server.id === selected ? ' is-selected' : ''}" transform="translate(${x} ${y})" tabindex="0" role="button" aria-label="${escape(label)}" aria-pressed="${server.id === selected}" data-server-id="${escape(server.id)}"><title>${escape(label)}</title><rect class="pseg-node-halo" x="-3" y="-3" width="146" height="40" rx="8"/><rect class="pseg-node-body" width="140" height="34" rx="5"/><g class="pseg-server-glyph" transform="translate(10 8)"><rect width="11" height="7" rx="1"/><rect y="9" width="11" height="7" rx="1"/><path d="M3 3.5h.1M3 12.5h.1M7 3.5h2M7 12.5h2"/></g><text class="pseg-hostname" x="29" y="14">${escape(short(server.hostname || server.id, 16))}</text><text class="pseg-hostmeta" x="29" y="27">${escape(isLearning ? `● learning${ports ? ' · ' + short(ports, 12) : ''}` : ports ? short(ports, 18) : 'no listeners')}</text><circle class="pseg-node-status" cx="130" cy="9" r="2.2"/></g>`;
-    }).join('');
-    const boxHTML = dcBoxes.map(({dc, members, x, y, overflow}) => {
-      const location = locationByKey.get(dc), healthy = members.filter(server => status(server) === 'healthy').length;
-      const attention = members.length - healthy, ids = new Set(members.map(server=>server.id));
-      const openAlerts = alerts.filter(alert=>ids.has(alert.server_id)&&alert.status!=='resolved'&&!alert.resolved_at).length;
-      const glyph = icon(location.kind==='cloud'?'cloud':location.kind==='datacenter'?'building':'network').replace('<svg ',`<svg x="${x+15}" y="${y+13}" width="17" height="17" `);
-      return `<g class="pseg-dc" data-location-type="${escape(location.kind)}" data-dc-group="${escape(dc)}"><rect class="pseg-dc-background" x="${x}" y="${y}" width="474" height="184" rx="10"/><path class="pseg-dc-divider" d="M${x+15} ${y+49}H${x+459}"/><g class="pseg-dc-button" tabindex="0" role="button" aria-label="Filter ${escape(location.typeLabel)} ${escape(location.label)}, ${members.length} endpoints" data-location-key="${escape(dc)}"><title>${escape(location.typeLabel)} · ${escape(location.label)}${location.account?' · Account '+escape(location.account):''}</title><rect x="${x+9}" y="${y+7}" width="330" height="36" rx="5"/>${glyph}<text class="pseg-dc-name" x="${x+41}" y="${y+23}">${escape(short(location.label,32))}</text><text class="pseg-location-kind" x="${x+41}" y="${y+39}">${escape(location.typeLabel)}${location.account?' · '+escape(short(location.account,22)):''}</text></g><text class="pseg-dc-health${attention?' has-attention':''}" x="${x+458}" y="${y+22}" text-anchor="end">${healthy}/${members.length} healthy</text><text class="pseg-dc-count${openAlerts?' has-alerts':''}" x="${x+458}" y="${y+39}" text-anchor="end">${openAlerts} open alert${openAlerts===1?'':'s'} · ${members.length} host${members.length===1?'':'s'}</text>${overflow?`<g class="pseg-overflow pseg-dc-button" transform="translate(${overflow.x} ${overflow.y})" tabindex="0" role="button" data-location-key="${escape(dc)}" aria-label="${overflow.count} additional endpoints in ${escape(location.label)}; filter to explore"><rect width="140" height="34" rx="5"/><text x="70" y="14" text-anchor="middle">+${overflow.count} endpoints</text><text class="pseg-overflow-label" x="70" y="27" text-anchor="middle">filter to explore</text></g>`:''}</g>`;
-    }).join('');
-    const locationBars = allGroups.slice(0,LIMIT_DCS).map(([key,members])=>{const location=locationByKey.get(key),healthy=members.filter(server=>status(server)==='healthy').length;return `<button class="pseg-location-bar" data-location-key="${escape(key)}" aria-label="Filter ${escape(location.label)}, ${members.length} endpoints"><span class="pseg-location-bar-icon">${icon(location.kind==='cloud'?'cloud':location.kind==='datacenter'?'building':'network')}</span><span class="pseg-location-bar-body"><span><strong>${escape(short(location.label,32))}</strong><small>${members.length} host${members.length===1?'':'s'}</small></span><i><b style="width:${members.length?healthy/members.length*100:0}%"></b></i></span><span class="pseg-location-bar-stat">${healthy} healthy</span></button>`;}).join('');
-    const events = [];
-    alerts.forEach(alert => {
-      const stamp = time(alert.updated_at || alert.created_at);
-      if (stamp === null || stamp > now + 30000) return;
-      const resolved = alert.status === 'resolved' || alert.kind === 'recovered';
-      events.push({stamp, id:text(alert.server_id), kind:resolved ? 'recovery' : 'alert', title:resolved ? 'Endpoint recovered' : alert.kind === 'service_down' ? 'Service listener down' : alert.kind === 'agent_offline' ? 'Heartbeat missing' : 'Security event', detail:text(alert.message) || text(alert.kind).replaceAll('_', ' '), synthetic:serverById.get(alert.server_id)?.synthetic === true});
-    });
-    array(input.activity).forEach(event=>{const stamp=time(event.created_at);if(stamp===null||stamp>now+30000)return;const action=text(event.action).replace(/[._]/g,' '),details=event.details||{};events.push({stamp,id:text(details.server_id),kind:'audit',title:action?action[0].toUpperCase()+action.slice(1):'Workspace activity',detail:[text(event.actor),text(details.name)||text(details.hostname)||text(details.group_id)].filter(Boolean).join(' · '),synthetic:details.synthetic===true});});
-    servers.forEach(server => { const stamp = time(server.last_seen); if (stamp !== null && stamp <= now + 30000) events.push({stamp, id:server.id, kind:'heartbeat', title:'Heartbeat received', detail:server.hostname || server.id, synthetic:server.synthetic === true}); });
-    const recentEvents = events.sort((a, b) => b.stamp - a.stamp || (a.kind === 'heartbeat' ? 1 : -1)).slice(0, 6);
-    const eventHTML=recentEvents.map(event=>{const tag=event.id?'button':'article';return `<${tag} class="pseg-event is-${event.kind}" ${event.id?`type="button" data-server-id="${escape(event.id)}"`:''} aria-label="${escape(`${event.title}: ${event.detail}, ${age(event.stamp,now)}`)}"><span class="pseg-event-icon">${icon(event.kind==='alert'?'alert':event.kind==='recovery'?'check':event.kind==='audit'?'check':'server')}</span><span class="pseg-event-body"><strong>${escape(event.title)}</strong><span title="${escape(event.detail)}">${escape(short(event.detail,68))}</span><time datetime="${escape(new Date(event.stamp).toISOString())}">${escape(age(event.stamp,now))}${event.synthetic?' · synthetic':''}</time></span>${event.id?'<span class="pseg-event-arrow" aria-hidden="true">↗</span>':''}</${tag}>`;}).join('');
-    const hiddenDCs = allGroups.length - displayed.length;
-    const hiddenServers = allGroups.slice(LIMIT_DCS).reduce((sum, entry) => sum + entry[1].length, 0);
-    const edgeCurrent = edges.filter(edge => edge.active).length;
-    const externalHTML = externalIPs.size ? `<g class="pseg-external"><rect x="403" y="12" width="234" height="44" rx="7"/><circle cx="419" cy="28" r="3"/><text x="430" y="30">External / other sources</text><text class="pseg-external-detail" x="430" y="44">${externalIPs.size} observed source IP${externalIPs.size === 1 ? '' : 's'} · outside this view</text></g>` : `<text class="pseg-map-caption" x="520" y="34" text-anchor="middle">${edges.length ? 'Observed host-to-host communication' : 'Logical infrastructure grouped by location'}</text>`;
-    return `<section class="pseg-topology${selected ? ' has-selection' : ''}" data-paused="${paused}" aria-label="Infrastructure topology"><header class="pseg-topology-header"><div class="pseg-topology-heading"><span class="pseg-topology-symbol">${icon('network')}</span><div><div class="pseg-topology-eyebrow">INFRASTRUCTURE TOPOLOGY${synthetic ? '<span class="pseg-synthetic-label">SYNTHETIC</span>' : ''}</div><h2>Infrastructure map <span>Data centres & cloud</span></h2><p>${physicalCount} data centre${physicalCount===1?'':'s'} · ${cloudCount} cloud region${cloudCount===1?'':'s'} <span class="pseg-heading-separator">/</span> ${activeCount ? `<span class="pseg-capture-indicator"></span>${activeCount} endpoint${activeCount === 1 ? '' : 's'} collecting flows` : 'Historical flow observations'}</p></div></div><div class="pseg-topology-tools"><button type="button" data-topology-action="location-help" aria-label="How location grouping works" title="How location grouping works">${icon('network')}<span>Locations</span></button><button type="button" data-topology-action="pause" aria-pressed="${paused}" aria-label="${paused ? 'Resume' : 'Pause'} topology animation" title="${paused ? 'Resume' : 'Pause'} animation">${icon(paused ? 'play' : 'pause')}<span>${paused ? 'Resume' : 'Pause'}</span></button><button type="button" data-topology-action="fit" title="Fit full topology" aria-label="Fit full topology">${icon('fit')}</button></div></header><div class="pseg-topology-layout"><div class="pseg-map-wrap"><div class="pseg-map-status"><span>${displayed.length} OF ${allGroups.length} LOCATIONS</span><span>${servers.length} ENDPOINT${servers.length===1?'':'S'} <i>·</i> ${edges.length} OBSERVED LINKS</span></div>${servers.length ? `<svg class="pseg-map" viewBox="0 0 1040 ${height}" data-original-viewbox="0 0 1040 ${height}" role="group" aria-label="Logical location groups and observed communication paths. Coordinates are not geographic. Tab to a server, press Enter to inspect it."><defs><pattern id="${prefix}-grid" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".65" fill="#e1e2e8" opacity=".75"/></pattern><marker id="${prefix}-arrow" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="m0 0 6 3-6 3Z" fill="currentColor"/></marker></defs><rect width="1040" height="${height}" fill="url(#${prefix}-grid)"/>${boxHTML}<g class="pseg-edges">${edgeHTML}</g>${externalHTML}<g class="pseg-nodes">${nodeHTML}</g></svg>` : `<div class="pseg-topology-empty">${icon('network')}<strong>No endpoints match this view</strong><span>Change your filters to explore connected infrastructure.</span></div>`}<div class="pseg-location-breakdown" aria-label="Location health summary">${locationBars}</div><div class="pseg-map-bottom"><span class="pseg-map-hint">Select a server to inspect its connections</span><div class="pseg-zoom-controls" aria-label="Topology zoom"><button type="button" data-topology-action="zoom-out" aria-label="Zoom out">−</button><span data-topology-zoom>100%</span><button type="button" data-topology-action="zoom-in" aria-label="Zoom in">+</button></div></div></div><aside class="pseg-event-rail" aria-label="Recent endpoint events"><div class="pseg-event-heading"><span>Recent activity</span><span class="pseg-event-count">${recentEvents.length}</span></div><p class="pseg-event-caption">${synthetic ? 'Reported synthetic timestamps' : 'Reports, policy changes & alerts'}</p><div class="pseg-events">${eventHTML || '<div class="pseg-events-empty">No reported events in this view.</div>'}</div><a class="pseg-view-activity" href="/activity">View all activity <span aria-hidden="true">↗</span></a><div class="pseg-event-footnote">${icon('clock')}Logical layout · no geographic inference.<br>Traffic appears only while collected.</div></aside></div><footer class="pseg-topology-footer"><div class="pseg-topology-legend"><span><i class="is-healthy"></i>Healthy</span><span><i class="is-warning"></i>Attention</span><span><i class="is-offline"></i>Offline / stale</span><span><b class="pseg-line-sample${edgeCurrent ? ' is-current' : ''}"></b>${edgeCurrent ? 'Recent observation' : 'Last observed'}</span></div><span class="pseg-topology-scope">${hiddenDCs ? `+${hiddenDCs} location${hiddenDCs === 1 ? '' : 's'} · ${hiddenServers} endpoints outside canvas. Refine filters.` : allEdges.length > LIMIT_EDGES || omittedTargets ? 'Links are bounded; refine filters to explore.' : latestObserved !== null ? `Last observed ${escape(age(latestObserved, now))}` : 'No captured flows in this view'}</span></footer></section>`;
+    return `<section class="card overview-summary-card">
+      <div><h2>Site health</h2><p>${servers.length?`${reporting.toLocaleString('en-US')} of ${quantity(servers.length,'endpoint')} reporting`:'No endpoints in this scope'}</p></div>
+      <div class="overview-site-chips">${chips}${sites.length>slots.length?`<a href="/locations">+${sites.length-slots.length} sites</a>`:''}</div>
+    </section>`;
   }
 
   function bind(root, callbacks = {}) {
-    const panel = root?.matches?.('.pseg-topology') ? root : root?.querySelector?.('.pseg-topology');
+    const panel = root?.querySelector?.('.pseg-topology');
     if (!panel) return () => {};
-    let selected = panel.querySelector('.pseg-node.is-selected')?.getAttribute('data-server-id') || '', zoom = 1;
-    const edges = [...panel.querySelectorAll('.pseg-edge')].map(element => { let ids; try { ids = JSON.parse(element.getAttribute('data-server-ids') || '[]'); } catch (_) { ids = []; } return {element, ids:new Set(ids)}; });
-    const nodes = [...panel.querySelectorAll('.pseg-node')];
-    function highlight(id) {
-      const related = new Set(id ? [id] : []);
-      edges.forEach(edge => { const match = !!id && edge.ids.has(id); edge.element.classList.toggle('is-highlight', match); if (match) edge.ids.forEach(value => related.add(value)); });
-      panel.classList.toggle('has-highlight', !!id);
-      nodes.forEach(node => { const nodeId = node.getAttribute('data-server-id'); node.classList.toggle('is-related', related.has(nodeId)); node.classList.toggle('is-selected', nodeId === selected); node.setAttribute('aria-pressed', String(nodeId === selected)); });
-    }
-    function changeZoom(value) {
-      zoom = Math.max(1, Math.min(2.5, value));
-      const svg = panel.querySelector('.pseg-map');
-      if (!svg) return;
-      const original = (svg.getAttribute('data-original-viewbox') || '0 0 1040 456').split(' ').map(Number);
-      const width = original[2] / zoom, height = original[3] / zoom;
-      svg.setAttribute('viewBox', `${(original[2] - width) / 2} ${(original[3] - height) / 2} ${width} ${height}`);
-      const label = panel.querySelector('[data-topology-zoom]'); if (label) label.textContent = `${Math.round(zoom * 100)}%`;
-    }
     function click(event) {
-      const target = event.target.closest?.('[data-topology-action], [data-server-id], [data-location-key], [data-dc]');
+      const target = event.target.closest?.('[data-topology-action], [data-location-key]');
       if (!target || !panel.contains(target)) return;
       const action = target.getAttribute('data-topology-action');
-      if(action==='location-help'){callbacks.onLocationHelp?.();}
+      if (action === 'location-help') callbacks.onLocationHelp?.();
       else if (action === 'pause') {
-        paused = !paused; panel.setAttribute('data-paused', String(paused)); target.setAttribute('aria-pressed', String(paused)); target.setAttribute('aria-label', `${paused ? 'Resume' : 'Pause'} topology animation`); target.title = `${paused ? 'Resume' : 'Pause'} animation`; target.innerHTML = `${icon(paused ? 'play' : 'pause')}<span>${paused ? 'Resume' : 'Pause'}</span>`;
-      } else if (action === 'fit') changeZoom(1);
-      else if (action === 'zoom-in') changeZoom(zoom + .25);
-      else if (action === 'zoom-out') changeZoom(zoom - .25);
-      else if (target.hasAttribute('data-server-id')) { selected = target.getAttribute('data-server-id'); highlight(selected); callbacks.onServerSelect?.(selected); }
-      else if(target.hasAttribute('data-location-key')){const key=target.getAttribute('data-location-key');if(callbacks.onLocationSelect)callbacks.onLocationSelect(key);else {const selector=L.selectorFromKey(key)||{};callbacks.onDCSelect?.(selector.datacenter||selector.dc||'');}}
-      else if (target.hasAttribute('data-dc')) callbacks.onDCSelect?.(target.getAttribute('data-dc'));
+        paused = !paused;
+        panel.setAttribute('data-paused',String(paused));
+        target.setAttribute('aria-pressed',String(paused));
+        target.innerHTML = toolIcon(paused?'play':'pause') + `<span>${paused?'Resume':'Pause'}</span>`;
+      } else if (action === 'expand') {
+        expanded = !expanded;
+        panel.setAttribute('data-expanded',String(expanded));
+        target.setAttribute('aria-pressed',String(expanded));
+      } else callbacks.onLocationSelect?.(target.getAttribute('data-location-key'));
     }
-    function keydown(event) { if ((event.key === 'Enter' || event.key === ' ') && event.target.matches?.('g[role="button"]')) { event.preventDefault(); event.target.dispatchEvent(new MouseEvent('click', {bubbles:true})); } }
-    function over(event) { const target = event.target.closest?.('[data-server-id]'); if (target && panel.contains(target)) highlight(target.getAttribute('data-server-id')); }
-    function leave(event) { if (!panel.contains(event.relatedTarget)) highlight(selected); else { const next = event.relatedTarget?.closest?.('[data-server-id]'); highlight(next?.getAttribute('data-server-id') || selected); } }
-    panel.addEventListener('click', click); panel.addEventListener('keydown', keydown); panel.addEventListener('pointerover', over); panel.addEventListener('pointerout', leave); panel.addEventListener('focusin', over); panel.addEventListener('focusout', leave);
-    highlight(selected);
-    return () => { panel.removeEventListener('click', click); panel.removeEventListener('keydown', keydown); panel.removeEventListener('pointerover', over); panel.removeEventListener('pointerout', leave); panel.removeEventListener('focusin', over); panel.removeEventListener('focusout', leave); };
+    function keydown(event) {
+      if ((event.key === 'Enter' || event.key === ' ') && event.target.matches?.('g[role="button"]')) {
+        event.preventDefault();
+        click(event);
+      }
+    }
+    panel.addEventListener('click',click);
+    panel.addEventListener('keydown',keydown);
+    return () => {
+      panel.removeEventListener('click',click);
+      panel.removeEventListener('keydown',keydown);
+    };
   }
-  global.PSegraTopology = {render, bind};
-})(typeof window !== 'undefined' ? window : globalThis);
+
+  global.PSegraTopology = {render, healthHTML, bind};
+})(globalThis);

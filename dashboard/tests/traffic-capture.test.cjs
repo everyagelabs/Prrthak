@@ -9,7 +9,7 @@ function ui(flows=[]){
  const context={console,Date,URL,Number,String,Map,Set,JSON,Array,Error,h,num:value=>Number(value)||0,format:value=>String(value),compact:value=>String(value),date:value=>new Date(value),state:{window:3600,data:{servers:[],service_groups:[]}},visibleFlows:()=>flows,activeFilterCount:()=>0,canWrite:()=>true,filteredServers:()=>[],errorSlot:'',modalFooter:()=>'',savedLocationOptions:()=>'',showModal:(title,html)=>{context.modal=html;},parsePorts:text=>text?text.split(',').map(value=>({port:Number(value.split('/')[0]),protocol:value.split('/')[1]||'tcp'})):[]};
  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'..','learning-page.js'),'utf8'),context);
  const recommendations=fs.readFileSync(path.join(__dirname,'..','recommendations-page.js'),'utf8');vm.runInContext(recommendations.slice(recommendations.indexOf('function trafficDiscoveryRateHTML'),recommendations.indexOf('async function loadLearningRecommendations')),context);
- const app=fs.readFileSync(path.join(__dirname,'..','app.js'),'utf8');vm.runInContext(app.slice(app.indexOf('function chartHTML(){'),app.indexOf('\nfunction postureHTML()')),context);
+ const app=fs.readFileSync(path.join(__dirname,'..','app.js'),'utf8');vm.runInContext(app.slice(app.indexOf('function chartHTML(){'),app.indexOf('\nfunction postureHTML(')),context);
  return {context,run:source=>vm.runInContext(source,context)};
 }
 const values=data=>({get:key=>data[key]??null,getAll:key=>Array.isArray(data[key])?data[key]:data[key]==null?[]:[data[key]]});
@@ -47,6 +47,16 @@ test('the production traffic chart selects a count unit instead of summing conne
  env.run("state.view='traffic';state.captureUnit='packets'");html=env.run('chartHTML()');assert.match(html,/id="traffic-chart-unit"/);assert.match(html,/<strong>500<\/strong><span>denied packets/);assert.doesNotMatch(html,/Legacy observed|aria-label="Traffic window"/);
 });
 
+test('communication samples keep their own count unit and cannot show a hit rate',()=>{
+ const sampled={source_ip:'192.0.2.1',last_seen:new Date().toISOString(),count:3,capture_kind:'accepted_connection',count_unit:'sample_minutes',peak_observed_per_second:3,rate_window_seconds:1};
+ const env=ui([sampled,{...sampled,count_unit:'connections',count:12}]);
+ env.context.row=sampled;
+ assert.match(env.run('captureEvidenceHTML(row)'),/Accepted transport connection · sampled/);
+ assert.match(env.run('captureCountHTML(row)'),/3.*communication samples/);
+ assert.doesNotMatch(env.run('trafficDiscoveryRateHTML(row)'),/connections\/s/);
+ assert.match(env.run("state.view='traffic';state.captureUnit='sample_minutes';chartHTML()"),/<strong>3<\/strong><span>communication samples/);
+});
+
 test('traffic shows a short coverage summary with technical receipts collapsed by default',()=>{
  const env=ui();
  assert.match(env.run('trafficCaptureStatusHTML()'),/<summary>Capture coverage <strong>No reports yet<\/strong><\/summary>/);
@@ -61,18 +71,21 @@ test('Discover traffic is metadata-only for up to 30 days and Discover policy us
  const env=ui();env.run("showLearning(undefined,{purpose:'traffic'})");
  assert.match(env.context.modal,/name="purpose" value="traffic"/);
  assert.match(env.context.modal,/name="policy_action" value="observe"/);
+ assert.match(env.context.modal,/<input type="checkbox" name="traffic_hit_count">Count traffic hits/);
  assert.match(env.context.modal,/1 minute to 30 days/);
  assert.doesNotMatch(env.context.modal,/value="auto_allow"|name="policy_action"[^>]+auto_allow/);
  const input={server_ids:['a','b'],purpose:'traffic',selection_mode:'discovered',duration:'30',unit:'86400',policy_action:'observe'};
  env.context.values=values(input);
- assert.deepEqual(JSON.parse(env.run('JSON.stringify(learningPayload(values))')),{server_ids:['a','b'],selection_mode:'discovered',duration_seconds:2592000,policy_action:'observe',purpose:'traffic'});
+ assert.deepEqual(JSON.parse(env.run('JSON.stringify(learningPayload(values))')),{server_ids:['a','b'],selection_mode:'discovered',duration_seconds:2592000,policy_action:'observe',purpose:'traffic',traffic_collection_mode:'sampled'});
+ env.context.values=values({...input,traffic_hit_count:'on'});
+ assert.equal(env.run('learningPayload(values).traffic_collection_mode'),'hits');
  env.context.values=values({...input,duration:'31'});assert.throws(()=>env.run('learningPayload(values)'),/30 days/);
  env.context.values=values({...input,policy_action:'auto_allow'});assert.throws(()=>env.run('learningPayload(values)'),/only observes/);
  env.run("showLearning(undefined,{purpose:'automatic'})");
  assert.match(env.context.modal,/name="policy_action" value="auto_allow"/);
  assert.match(env.context.modal,/name="auto_allow_confirmed" required/);
  assert.match(env.context.modal,/1 minute to 7 days/);
- assert.doesNotMatch(env.context.modal,/name="purpose" value="traffic"/);
+ assert.doesNotMatch(env.context.modal,/name="purpose" value="traffic"|name="traffic_hit_count"/);
 });
 test('scope search uses exact agent addresses and tags, with separate location filtering',()=>{
  const env=ui();

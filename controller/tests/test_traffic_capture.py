@@ -8,7 +8,7 @@ import unittest
 from datetime import timedelta
 from unittest.mock import patch
 
-from controller import approvals, hit_monitoring as hm, learning_policies as lp, traffic_capture as capture
+from controller import approvals, hit_monitoring as hm, learning_policies as lp, traffic_capture as capture, traffic_views
 from controller.store import Store, now, stamp
 from controller.tests import test_hit_monitoring as hm_fixture
 from controller.tests import test_learning_policies as lp_fixture
@@ -58,7 +58,7 @@ class TrafficCaptureTests(unittest.TestCase):
         rows=self.store.flows()
         self.assertEqual({(r['capture_kind'],r['count_unit'],r['count']) for r in rows},{('accepted_connection','connections',1),('denied_packet','packets',1),('legacy_log','log_records',7)})
         stats=self.store.overview()['stats']
-        self.assertEqual(stats['capture_counts'],{'connections':1,'packets':1,'log_records':7})
+        self.assertEqual(stats['capture_counts'],{'connections':1,'packets':1,'log_records':7,'sample_minutes':0})
         self.assertEqual((stats['observed_events'],stats['observed_events_unit']),(7,'legacy_log_records'))
         recommendations=lp.recommendations(self.store,session['id'])
         self.assertEqual(recommendations['total_rows'],2)
@@ -228,7 +228,7 @@ class CaptureScopeAuthorityTests(unittest.TestCase):
 
     def test_demo_new_capture_scope_is_explicitly_synthetic_and_has_no_kernel_provenance(self):
         import tempfile
-        from controller import seed
+        from controller import learning, seed
         with tempfile.TemporaryDirectory() as directory:
             store=Store(directory);seed.seed(store)
             legacy_before=store.flows()
@@ -237,7 +237,7 @@ class CaptureScopeAuthorityTests(unittest.TestCase):
             seed.tick_synthetic_hosts(store)
             server=store.get('servers','srv-dev-01')
             self.assertIn('synthetic',server['agent_version'])
-            self.assertEqual(server['capabilities'],['learning_discovery_v1','traffic_capture_v1'])
+            self.assertEqual(server['capabilities'], ['learning_discovery_v1', 'traffic_capture_v1', learning.TRAFFIC_SAMPLING_CAPABILITY])
             self.assertTrue(all(row['status']=='unsupported' and row['lost_events'] is None for row in server['learning_coverage']['capture_backends']))
             self.assertTrue(server['learning_coverage']['capture_gaps'])
             self.assertTrue(all(row['capture_kind']=='legacy_log' for row in legacy_before))
@@ -305,7 +305,7 @@ class TrafficCapturePostgresTests(unittest.TestCase):
     def test_observe_only_peak_and_scoped_evidence_prune_in_postgres(self):
         from controller import learning
         self.fixture.report('a','10.1.0.1',capabilities=['learning_discovery_v1', capture.CAPABILITY, learning.TRAFFIC_DISCOVERY_CAPABILITY])
-        session = self.store.create_session({'purpose':'traffic','server_ids':['a'],'selection_mode':'manual',
+        session = self.store.create_session({'purpose':'traffic','traffic_collection_mode':'hits','server_ids':['a'],'selection_mode':'manual',
             'ports':[{'port':80}],'duration_seconds':2592000}, 'admin')
         first = self.event(identity='peak-one')
         second = {**self.event(identity='peak-two'), 'first_seen':first['first_seen'], 'last_seen':first['last_seen']}
@@ -320,6 +320,21 @@ class TrafficCapturePostgresTests(unittest.TestCase):
         with self.store.read_meta() as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM learning_evidence').fetchone()[0], 0)
             self.assertEqual(db.execute('SELECT COUNT(*) FROM learning_evidence_receipts').fetchone()[0], 0)
+
+    def test_sampled_discovery_deduplicates_mixed_evidence_and_reports_separate_units(self):
+        from controller import learning
+        self.fixture.report('a', '10.1.0.1', capabilities=['learning_discovery_v1', capture.CAPABILITY, learning.TRAFFIC_SAMPLING_CAPABILITY])
+        session = self.store.create_session({'purpose': 'traffic', 'server_ids': ['a'], 'selection_mode': 'manual',
+            'ports': [{'port': 80}]}, 'admin')
+        first = self.event(identity='sample-first')
+        duplicate = {**self.event('denied_packet', 'denied'), 'first_seen': first['first_seen'], 'last_seen': first['last_seen']}
+        self.assertEqual(self.upload(session, [first, duplicate], batch='sample-first')['duplicate_events'], 1)
+        self.assertEqual(self.upload(session, [duplicate], batch='sample-replayed')['duplicate_events'], 1)
+        row = lp.recommendations(self.store, session['id'])['rows'][0]
+        self.assertEqual((row['count_unit'], row['count']), (capture.SAMPLE_UNIT, 1))
+        self.assertNotIn('peak_observed_per_second', row)
+        self.assertEqual(traffic_views.listing(self.store)['counts_by_unit'],
+            {'connections': 0, 'packets': 0, 'log_records': 0, capture.SAMPLE_UNIT: 1})
 
     def test_hit_monitor_typed_ipv6_units_cross_batch_dedup_and_csv_do_not_create_learning(self):
         self.fixture.report('a','10.1.0.1',capabilities=['signed_assignments_v1',hm.CAPABILITY,capture.CAPABILITY])

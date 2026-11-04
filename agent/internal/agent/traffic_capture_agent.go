@@ -207,13 +207,30 @@ func (a *Agent) storeCapturedFlows(flows []capturedFlow) error {
 	}
 	{
 		for _, session := range sessions {
+			sampled := session.TrafficCollectionMode == "sampled"
 			items := []Flow{}
 			for _, captured := range flows {
-				if captureSelected(captured.Flow, session.ObservationKinds, session.Ports, session.StartsAt, SessionCutoff(session)) {
-					flow := captured.Flow
-					flow.EventID = shaText("prthak-learning-capture-v1\x00" + session.ID + "\x00" + flow.EventID)
-					items = append(items, flow)
+				flow := captured.Flow
+				if !captureSelected(flow, session.ObservationKinds, session.Ports, session.StartsAt, SessionCutoff(session)) {
+					continue
 				}
+				if sampled {
+					var err error
+					flow.EventID, err = a.trafficMinuteSamples.reserve(session.ID, flow)
+					if err != nil {
+						a.captureSessionCoverage(session.ID, flow.FirstSeen).DroppedEvents++
+						if first == nil {
+							first = err
+						}
+						continue
+					}
+					if flow.EventID == "" {
+						continue
+					}
+				} else {
+					flow.EventID = shaText("prthak-learning-capture-v1\x00" + session.ID + "\x00" + flow.EventID)
+				}
+				items = append(items, flow)
 			}
 			if len(items) == 0 {
 				continue
@@ -228,7 +245,12 @@ func (a *Agent) storeCapturedFlows(flows []capturedFlow) error {
 					if first == nil {
 						first = err
 					}
-					if a.State.Coverage[session.ID] != nil {
+					if sampled {
+						for _, flow := range part {
+							a.trafficMinuteSamples.release(flow.EventID)
+						}
+						a.captureSessionCoverage(session.ID, part[0].FirstSeen).DroppedEvents += count
+					} else if a.State.Coverage[session.ID] != nil {
 						a.State.Coverage[session.ID].DroppedEvents += count
 					}
 				} else {
@@ -275,6 +297,14 @@ func (a *Agent) storeCapturedFlows(flows []capturedFlow) error {
 	}
 	return first
 }
+func (a *Agent) captureSessionCoverage(id string, startedAt time.Time) *Coverage {
+	coverage := a.State.Coverage[id]
+	if coverage == nil {
+		coverage = &Coverage{SessionID: id, StartedAt: startedAt}
+		a.State.Coverage[id] = coverage
+	}
+	return coverage
+}
 func (a *Agent) updateCaptureReceipts(now time.Time, failure error) {
 	if a.State.Coverage == nil {
 		a.State.Coverage = map[string]*Coverage{}
@@ -283,10 +313,7 @@ func (a *Agent) updateCaptureReceipts(now time.Time, failure error) {
 		if session.ObservationKinds == nil {
 			continue
 		}
-		if a.State.Coverage[session.ID] == nil {
-			a.State.Coverage[session.ID] = &Coverage{SessionID: session.ID, StartedAt: now}
-		}
-		coverage := a.State.Coverage[session.ID]
+		coverage := a.captureSessionCoverage(session.ID, now)
 		coverage.TrafficCaptureCoverage = scopedCaptureCoverage(session.ObservationKinds, a.captureCoverage)
 		coverage.RateLimited = captureKindSelected(session.ObservationKinds, captureDenied)
 		coverage.Error = ""

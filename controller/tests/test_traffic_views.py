@@ -41,7 +41,7 @@ class TrafficPageChecks:
         page = traffic_views.listing(self.store, {"server_ids": ["billing"], "ports": ["443/tcp"]})
         self.assertEqual((page["total"], page["endpoint_count"], len(page["items"])), (1, 1, 1))
         self.assertEqual(page["items"][0]["source_ip"], "192.0.2.99")
-        self.assertEqual(page["counts_by_unit"], {"connections": 3, "packets": 0, "log_records": 0})
+        self.assertEqual(page["counts_by_unit"], {"connections": 3, "packets": 0, "log_records": 0, "sample_minutes": 0})
         self.assertTrue(page["filter_before_pagination"])
 
     def test_every_relationship_can_be_paged_in_stable_tie_order(self):
@@ -81,7 +81,7 @@ class TrafficPageChecks:
         self.flow(source="2001:db8::10", family="ipv6")
         page = traffic_views.listing(self.store)
         self.assertEqual(page["total"], 6)
-        self.assertEqual(page["counts_by_unit"], {"connections": 8, "packets": 7, "log_records": 24})
+        self.assertEqual(page["counts_by_unit"], {"connections": 8, "packets": 7, "log_records": 24, "sample_minutes": 0})
         legacy = [item for item in page["items"] if item["count_unit"] == "log_records"]
         self.assertEqual(len(legacy), 1)
         self.assertEqual((legacy[0]["count"], legacy[0]["address_family"]), (24, "ipv4"))

@@ -8,7 +8,7 @@ from .store import stamp, validate_port
 MAX_IDS_BYTES = 3 * 1024 * 1024
 MAX_PORT_BYTES = 16384
 MAX_DETAIL_BYTES = 8 * 1024 * 1024
-FIELDS = ("name", "status", "starts_at", "expires_at", "ended_at", "stopped_at", "selection_mode", "policy_action", "initial_approval_state", "created_by", "evidence_revision", "observation_kinds", "purpose", "evidence_expires_at")
+FIELDS = ("name", "status", "starts_at", "expires_at", "ended_at", "stopped_at", "selection_mode", "policy_action", "initial_approval_state", "created_by", "evidence_revision", "observation_kinds", "purpose", "evidence_expires_at", "traffic_collection_mode")
 
 
 def initialize(db):
@@ -66,6 +66,8 @@ def _summary(row):
     from .traffic_capture import observation_kinds
     if result["observation_kinds"]:result["observation_kinds"] = observation_kinds(json.loads(result["observation_kinds"]))
     else:result.pop('observation_kinds',None)
+    if not result["traffic_collection_mode"]:
+        result.pop("traffic_collection_mode")
     for field, fallback in (("selection_mode", "manual"), ("policy_action", "observe"), ("purpose", "policy")):
         result[field] = result[field] or fallback
     if row[start + 6]:

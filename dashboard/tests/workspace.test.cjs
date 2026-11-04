@@ -165,6 +165,38 @@ test('all eleven direct page components render with the actual shared shell and 
   if(view==='policies'){assert.match(html,/Discovered policies/);assert.match(html,/Managed policies/);assert.match(html,/Changes & history/);assert.doesNotMatch(html,/role="tablist"/);}
  }
 });
+test('Overview maps actual sites, counts each listener pair once per host, and drills into the same scope',async()=>{
+ const secondLocation={id:'loc-cloud',name:'AWS region',type:'cloud',provider:'aws'};
+ const secondHost={...host,id:'host-2',hostname:'billing cloud',location_id:secondLocation.id,location:secondLocation,
+  listeners:[{port:2022,protocol:'tcp',process:'sshd'},{port:2022,protocol:'udp',process:'other service'}]};
+ const duplicateListener={...host,listeners:[...host.listeners,{...host.listeners[0],address:'::'}]};
+ const env=await workspace('overview',{responses:{'/api/v1/overview':{...fixture,servers:[duplicateListener,secondHost],locations:[location,secondLocation]}}});
+ const html=env.element('#view-content').innerHTML;
+ assert.equal(env.element('#page-title').textContent,'Network overview');
+ assert.match(env.element('#overview-quick-filters').innerHTML,/All locations.*All applications/);
+ assert.match(html,/1 data centre · 1 cloud region/);
+ assert.match(html,/Distinct port \/ protocol pairs/);
+ assert.match(html,/data-port="2022\/tcp" aria-label="View 2 endpoints listening on 2022\/tcp"/);
+ assert.match(html,/data-port="2022\/udp" aria-label="View 1 endpoints listening on 2022\/udp"/);
+ assert.doesNotMatch(html,/Recent activity|id="server-search"/);
+ await env.click('overview-location',{key:'location:loc-cloud'});
+ const scoped=env.element('#view-content').innerHTML;
+ assert.match(scoped,/0 data centres · 1 cloud region/);
+ assert.match(scoped,/View 1 matching endpoint/);
+ assert.doesNotMatch(scoped,/data-port="8443\/tcp"/);
+ await env.click('overview-service',{port:'2022/tcp'});
+ assert.equal(env.run('state.view'),'servers');
+ assert.equal(env.run('state.filters.locations[0]'),'location:loc-cloud');
+ assert.equal(env.run('state.filters.ports[0]'),'2022/tcp');
+ assert.match(env.element('#view-content').innerHTML,/billing cloud/);
+});
+test('Overview time selector requests the selected observation window',async()=>{
+ const env=await workspace('overview',{responses:{'/api/v1/flows?window=21600':{items:[{server_id:'host-1',source_ip:'192.0.2.1',port:8443,protocol:'tcp',count:1,last_seen:new Date().toISOString()}]}}});
+ await env.run('changeTrafficWindow(21600)');
+ assert.equal(env.run('state.window'),21600);
+ assert.match(env.element('#view-content').innerHTML,/1 observed link/);
+ assert.match(env.element('#overview-quick-filters').innerHTML,/value="21600" selected/);
+});
 test('server settings keep one saved location separate from tags and block Read Only edits',async()=>{
  const env=await workspace('servers',{mode:'entra',role:'admin'});await env.click('edit-server',{id:'host-1'});const html=env.element('#modal-content').innerHTML;
  assert.match(html,/<select id="server-location" name="location_id"/);assert.doesNotMatch(html,/<select id="server-location"[^>]*multiple/);assert.match(html,/value="loc-1" selected/);
@@ -2034,6 +2066,35 @@ test('Traffic discovery reports typed rate and retention with CSV access and no 
  assert.match(html,/37 connections\/s/);assert.match(html,/retention ends/);assert.match(html,/Export CSV/);
  assert.doesNotMatch(html,/recommendation-form|recommendation-apply|Preview selected access/);
  assert.equal(mutations(env).length,0);
+});
+
+test('Discover traffic sends sampled by default and requires an explicit opt-in to count hits on older agents',async()=>{
+ for(const supported of [false,true]){
+  const server={...host,capabilities:[...host.capabilities,...(supported?['traffic_minute_sampling_v1']:[])]};
+  const env=await workspace('traffic',{mode:'entra',role:'admin',responses:{'/api/v1/overview':{...fixture,servers:[server]}}});
+  await env.click('discover-traffic');
+  const form=renderedForm(env,'learning-form',{server_ids:[server.id],purpose:'traffic',duration:'1',unit:'3600'});
+  await submitRendered(env,form);
+  if(!supported){
+   assert.equal(mutations(env).length,0);
+   assert.match(env.element('#form-error').textContent,/Communication sampling requires updated agents/);
+   form.values.traffic_hit_count='on';
+   await submitRendered(env,form);
+  }
+  const [request]=mutations(env);
+  assert.equal(request.url,'/api/v1/learning');
+  assert.equal(JSON.parse(request.options.body).traffic_collection_mode,supported?'sampled':'hits');
+ }
+});
+
+test('sampled traffic discovery observations display communication samples without a peak rate column',async()=>{
+ const data=evidencePage(),row={...data.rows[0],capture_kind:'accepted_connection',count_unit:'sample_minutes',count:3};
+ const env=await workspace('traffic',{responses:{'/api/v1/learning/session-1/recommendations?limit=200&offset=0':{...data,purpose:'traffic',traffic_collection_mode:'sampled',rows:[row]}}});
+ await env.click('recommendation-open',{id:'session-1',purpose:'traffic'});
+ const html=env.element('#modal-content').innerHTML;
+ assert.match(html,/one communication sample per source and destination service per minute/);
+ assert.match(html,/3<small>communication samples<\/small>/);
+ assert.doesNotMatch(html,/Peak observed rate|connections\/s/);
 });
 
 test('certificate source has two choices and generation defaults to saved cluster and node details', async () => {

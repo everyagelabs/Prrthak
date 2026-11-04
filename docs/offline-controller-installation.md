@@ -23,7 +23,7 @@ The current offline bundle includes both signed Linux agent archives and detache
 
 On an appliance with update support, sign in as a Super Admin and open **Platform settings → Updates**. Upload the signed RHEL 9 x86_64 offline controller archive and its matching detached `.signature.json` file. Review the verified release and confirm the restart from the same screen. The browser can briefly lose its connection during the restart. Reopen **Updates** to see the final outcome.
 
-Use the **v0.18.10 GUI update** asset for an existing standalone appliance, including one running v0.18.4. The smaller archive includes the signed appliance images and a minimal repository for compatibility with earlier updaters. The GUI uses the installed Docker, Compose, and RHEL packages. Fresh installation uses the full offline installer described above. [Download the GUI update](https://github.com/everyagelabs/Prrthak/releases/tag/v0.18.10-pilot.1)
+Use the **v0.18.11 GUI update** asset for an existing standalone appliance, including one running v0.18.4. The smaller archive includes the signed appliance images and a minimal repository for compatibility with earlier updaters. The GUI uses the installed Docker, Compose, and RHEL packages. Fresh installation uses the full offline installer described above. [Download the GUI update](https://github.com/everyagelabs/Prrthak/releases/tag/v0.18.11-pilot.1)
 
 The update replaces the bundled controller runtime and images and refreshes the agent downloads. Its review checks the existing host prerequisites. Changes to installed host RPMs and updates to HA clusters require separate host or cluster maintenance.
 

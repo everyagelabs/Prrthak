@@ -2,10 +2,11 @@ package agent
 
 import "time"
 
-const Version = "0.18.10"
+const Version = "0.18.11"
 
 const LearningDiscoveryCapability = "learning_discovery_v1"
 const TrafficDiscoveryCapability = "traffic_discovery_30d_v1"
+const TrafficMinuteSamplingCapability = "traffic_minute_sampling_v1"
 const HostDefaultDenyCapability = "host_default_deny_v1"
 
 type Port struct {
@@ -19,18 +20,19 @@ type Service struct {
 	Mode     string   `json:"mode,omitempty"`
 }
 type Session struct {
-	ObservationKinds []string   `json:"observation_kinds,omitempty"`
-	PolicyAction     string     `json:"policy_action,omitempty"`
-	Purpose          string     `json:"purpose,omitempty"`
-	ID               string     `json:"id"`
-	SelectionMode    string     `json:"selection_mode,omitempty"`
-	DiscoveryPending bool       `json:"discovery_pending,omitempty"`
-	ServerIDs        []string   `json:"server_ids"`
-	Ports            []Port     `json:"ports"`
-	StartsAt         time.Time  `json:"starts_at"`
-	ExpiresAt        time.Time  `json:"expires_at"`
-	Status           string     `json:"status"`
-	StoppedAt        *time.Time `json:"stopped_at,omitempty"`
+	TrafficCollectionMode string     `json:"traffic_collection_mode,omitempty"`
+	ObservationKinds      []string   `json:"observation_kinds,omitempty"`
+	PolicyAction          string     `json:"policy_action,omitempty"`
+	Purpose               string     `json:"purpose,omitempty"`
+	ID                    string     `json:"id"`
+	SelectionMode         string     `json:"selection_mode,omitempty"`
+	DiscoveryPending      bool       `json:"discovery_pending,omitempty"`
+	ServerIDs             []string   `json:"server_ids"`
+	Ports                 []Port     `json:"ports"`
+	StartsAt              time.Time  `json:"starts_at"`
+	ExpiresAt             time.Time  `json:"expires_at"`
+	Status                string     `json:"status"`
+	StoppedAt             *time.Time `json:"stopped_at,omitempty"`
 }
 type Policy struct {
 	CertificateRenewal    *CertificateRenewalAssignment    `json:"certificate_renewal,omitempty"`

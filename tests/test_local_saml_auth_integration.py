@@ -155,10 +155,14 @@ class LocalHTTPSAuthenticationTests(unittest.TestCase):
         _, other = self.local_user(original, 'second-super', 'super_admin')
         path = 'access/users/' + quote(admin['id'], safe='')
         before = self.store.get('auth_users', admin['id'])
-        for changes in ({'enabled': False}, {'role': 'admin'}, {'display_name': 'Replacement'}, {'email': 'other@example.test'}):
+        for changes in ({'enabled': False}, {'role': 'admin'}):
             with self.subTest(changes=changes):
                 error = self.api('PATCH', path, changes, other, 409)
-                self.assertIn('only its password can be changed', error['error'])
+                self.assertIn('The built-in admin account is protected', error['error'])
+        for changes in ({'display_name': 'Replacement'}, {'email': 'other@example.test'}):
+            with self.subTest(changes=changes):
+                error = self.api('PATCH', path, changes, other, 403)
+                self.assertIn('Sign in as the built-in admin to edit its profile', error['error'])
         # Identity fields are immutable for all users, including the built-in.
         for changes in ({'username': 'replacement'}, {'provider': 'saml'}, {'protected_account': False}):
             with self.subTest(changes=changes):

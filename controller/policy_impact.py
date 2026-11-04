@@ -14,7 +14,7 @@ from .inventory_views import rows
 from .network_addresses import address, network
 from .service_groups import effective_bundles
 from .store import digest, exact_policy_endpoints, now, parse_time, stamp, validate_policy
-from .traffic_capture import public as capture_public
+from .traffic_capture import SAMPLE_UNIT, public as capture_public
 from .traffic_views import DIMENSIONS, _grouped, _ids
 
 MAX_SERVERS = 10000
@@ -29,7 +29,7 @@ LIMITATIONS = [
     "Models new inbound TCP/UDP intent only. Established connections may survive a rule change; outbound, forwarded and container traffic are not evaluated.",
     "This preview changes no policy, assignment, firewall, approval or capture session and sends no probes. It does not prove live enforcement or application success.",
     "Only retained processed learning and monitoring observations are evaluated. No observations never means no dependencies or safe to block. Collection gaps, delayed uploads, retention and unmonitored ports leave unknown traffic.",
-    "Connection, packet and legacy log counts remain separate by origin and capture scope. Overlapping sessions/monitors can observe the same traffic; their counts must not be added into a unique-connection total.",
+    "Connection, packet, sampled minute and legacy log counts remain separate by origin and capture scope. Overlapping sessions or monitors can observe the same traffic, so their counts cannot establish a unique-connection total.",
     "Reported SSH management exceptions and whole-host DHCP client exceptions are included. Learned overlays, stale protection, pending host-deny removal and unmanaged ports remain unverified when they can change a predicted rejection.",
     "Unmanaged/direct rules, NAT, routing and actual endpoint adapter readiness require agent checks. A modeled allow/block is not an installed or traffic-verified result.",
 ]
@@ -206,7 +206,8 @@ def _coverage(server, row, at):
     else:
         reported = next((entry for entry in server.get("hit_monitoring") or [] if entry.get("id") == row["capture_scope_id"]), {})
     return {"complete_window": False, "receipt_available": bool(reported), "endpoint_stale": not _fresh(server.get("last_seen"), at),
-            "legacy_sampled_logs": row["capture_kind"] == "legacy_log", "dropped_events": reported.get("dropped_events"),
+            "legacy_sampled_logs": row["capture_kind"] == "legacy_log", "sampled_minutes": row["count_unit"] == SAMPLE_UNIT,
+            "dropped_events": reported.get("dropped_events"),
             "rate_limited": reported.get("rate_limited"), "capture_backends": reported.get("capture_backends", []),
             "capture_gaps": reported.get("capture_gaps", []), "error": reported.get("error", "")}
 

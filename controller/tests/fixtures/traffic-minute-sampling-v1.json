@@ -1,0 +1,178 @@
+{
+  "at": 1793803560,
+  "trust": {
+    "deployment_id": "00000000-0000-4000-8000-000000000009",
+    "keys": {
+      "b5c0ff0f8704f0e3c67714c5338b629a": "Ybr1MDJvGEEW+OsnjTcptCkleRQnarZLcR5NBHr+9Jw="
+    }
+  },
+  "policy": {
+    "mode": "enforce",
+    "services": [
+      {
+        "port": 8443,
+        "protocol": "tcp",
+        "mode": "enforce",
+        "sources": [
+          "10.50.0.0/24"
+        ]
+      }
+    ],
+    "server_id": "target",
+    "version": 2,
+    "digest": "d923d58b00807a10e387cbdf77acc32aae9de64d7be91b5b61f664f15ff35178",
+    "generated_at": "2026-11-04T14:46:00Z",
+    "service_group_snapshots": [],
+    "learning_sessions": [
+      {
+        "id": "e50df12b-6ea5-4427-8df7-374f70a5bd31",
+        "purpose": "traffic",
+        "selection_mode": "manual",
+        "policy_action": "observe",
+        "observation_kinds": [
+          "accepted_connection",
+          "denied_packet"
+        ],
+        "starts_at": "2026-11-04T14:45:00Z",
+        "expires_at": "2026-11-04T15:45:00Z",
+        "status": "active",
+        "traffic_collection_mode": "sampled",
+        "server_ids": [
+          "target"
+        ],
+        "ports": [
+          {
+            "port": 443,
+            "protocol": "tcp"
+          }
+        ]
+      }
+    ],
+    "learning_tombstones": [],
+    "firewall_changes": [],
+    "enforcement": {
+      "authorized": false,
+      "approval_id": "",
+      "approved_digest": "d923d58b00807a10e387cbdf77acc32aae9de64d7be91b5b61f664f15ff35178",
+      "approved_version": 2,
+      "protection_digest": "60d476f81ab085da077c475646648796c48cc12c2c2a6b3a770d0c896291c8c3",
+      "binding_digest": "39445d70f6ca3acec8f4e2268c86047cd0079fb15c0ef0a98d684b0b595be8d4",
+      "digest": "39445d70f6ca3acec8f4e2268c86047cd0079fb15c0ef0a98d684b0b595be8d4",
+      "confirmation_count": 0,
+      "expires_at": "1970-01-01T00:00:00Z",
+      "reason": "Explicit administrative review is required for this exact effective bundle",
+      "intent": "enforce"
+    },
+    "learning_allow": {
+      "server_id": "target",
+      "generation": 0,
+      "digest": "3c9ed6b82629f9dcfd121ac2805220c7e3b8e084a09ca2c238ed43fcebf5a475",
+      "services": [],
+      "policy_ids": [],
+      "authorities": [],
+      "protection_digest": "60d476f81ab085da077c475646648796c48cc12c2c2a6b3a770d0c896291c8c3",
+      "target_ips_digest": "a6d0c09f81e5c466d9e0386c0f1acdcfeb42ecac2faefec43a5cc96936b46f05",
+      "binding_digest": "8b2751f44ca416036c7b3e219d21506c7c6554fc1d4b4a3dba1f788278827485",
+      "authorized": false,
+      "reason": "No learning-owned policy is assigned",
+      "expires_at": "1970-01-01T00:00:00Z"
+    },
+    "polling_settings": {
+      "version": 0,
+      "digest": "25206f3835f07034c377c6ce4a3d286af570a98ceb75fe13489d1ccc1c72f5ac",
+      "control_interval_seconds": 30,
+      "discovery_interval_seconds": 900,
+      "matched_rule_ids": [],
+      "field_rules": {}
+    },
+    "assignment_generation": 1,
+    "assignment_digest": "9ecf6ab8a132952eb534832911a036e3ff6ca0fb6fbf24320ba64d8aabdf3bb9",
+    "signature": {
+      "algorithm": "Ed25519",
+      "key_id": "b5c0ff0f8704f0e3c67714c5338b629a",
+      "payload": "eyJkZXBsb3ltZW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDA5IiwiZG9tYWluIjoicHJ0aGFrLXBvbGljeS1hc3NpZ25tZW50LXYxIiwiZXhwaXJlc19hdCI6MTc5MzgwNTMwMCwiaXNzdWVkX2F0IjoxNzkzODAzNTAwLCJwb2xpY3kiOnsiYXNzaWdubWVudF9kaWdlc3QiOiI5ZWNmNmFiOGExMzI5NTJlYjUzNDgzMjkxMWEwMzZlM2ZmNmNhMGZiNmZiZjI0MzIwYmE2NGQ4YWFiZGYzYmI5IiwiYXNzaWdubWVudF9nZW5lcmF0aW9uIjoxLCJkaWdlc3QiOiJkOTIzZDU4YjAwODA3YTEwZTM4N2NiZGY3N2FjYzMyYWFlOWRlNjRkN2JlOTFiNWI2MWY2NjRmMTVmZjM1MTc4IiwiZW5mb3JjZW1lbnQiOnsiYXBwcm92YWxfaWQiOiIiLCJhcHByb3ZlZF9kaWdlc3QiOiJkOTIzZDU4YjAwODA3YTEwZTM4N2NiZGY3N2FjYzMyYWFlOWRlNjRkN2JlOTFiNWI2MWY2NjRmMTVmZjM1MTc4IiwiYXBwcm92ZWRfdmVyc2lvbiI6MiwiYXV0aG9yaXplZCI6ZmFsc2UsImJpbmRpbmdfZGlnZXN0IjoiMzk0NDVkNzBmNmNhM2FjZWM4ZjRlMjI2OGM4NjA0N2NkMDA3OWZiMTVjMGVmMGE5OGQ2ODRiMGI1OTViZThkNCIsImNvbmZpcm1hdGlvbl9jb3VudCI6MCwiZGlnZXN0IjoiMzk0NDVkNzBmNmNhM2FjZWM4ZjRlMjI2OGM4NjA0N2NkMDA3OWZiMTVjMGVmMGE5OGQ2ODRiMGI1OTViZThkNCIsImV4cGlyZXNfYXQiOiIxOTcwLTAxLTAxVDAwOjAwOjAwWiIsImludGVudCI6ImVuZm9yY2UiLCJwcm90ZWN0aW9uX2RpZ2VzdCI6IjYwZDQ3NmY4MWFiMDg1ZGEwNzdjNDc1NjQ2NjQ4Nzk2YzQ4Y2MxMmMyYzJhNmIzYTc3MGQwYzg5NjI5MWM4YzMiLCJyZWFzb24iOiJFeHBsaWNpdCBhZG1pbmlzdHJhdGl2ZSByZXZpZXcgaXMgcmVxdWlyZWQgZm9yIHRoaXMgZXhhY3QgZWZmZWN0aXZlIGJ1bmRsZSJ9LCJmaXJld2FsbF9jaGFuZ2VzIjpbXSwiZ2VuZXJhdGVkX2F0IjoiMjAyNi0xMS0wNFQxNDo0NjowMFoiLCJsZWFybmluZ19hbGxvdyI6eyJhdXRob3JpdGllcyI6W10sImF1dGhvcml6ZWQiOmZhbHNlLCJiaW5kaW5nX2RpZ2VzdCI6IjhiMjc1MWY0NGNhNDE2MDM2YzdiM2UyMTlkMjE1MDZjN2M2NTU0ZmMxZDRiNGEzZGJhMWY3ODgyNzg4Mjc0ODUiLCJkaWdlc3QiOiIzYzllZDZiODI2MjlmOWRjZmQxMjFhYzI4MDUyMjBjN2UzYjhlMDg0YTA5Y2EyYzIzOGVkNDNmY2ViZjVhNDc1IiwiZXhwaXJlc19hdCI6IjE5NzAtMDEtMDFUMDA6MDA6MDBaIiwiZ2VuZXJhdGlvbiI6MCwicG9saWN5X2lkcyI6W10sInByb3RlY3Rpb25fZGlnZXN0IjoiNjBkNDc2ZjgxYWIwODVkYTA3N2M0NzU2NDY2NDg3OTZjNDhjYzEyYzJjMmE2YjNhNzcwZDBjODk2MjkxYzhjMyIsInJlYXNvbiI6Ik5vIGxlYXJuaW5nLW93bmVkIHBvbGljeSBpcyBhc3NpZ25lZCIsInNlcnZlcl9pZCI6InRhcmdldCIsInNlcnZpY2VzIjpbXSwidGFyZ2V0X2lwc19kaWdlc3QiOiJhNmQwYzA5ZjgxZTVjNDY2ZDllMDM4NmMwZjFhY2RjZmViNDJlY2FjMmZhZWZlYzQzYTVjYzk2OTM2YjQ2ZjA1In0sImxlYXJuaW5nX3Nlc3Npb25zIjpbeyJleHBpcmVzX2F0IjoiMjAyNi0xMS0wNFQxNTo0NTowMFoiLCJpZCI6ImU1MGRmMTJiLTZlYTUtNDQyNy04ZGY3LTM3NGY3MGE1YmQzMSIsIm9ic2VydmF0aW9uX2tpbmRzIjpbImFjY2VwdGVkX2Nvbm5lY3Rpb24iLCJkZW5pZWRfcGFja2V0Il0sInBvbGljeV9hY3Rpb24iOiJvYnNlcnZlIiwicG9ydHMiOlt7InBvcnQiOjQ0MywicHJvdG9jb2wiOiJ0Y3AifV0sInB1cnBvc2UiOiJ0cmFmZmljIiwic2VsZWN0aW9uX21vZGUiOiJtYW51YWwiLCJzZXJ2ZXJfaWRzIjpbInRhcmdldCJdLCJzdGFydHNfYXQiOiIyMDI2LTExLTA0VDE0OjQ1OjAwWiIsInN0YXR1cyI6ImFjdGl2ZSIsInRyYWZmaWNfY29sbGVjdGlvbl9tb2RlIjoic2FtcGxlZCJ9XSwibGVhcm5pbmdfdG9tYnN0b25lcyI6W10sIm1vZGUiOiJlbmZvcmNlIiwicG9sbGluZ19zZXR0aW5ncyI6eyJjb250cm9sX2ludGVydmFsX3NlY29uZHMiOjMwLCJkaWdlc3QiOiIyNTIwNmYzODM1ZjA3MDM0YzM3N2M2Y2U0YTNkMjg2YWY1NzBhOThjZWI3NWZlMTM0ODlkMWNjYzFjNzJmNWFjIiwiZGlzY292ZXJ5X2ludGVydmFsX3NlY29uZHMiOjkwMCwiZmllbGRfcnVsZXMiOnt9LCJtYXRjaGVkX3J1bGVfaWRzIjpbXSwidmVyc2lvbiI6MH0sInNlcnZlcl9pZCI6InRhcmdldCIsInNlcnZpY2VfZ3JvdXBfc25hcHNob3RzIjpbXSwic2VydmljZXMiOlt7Im1vZGUiOiJlbmZvcmNlIiwicG9ydCI6ODQ0MywicHJvdG9jb2wiOiJ0Y3AiLCJzb3VyY2VzIjpbIjEwLjUwLjAuMC8yNCJdfV0sInZlcnNpb24iOjJ9fQ==",
+      "signature": "F6HsH/p5I00fG8W6s/69ox+epLXhRuL0997EjTfX4rQRpt+QDlNFe/D9a+TMGWjWAaUVHAsWggzGtAFPjODFDg=="
+    }
+  },
+  "native_events": [
+    {
+      "event_id": "a7937b64b8caa58f03721bb6bacf5c78cb235febe0e70b1b84cd99541461a08e",
+      "source_ip": "2001:db8:20::44",
+      "port": 443,
+      "protocol": "tcp",
+      "verdict": "allowed",
+      "count": 1,
+      "first_seen": "2026-11-04T14:45:01Z",
+      "last_seen": "2026-11-04T14:45:01Z",
+      "capture_kind": "accepted_connection",
+      "capture_backend": "conntrack",
+      "count_unit": "connections",
+      "address_family": "ipv6"
+    },
+    {
+      "event_id": "d10ec1f5f1295e0e09129cb88423ea81fef3f88ce67ec6d34cbbd9a78801c2f1",
+      "source_ip": "2001:db8:20::44",
+      "port": 443,
+      "protocol": "tcp",
+      "verdict": "denied",
+      "count": 1,
+      "first_seen": "2026-11-04T14:45:02Z",
+      "last_seen": "2026-11-04T14:45:02Z",
+      "capture_kind": "denied_packet",
+      "capture_backend": "nflog",
+      "count_unit": "packets",
+      "address_family": "ipv6"
+    },
+    {
+      "event_id": "a0c2eed167a8f8181dc110f4e47e3109de1cb350b8bd36f4eb56b775d88bf5de",
+      "source_ip": "2001:db8:20::44",
+      "port": 443,
+      "protocol": "tcp",
+      "verdict": "allowed",
+      "count": 1,
+      "first_seen": "2026-11-04T14:46:01Z",
+      "last_seen": "2026-11-04T14:46:01Z",
+      "capture_kind": "accepted_connection",
+      "capture_backend": "conntrack",
+      "count_unit": "connections",
+      "address_family": "ipv6"
+    }
+  ],
+  "receipts": [
+    {
+      "accepted": 1,
+      "duplicate": false
+    },
+    {
+      "accepted": 1,
+      "duplicate": false,
+      "duplicate_events": 1
+    },
+    {
+      "accepted": 1,
+      "duplicate": false
+    },
+    {
+      "accepted": 2,
+      "duplicate": false,
+      "duplicate_events": 2
+    }
+  ],
+  "flow_rows": [
+    {
+      "server_id": "target",
+      "session_id": "e50df12b-6ea5-4427-8df7-374f70a5bd31",
+      "source_ip": "2001:db8:20::44",
+      "port": 443,
+      "protocol": "tcp",
+      "verdict": "allowed",
+      "capture_kind": "accepted_connection",
+      "capture_backend": "conntrack",
+      "count_unit": "sample_minutes",
+      "address_family": "ipv6",
+      "count": 2,
+      "first_seen": "2026-11-04T14:45:01Z",
+      "last_seen": "2026-11-04T14:46:01Z"
+    }
+  ]
+}

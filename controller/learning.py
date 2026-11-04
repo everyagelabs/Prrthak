@@ -15,6 +15,7 @@ from .store import now, parse_time, stamp, validate_port
 CAPABILITY = "learning_discovery_v1"
 AUTO_ALLOW_CAPABILITY = "learning_auto_allow_v1"
 TRAFFIC_DISCOVERY_CAPABILITY = "traffic_discovery_30d_v1"
+TRAFFIC_SAMPLING_CAPABILITY = "traffic_minute_sampling_v1"
 TRAFFIC_PURPOSE = "traffic"
 STANDARD_DURATION = timedelta(days=7)
 TRAFFIC_DURATION = timedelta(days=30)
@@ -83,6 +84,21 @@ def requires_long_capture(session):
     return session.get("purpose") == TRAFFIC_PURPOSE and parse_time(session["expires_at"]) - parse_time(session["starts_at"]) > STANDARD_DURATION
 
 
+def requires_sampled_capture(session):
+    return session.get("purpose") == TRAFFIC_PURPOSE and session.get("traffic_collection_mode") == "sampled"
+
+
+def traffic_collection_mode(value, purpose):
+    if purpose != TRAFFIC_PURPOSE:
+        if "traffic_collection_mode" in value:
+            raise ValueError("Traffic collection mode is only available in Discover traffic")
+        return None
+    mode = value.get("traffic_collection_mode", "sampled")
+    if mode not in ("sampled", "hits"):
+        raise ValueError("Traffic collection mode must be sampled or hits")
+    return mode
+
+
 def evidence_expiry(cutoff):
     return stamp(cutoff + TRAFFIC_EVIDENCE_RETENTION)
 
@@ -93,6 +109,9 @@ def assignment(session, identifier):
         fields = ("id", "purpose", "selection_mode", "policy_action", "observation_kinds",
                   "starts_at", "expires_at", "status", "stopped_at")
         result = {field: session[field] for field in fields if field in session}
+        if requires_sampled_capture(session):
+            # Explicit hit counting keeps the existing signed wire shape for old agents.
+            result["traffic_collection_mode"] = "sampled"
         result["server_ids"] = [identifier]
     else:
         result = dict(session)
@@ -110,6 +129,7 @@ def assignment(session, identifier):
 
 def preview(store, value):
     purpose = purpose_for(value)
+    collection_mode = traffic_collection_mode(value, purpose)
     ids = server_ids(value)
     port_filter = requested_port_filter(value)
     hosts = []
@@ -118,12 +138,14 @@ def preview(store, value):
             server = store._get(db, "servers", identifier)
             if server is None:
                 raise ValueError(f"Unknown server: {identifier}")
-            hosts.append({"server_id": identifier, "hostname": server["hostname"], "ports": selected_discovered_ports(server.get("listeners", []), port_filter), "last_discovery_at": server.get("last_discovery_at"), "freshness": "cached_preview", "discovery_pending": True, "supported": CAPABILITY in server.get("capabilities", []), "capture_supported":"traffic_capture_v1" in server.get("capabilities",[]), "long_capture_supported": TRAFFIC_DISCOVERY_CAPABILITY in server.get("capabilities", []), "offline": store._heartbeat_stale(server), "synthetic": server.get("synthetic", False)})
-    return {"purpose": purpose, "selection_mode": "discovered", "server_ids": ids, "port_filter": port_filter, "servers": hosts, "freshness": "cached_preview", "message": "Cached inventory preview. Start learning requests a fresh scan on every selected server and freezes each server's own selected ports for this learning window."}
+            capabilities = server.get("capabilities", [])
+            hosts.append({"server_id": identifier, "hostname": server["hostname"], "ports": selected_discovered_ports(server.get("listeners", []), port_filter), "last_discovery_at": server.get("last_discovery_at"), "freshness": "cached_preview", "discovery_pending": True, "supported": CAPABILITY in capabilities, "capture_supported": "traffic_capture_v1" in capabilities, "long_capture_supported": TRAFFIC_DISCOVERY_CAPABILITY in capabilities, "sampling_supported": TRAFFIC_SAMPLING_CAPABILITY in capabilities, "offline": store._heartbeat_stale(server), "synthetic": server.get("synthetic", False)})
+    return {"purpose": purpose, "selection_mode": "discovered", "server_ids": ids, "port_filter": port_filter, "servers": hosts, "freshness": "cached_preview", "message": "Cached inventory preview. Start learning requests a fresh scan on every selected server and freezes each server's own selected ports for this learning window.", **({"traffic_collection_mode": collection_mode} if collection_mode else {})}
 
 
 def create_session(store, value, actor, *, principal=None):
     purpose = purpose_for(value)
+    collection_mode = traffic_collection_mode(value, purpose)
     ids = server_ids(value)
     mode = value.get("selection_mode", "manual")
     if mode not in ("manual", "discovered"):
@@ -166,6 +188,10 @@ def create_session(store, value, actor, *, principal=None):
             incompatible = [server["hostname"] for server in servers if TRAFFIC_DISCOVERY_CAPABILITY not in server.get("capabilities", [])]
             if incompatible:
                 raise ValueError("Discover traffic windows longer than seven days require upgraded agents: " + ", ".join(incompatible[:20]))
+        if collection_mode == "sampled":
+            incompatible = [server["hostname"] for server in servers if TRAFFIC_SAMPLING_CAPABILITY not in server.get("capabilities", [])]
+            if incompatible:
+                raise ValueError("Sampled traffic discovery requires upgraded agents supporting minute sampling: " + ", ".join(incompatible[:20]))
         unsupported = [server["hostname"] for server in servers if CAPABILITY not in server.get("capabilities", [])]
         if mode == "discovered" and unsupported:
             raise ValueError("Automatic learning requires an agent supporting learning_discovery_v1 (0.3.0 or later). Upgrade these agents or use manual ports: " + ", ".join(unsupported[:20]))
@@ -181,7 +207,8 @@ def create_session(store, value, actor, *, principal=None):
                 raise ValueError("A selected server already has an active learning session")
         session = {"id": str(uuid.uuid4()), "server_ids": ids, "selection_mode": mode, "policy_action": policy_action, "observation_kinds": kinds, "ports": ports, "starts_at": stamp(at), "expires_at": stamp(at + timedelta(seconds=duration)), "status": "active", "created_by": actor}
         if purpose == TRAFFIC_PURPOSE:
-            session.update(purpose=purpose, evidence_expires_at=evidence_expiry(at + timedelta(seconds=duration)))
+            session.update(purpose=purpose, traffic_collection_mode=collection_mode,
+                           evidence_expires_at=evidence_expiry(at + timedelta(seconds=duration)))
         if port_filter:
             session["port_filter"] = port_filter
         if policy_action == "auto_allow":
@@ -197,7 +224,7 @@ def create_session(store, value, actor, *, principal=None):
         for server in servers:
             store._collector_state(server, [session], at)
             store._put(db, "servers", server)
-        store.audit("learning.started", actor, {"session_id": session["id"], "server_ids": ids, "duration_seconds": duration, "purpose": purpose, "selection_mode": mode, "policy_action": policy_action, "port_filter": port_filter, "observation_kinds":kinds}, db)
+        store.audit("learning.started", actor, {"session_id": session["id"], "server_ids": ids, "duration_seconds": duration, "purpose": purpose, "selection_mode": mode, "policy_action": policy_action, "port_filter": port_filter, "observation_kinds":kinds, **({"traffic_collection_mode": collection_mode} if collection_mode else {})}, db)
     return session
 
 
@@ -230,6 +257,8 @@ def acknowledge_discovery(store, db, server, value, ids, listeners, scanned_at, 
         if session.get("selection_mode") != "discovered":
             raise ValueError("Learning discovery acknowledgement requires an automatic session")
         if requires_long_capture(session) and TRAFFIC_DISCOVERY_CAPABILITY not in server.get("capabilities", []):
+            continue
+        if requires_sampled_capture(session) and TRAFFIC_SAMPLING_CAPABILITY not in server.get("capabilities", []):
             continue
         if session["status"] != "active" or not parse_time(session["starts_at"]) <= at < parse_time(session["expires_at"]):
             continue
@@ -264,7 +293,9 @@ def collector_state(store, server, sessions, at):
     selected = [session for session in sessions if session["status"] == "active" and server["id"] in session["server_ids"] and parse_time(session["starts_at"]) <= at < parse_time(session["expires_at"])]
     supported = CAPABILITY in server.get("capabilities", [])
     long_capture_supported = TRAFFIC_DISCOVERY_CAPABILITY in server.get("capabilities", [])
-    selected = [session for session in selected if long_capture_supported or not requires_long_capture(session)]
+    sampling_supported = TRAFFIC_SAMPLING_CAPABILITY in server.get("capabilities", [])
+    selected = [session for session in selected if (long_capture_supported or not requires_long_capture(session))
+                and (sampling_supported or not requires_sampled_capture(session))]
     ready = [session for session in selected if ports_for(session, server["id"]) and (session.get("selection_mode") != "discovered" or supported)]
     pending = [session for session in selected if session.get("selection_mode") == "discovered" and server["id"] in session.get("discovery_pending_server_ids", [])]
     stale = store._heartbeat_stale(server, at)

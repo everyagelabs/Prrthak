@@ -14,7 +14,7 @@ import tempfile
 from .evidence_views import EXPORT_SLOTS, ExportBusy
 from .inventory_views import endpoint_labels, rows
 from .store import now, parse_time, stamp
-from .traffic_capture import public as capture_public
+from .traffic_capture import COUNT_UNITS, public as capture_public
 
 MAX_EXPORT_ROWS = 250000
 MAX_EXPORT_BYTES = 64 * 1024 * 1024
@@ -22,7 +22,7 @@ DIMENSIONS = ("server_id", "session_id", "source_ip", "port", "protocol", "verdi
 FIELDS = (*DIMENSIONS, "count", "first_seen", "last_seen")
 DESTINATION_FIELDS = ("destination_hostname", "destination_reported_ips")
 ORDER = "last_seen DESC," + ",".join(DIMENSIONS)
-COVERAGE = "Filtered over all retained processed learning observations. Connections, denied packets and historical logs have separate units. Collection gaps and limited windows prevent a complete connection-ledger or application-success claim. Each page is a consistent read; late uploads, processing and retention may change later pages. Refresh to see newer data."
+COVERAGE = "Filtered over all retained processed learning observations. Connections, denied packets, sampled minutes and historical logs have separate units. Collection gaps and limited windows prevent a complete connection-ledger or application-success claim. Each page is a consistent read; late uploads, processing and retention may change later pages. Refresh to see newer data."
 
 
 def _validate(store, value, *, export=False):
@@ -112,10 +112,11 @@ def listing(store, value=None):
         if getattr(db, "dialect", "sqlite") == "sqlite":
             db.execute("BEGIN")
         grouped, args = _grouped(db, value)
-        summary = db.execute("SELECT COUNT(*),COUNT(DISTINCT server_id),COALESCE(SUM(CASE WHEN count_unit='connections' THEN count ELSE 0 END),0),COALESCE(SUM(CASE WHEN count_unit='packets' THEN count ELSE 0 END),0),COALESCE(SUM(CASE WHEN count_unit='log_records' THEN count ELSE 0 END),0) FROM (" + grouped + ") relationships", args).fetchone()
+        counts = ",".join("COALESCE(SUM(CASE WHEN count_unit=? THEN count ELSE 0 END),0)" for _ in COUNT_UNITS)
+        summary = db.execute("SELECT COUNT(*),COUNT(DISTINCT server_id)," + counts + " FROM (" + grouped + ") relationships", COUNT_UNITS + args).fetchone()
         result = [capture_public(dict(row)) for row in db.execute(grouped + " ORDER BY " + ORDER + " LIMIT ? OFFSET ?", args + (value["limit"], value["offset"]))]
     total = int(summary[0])
-    return {"items": result, "total": total, "endpoint_count": int(summary[1]), "counts_by_unit": {name: int(summary[index]) for index, name in enumerate(("connections", "packets", "log_records"), 2)}, "limit": value["limit"], "offset": value["offset"], "has_more": value["offset"] + len(result) < total, "window_seconds": value["window_seconds"], "as_of": value["as_of"], "from_time": value["from_time"], "coverage": COVERAGE, "filter_before_pagination": True}
+    return {"items": result, "total": total, "endpoint_count": int(summary[1]), "counts_by_unit": {name: int(summary[index]) for index, name in enumerate(COUNT_UNITS, 2)}, "limit": value["limit"], "offset": value["offset"], "has_more": value["offset"] + len(result) < total, "window_seconds": value["window_seconds"], "as_of": value["as_of"], "from_time": value["from_time"], "coverage": COVERAGE, "filter_before_pagination": True}
 
 
 def _cell(value):

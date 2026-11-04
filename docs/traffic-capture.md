@@ -1,9 +1,10 @@
 # Traffic capture
 
-Prṛthak distinguishes **accepted transport connections**, **denied packets** and
-**historical sampled journal logs**. Their counts have different units and are
-never added into one connection or packet total. The destination is the selected
-endpoint; sources and exact TCP/UDP ports remain bound to that endpoint's scope.
+Prṛthak distinguishes **accepted transport connections**, **denied packets**,
+**sampled communication minutes** and **historical sampled journal logs**. Their
+counts have different units and are never added into one connection or packet
+total. The destination is the selected endpoint, with sources and exact TCP/UDP
+ports bound to that endpoint's scope.
 
 This is bounded evidence, not a complete packet ledger, application-request log
 or proof that an application completed a transaction. Source addresses are what
@@ -26,15 +27,15 @@ start selected to preserve the requested any-hit learning behavior. Fresh
 learning discovery still freezes each host's own eligible selected ports.
 Monitoring freezes its explicit endpoints/ports and current group/tag membership.
 
-For **Discover traffic**, filter endpoint selection by IP, name, tag or location,
-and optionally limit the fresh discovery to selected ports. A session longer
-than seven days requires agents that support extended traffic discovery. The
-session evidence table and CSV report a peak observed rate per source, endpoint,
-destination port and evidence kind. The peak is the highest observed count in
-any fixed one-second bucket; capture loss can make it a lower bound. Accepted
-connections and denied packets have different units. Packet payloads are never
-stored by this workflow. Capture stops at expiry, and traffic discovery cannot
-be turned into automatic policy authority.
+For **Discover traffic**, filter endpoints by IP, name, tag or location and
+optionally limit discovery to selected ports. By default, upgraded agents
+report at most one observed event per source IP, endpoint, destination port and
+protocol per UTC minute. Select **Count traffic hits** to report counts and peak
+rates instead. The peak is the highest observed count in a one-second bucket
+for that evidence kind. Capture loss can make it a lower bound. Sampling leaves
+policy learning and continuous port monitoring separate. Sessions longer than
+seven days require agents that support extended traffic discovery. Traffic
+discovery collects metadata only and capture stops at expiry.
 
 **Auto-allow includes denied first-hits when denied-packet capture is selected.**
 A blocked client or scanner can therefore become allowed on the selected port.
@@ -153,8 +154,9 @@ retain separate rows even for the same source/port pair.
 
 Backend statuses are `active`, `off`, `unsupported` or `error`. Coverage and
 telemetry never authorize access. Overview `capture_counts` separates
-`connections`, `packets` and `log_records` within its bounded relationship view;
-the compatibility `observed_events` field counts legacy log records only.
+`connections`, `packets`, `sample_minutes` and `log_records` within its bounded
+relationship view. The compatibility `observed_events` field counts legacy log
+records only.
 
 ## Evidence boundary
 

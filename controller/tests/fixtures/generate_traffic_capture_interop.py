@@ -15,6 +15,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+from unittest.mock import patch
 import uuid
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -138,11 +139,42 @@ def generate():
                  generate_case('legacy',list(traffic_capture.KINDS),legacy=True)]}
 
 
+def generate_sampled():
+    fixture = IndependentApprovalTests()
+    try:
+        fixture.setUp()
+        store = fixture.store
+        store.report('target', {'hostname': 'target', 'ips': ['10.70.0.1'],
+            'capabilities': ['signed_assignments_v1', traffic_capture.CAPABILITY, learning.TRAFFIC_SAMPLING_CAPABILITY]})
+        slot = now().replace(second=0, microsecond=0) - timedelta(minutes=1)
+        with patch.object(learning, 'now', return_value=slot):
+            session = learning.create_session(store, {'purpose': 'traffic', 'server_ids': ['target'],
+                'ports': [{'port': 443, 'protocol': 'tcp'}]}, fixture.maker['actor'], principal=fixture.maker)
+        events = [event(kind, '2001:db8:20::44', name, stamp(slot + timedelta(seconds=seconds)))
+                  for kind, name, seconds in [('accepted_connection', 'first', 1), ('denied_packet', 'same-minute', 2),
+                                              ('accepted_connection', 'next-minute', 61)]]
+        batches = ([events[0]], [events[1]], [events[2]], [events[0], events[2]])
+        receipts = [store.enqueue_flows('target', {'batch_id': 'sampled-' + str(index),
+                    'session_id': session['id'], 'events': batch}) for index, batch in enumerate(batches)]
+        store.process_flows()
+        rows = store.flows()
+        if len(rows) != 1 or rows[0]['count_unit'] != 'sample_minutes' or rows[0]['count'] != 2:
+            raise AssertionError('The controller did not publish exactly two sampled minutes')
+        at = int(now().timestamp())
+        signer = PolicySigner(store.path/'ephemeral-capture-signing-seed', '00000000-0000-4000-8000-000000000009', create=True)
+        return {'at': at, 'trust': signer.public_trust(), 'policy': signer.sign(store.assignment('target')[0], at=at),
+                'native_events': events, 'receipts': receipts, 'flow_rows': rows}
+    finally:
+        fixture.doCleanups()
+
+
 if __name__ == '__main__':
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output',type=Path,default=Path(__file__).with_name('traffic-capture-v1.json'))
-    output=parser.parse_args().output
-    document=generate()
+    parser.add_argument('--output',type=Path)
+    parser.add_argument('--sampled-only',action='store_true')
+    args=parser.parse_args()
+    output=args.output or Path(__file__).with_name('traffic-minute-sampling-v1.json' if args.sampled_only else 'traffic-capture-v1.json')
+    document=generate_sampled() if args.sampled_only else generate()
     encoded=json.dumps(document,ensure_ascii=False,indent=2)+'\n'
     if 'PRIVATE KEY' in encoded:raise AssertionError('Private material must never enter a public vector')
     output.write_text(encoded,encoding='utf-8')

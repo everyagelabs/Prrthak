@@ -997,7 +997,8 @@ class Store:
             return session
 
     def _assignment_value(self, identifier, db):
-        from .learning import CAPABILITY, TRAFFIC_DISCOVERY_CAPABILITY, assignment as learning_assignment, requires_long_capture
+        from .learning import (CAPABILITY, TRAFFIC_DISCOVERY_CAPABILITY, TRAFFIC_SAMPLING_CAPABILITY,
+                               assignment as learning_assignment, requires_long_capture, requires_sampled_capture)
         server = self._get(db, "servers", identifier)
         if not server:
             raise KeyError(identifier)
@@ -1007,7 +1008,8 @@ class Store:
         capabilities = server.get("capabilities", [])
         sessions = [session for session in endpoint_sessions(db, identifier, at=current, recent=True)
                     if (session.get("selection_mode") != "discovered" or CAPABILITY in capabilities)
-                    and (TRAFFIC_DISCOVERY_CAPABILITY in capabilities or not requires_long_capture(session))]
+                    and (TRAFFIC_DISCOVERY_CAPABILITY in capabilities or not requires_long_capture(session))
+                    and (TRAFFIC_SAMPLING_CAPABILITY in capabilities or not requires_sampled_capture(session))]
         result["learning_sessions"] = sorted((learning_assignment(session, identifier) for session in sessions if session["status"] == "active" and parse_time(session["starts_at"]) <= current < parse_time(session["expires_at"])), key=lambda item: item["id"])
         tombstones = []
         for session in sessions:
@@ -1094,11 +1096,18 @@ class Store:
         if identifier not in session["server_ids"]:
             raise PermissionError("Session is not assigned to this endpoint")
         cutoff = min(parse_time(session["expires_at"]), parse_time(session.get("stopped_at", session["expires_at"])))
-        from .learning import TRAFFIC_DISCOVERY_CAPABILITY, ports_for, requires_long_capture
-        if requires_long_capture(session) and TRAFFIC_DISCOVERY_CAPABILITY not in server.get("capabilities", []):
+        from .learning import (TRAFFIC_DISCOVERY_CAPABILITY, TRAFFIC_SAMPLING_CAPABILITY, ports_for,
+                               requires_long_capture, requires_sampled_capture)
+        from .traffic_capture import FIELDS as capture_fields, metadata as capture_metadata, sampled_evidence
+        capabilities = server.get("capabilities", [])
+        if requires_long_capture(session) and TRAFFIC_DISCOVERY_CAPABILITY not in capabilities:
             raise ValueError("Endpoint no longer advertises support for this extended traffic window")
+        sampled = requires_sampled_capture(session)
+        if sampled and TRAFFIC_SAMPLING_CAPABILITY not in capabilities:
+            raise ValueError("Endpoint no longer advertises support for minute traffic sampling")
         ports = {(port["protocol"], port["port"]) for port in ports_for(session, identifier)}
         normalized = []
+        seen_samples = set()
         for event in events:
             item = validate_port(event)
             if (item["protocol"], item["port"]) not in ports:
@@ -1114,12 +1123,18 @@ class Store:
             if first > last or first < parse_time(session["starts_at"]) or last > cutoff or last > now() + timedelta(seconds=30):
                 raise ValueError("Flow timestamps must be within actual learning window")
             item.update({"verdict": verdict, "count": count, "first_seen": stamp(first), "last_seen": stamp(last)})
-            from .traffic_capture import FIELDS as capture_fields, metadata as capture_metadata
-            capture = capture_metadata(event, item["source_ip"], capabilities=server.get("capabilities", []), kinds=session.get("observation_kinds"))
+            capture = capture_metadata(event, item["source_ip"], capabilities=capabilities, kinds=session.get("observation_kinds"))
             if any(field in event for field in capture_fields):
                 if first != last:
                     raise ValueError("Typed capture records have one lifecycle/packet observation time")
                 item.update(capture, event_id=event["event_id"])
+            if sampled:
+                if "event_id" not in item:
+                    raise ValueError("Sampled traffic discovery requires typed capture evidence")
+                sampled_evidence(item, first)
+                if item["event_id"] in seen_samples:
+                    continue
+                seen_samples.add(item["event_id"])
             normalized.append(item)
         key = f"{identifier}:{batch_id}"
         encoded = json.dumps(normalized, sort_keys=True)
@@ -1129,16 +1144,16 @@ class Store:
             if existing:
                 if existing["data"] != encoded or existing["session_id"] != session_id:
                     raise ValueError("Batch ID reused for different data")
-                return {"accepted": len(normalized), "duplicate": True}
+                return {"accepted": len(events), "duplicate": True}
             if now() > cutoff + timedelta(minutes=5):
                 raise LearningExpired("Learning upload grace period expired")
             pending = db.execute("SELECT COUNT(*) FROM batches WHERE processed=0").fetchone()[0]
             if pending > 10000:
                 raise RuntimeError("Traffic queue is full; retry later")
             from .traffic_capture import reserve_flows
-            duplicates = reserve_flows(db,key,identifier,session_id,normalized,stamp(cutoff+timedelta(minutes=5)))
+            duplicates = len(events) - len(normalized) + reserve_flows(db,key,identifier,session_id,normalized,stamp(cutoff+timedelta(minutes=5)))
             db.execute("INSERT INTO batches(batch_key,server_id,session_id,data,received_at) VALUES(?,?,?,?,?)", (key, identifier, session_id, encoded, stamp()))
-        return {"accepted": len(normalized), "duplicate": False, **({"duplicate_events":duplicates} if duplicates else {})}
+        return {"accepted": len(events), "duplicate": False, **({"duplicate_events":duplicates} if duplicates else {})}
 
     def process_flows(self, limit=100):
         with self.flow_lock, self.traffic() as db:
@@ -1367,8 +1382,11 @@ class Store:
             location_counts[identifier]=location_counts.get(identifier,0)+1
         locations=sorted(({**location,"server_count":location_counts.get(location["id"],0)} for location in catalog),key=lambda item:item["name"].casefold())
         groups=sorted((self._public_group(group,servers,catalog) for group in self.all("groups")),key=lambda item:item["name"].casefold())
-        capture_counts={"connections":0,"packets":0,"log_records":0}
-        for flow in flows:capture_counts[flow["count_unit"]]+=flow["count"]
+        from .traffic_capture import COUNT_UNITS
+        capture_counts=dict.fromkeys(COUNT_UNITS, 0)
+        for flow in flows:
+            if flow["count_unit"] in capture_counts:
+                capture_counts[flow["count_unit"]] += flow["count"]
         stats = {"total_servers": total, "healthy_servers": sum(server["status"] == "healthy" for server in servers), "offline_servers": sum(server["status"] == "offline" for server in servers), "warning_servers": sum(server["status"] == "warning" for server in servers), "active_learning": session_page["active_total"], "active_alerts": alert_page["open_count"], "policy_count": policy_page["total"], "observed_events": capture_counts["log_records"], "observed_events_unit":"legacy_log_records", "capture_counts":capture_counts,"capture_counts_scope":"bounded_last_hour_relationships", "discovered_services": sum(len(server.get("listeners", [])) for server in servers), "synced_servers": sum(server.get("apply_status") == "synced" and server.get("applied_version") == server.get("desired_version") for server in servers)}
         learned_page=public_policies(self,"learned")
         learned_policies=learned_page.pop("items")

@@ -23,7 +23,7 @@ function notificationEventFiltersHTML(channel, kind){
   return `<fieldset class="notification-event-filters">
     <legend>Send alerts for</legend>
     <div class="notification-event-choices">${choices}</div>
-    <p class="help-text">Traffic burst alerts require at least 100 observed connections or denied packets from one source to the same monitored port and protocol within one second. Enable Continuous monitoring or Discover traffic for that port.</p>
+    <p class="help-text">Traffic burst alerts require at least 100 observed connections or denied packets from one source to the same monitored port and protocol within one second. Enable Continuous monitoring or turn on Count traffic hits when starting Discover traffic.</p>
     <p class="help-text" data-notification-email-event ${kind==='email'?'':'hidden'}>New services, monitored traffic bursts, admin changes and confirmed port allowances send email at any severity when ticked. Port allowances are reported after the endpoint agent confirms the change.</p>
     <p class="help-text" data-notification-email-event ${kind==='email'?'':'hidden'}>Controller warnings start after two minutes at 85% host CPU or memory or 90% data filesystem use. Agent warnings start at 4% of total server CPU, 1.6 GB memory or 8 GB agent storage.</p>
     <details><summary>Additional alert types</summary><div class="field"><label>Other event codes<input name="channel_event_types" value="${h([...configured].join(', '))}" placeholder="agent_offline, recovered"></label><small>Enter comma-separated codes. Include recovered to receive informational recovery messages.</small></div></details>

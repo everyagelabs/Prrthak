@@ -14,6 +14,8 @@ from datetime import timedelta
 CAPABILITY = "traffic_capture_v1"
 KINDS = ("accepted_connection", "denied_packet")
 FIELDS = ("capture_kind", "capture_backend", "count_unit", "address_family")
+SAMPLE_UNIT = "sample_minutes"
+COUNT_UNITS = ("connections", "packets", "log_records", SAMPLE_UNIT)
 TYPED = {
     "accepted_connection": ("conntrack", "connections", "allowed"),
     "denied_packet": ("nflog", "packets", "denied"),
@@ -82,11 +84,13 @@ def batch_peaks(db, batch):
     sql = """WITH changed AS (
         SELECT DISTINCT source_ip,protocol,port,capture_kind,first_seen
         FROM flows WHERE batch_key=? AND capture_processed=1 AND event_id<>''
+          AND count_unit IN ('connections','packets')
     ) SELECT f.source_ip,f.protocol,f.port,f.capture_kind,f.first_seen,SUM(f.count)
     FROM changed JOIN flows f ON f.source_ip=changed.source_ip AND f.protocol=changed.protocol
         AND f.port=changed.port AND f.capture_kind=changed.capture_kind AND f.first_seen=changed.first_seen
     JOIN batches b ON b.batch_key=f.batch_key
     WHERE f.server_id=? AND f.session_id=? AND f.capture_processed=1 AND f.event_id<>''
+        AND f.count_unit IN ('connections','packets')
         AND (b.evidence_processed=1 OR b.received_at<? OR (b.received_at=? AND b.batch_key<=?))
     GROUP BY f.source_ip,f.protocol,f.port,f.capture_kind,f.first_seen"""
     # Use the same batch order as reconciliation so a report can never show
@@ -142,6 +146,14 @@ def public(event):
     return result
 
 
+def sampled_evidence(event, observed_at):
+    """Make the source/service/minute identity independent of batch and backend."""
+    from .store import digest, stamp
+    minute = stamp(observed_at.replace(second=0, microsecond=0))
+    event["event_id"] = digest(["traffic-minute-v1", event["source_ip"], event["port"], event["protocol"], minute])
+    event["count_unit"] = SAMPLE_UNIT
+
+
 def reserve_flows(db, batch_key, server_id, session_id, events, expires_at):
     """Reserve typed identities before ACK, without publishing unprocessed data."""
     from .store import digest
@@ -156,7 +168,9 @@ def reserve_flows(db, batch_key, server_id, session_id, events, expires_at):
         fingerprint = digest(event)
         old = db.execute("SELECT event_digest FROM flows WHERE server_id=? AND session_id=? AND event_id=?", (server_id, session_id, event_id)).fetchone()
         if old:
-            if old[0] != fingerprint:
+            # The first observation wins for a sampled slot, even when an
+            # agent restarts and the next observation has another timestamp or verdict.
+            if event["count_unit"] != SAMPLE_UNIT and old[0] != fingerprint:
                 raise ValueError("Capture event identity reused for different evidence")
             duplicates += 1
             continue

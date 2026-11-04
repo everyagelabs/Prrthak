@@ -211,6 +211,61 @@ func TestTrafficCapturePythonSignedInterop(t *testing.T) {
 	}
 }
 
+func TestTrafficMinuteSamplingPythonSignedInterop(t *testing.T) {
+	raw, err := os.ReadFile("../../../controller/tests/fixtures/traffic-minute-sampling-v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		At           int64       `json:"at"`
+		Trust        policyTrust `json:"trust"`
+		Policy       Policy      `json:"policy"`
+		NativeEvents []Flow      `json:"native_events"`
+		Receipts     []struct {
+			DuplicateEvents int `json:"duplicate_events"`
+		} `json:"receipts"`
+		FlowRows []Flow `json:"flow_rows"`
+	}
+	if err = json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	if len(fixture.NativeEvents) != 3 || len(fixture.Receipts) != 4 || len(fixture.FlowRows) != 1 ||
+		fixture.Receipts[1].DuplicateEvents != 1 || fixture.Receipts[3].DuplicateEvents != 2 ||
+		fixture.FlowRows[0].CountUnit != "sample_minutes" || fixture.FlowRows[0].Count != 2 {
+		t.Fatalf("Python did not retain two unique minutes across retries: %+v", fixture.FlowRows)
+	}
+	c := Config{Enforce: true, StateDir: t.TempDir(), MaxSpoolBatches: 5,
+		PolicySigningDeploymentID: fixture.Trust.DeploymentID, PolicySigningKeys: fixture.Trust.Keys}
+	if err := validatePolicySignatureAt(c, &fixture.Policy, time.Unix(fixture.At, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidatePolicy(&fixture.Policy); err != nil {
+		t.Fatal(err)
+	}
+	if len(fixture.Policy.LearningSessions) != 1 || fixture.Policy.LearningSessions[0].TrafficCollectionMode != "sampled" {
+		t.Fatal("signed Python assignment lost its sampled mode")
+	}
+	session := fixture.Policy.LearningSessions[0]
+	flows := make([]capturedFlow, 0, len(fixture.NativeEvents))
+	for _, event := range fixture.NativeEvents {
+		flows = append(flows, capturedFlow{Flow: event})
+	}
+	for i := 0; i < 2; i++ {
+		// A restart loses the in-memory cache, but exact replay preserves IDs
+		// and reuses the private spool batch instead of appending another batch.
+		a := &Agent{Config: c, State: State{Policy: &fixture.Policy}}
+		if err := a.storeCapturedFlows(flows); err != nil {
+			t.Fatal(err)
+		}
+	}
+	spooled := minuteSamplingTestBatches(t, filepath.Join(c.StateDir, "spool"))[session.ID]
+	if len(spooled) != 2 || spooled[0].EventID != trafficSampleID(session.ID, fixture.NativeEvents[0]) ||
+		spooled[1].EventID != trafficSampleID(session.ID, fixture.NativeEvents[2]) ||
+		!validTypedCapture(spooled[0], spooled[0].EventID) || !validTypedCapture(spooled[1], spooled[1].EventID) {
+		t.Fatalf("agent did not preserve typed evidence and stable identity for each sampled minute: %+v", spooled)
+	}
+}
+
 func TestTrafficCaptureTypedKindsRemainDifferentCountUnits(t *testing.T) {
 	kinds := []string{captureAccepted, captureDenied}
 	sort.Strings(kinds)

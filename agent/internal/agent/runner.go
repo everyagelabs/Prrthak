@@ -28,6 +28,7 @@ type Agent struct {
 	fastDiscoveryReport                  FastDiscoveryReport
 	listenerSnapshot                     func(context.Context) (listenerSnapshot, error)
 	trafficCapture                       nativeCapture
+	trafficMinuteSamples                 trafficMinuteSampler
 	nextCaptureCheck                     time.Time
 	captureCoverage                      TrafficCaptureCoverage
 	captureScopeKey                      string

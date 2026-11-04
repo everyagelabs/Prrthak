@@ -98,6 +98,7 @@ def synthetic_capture_coverage():
 
 def mark_synthetic_hosts(store):
     """Migrate only the known demo seed IDs; never mark arbitrary reported agents."""
+    from .learning import TRAFFIC_SAMPLING_CAPABILITY
     from .maintenance import seed_disabled
     if seed_disabled(store):
         return
@@ -107,7 +108,7 @@ def mark_synthetic_hosts(store):
             if server:
                 server["synthetic"] = True
                 server["agent_version"] = "0.9.0-synthetic"
-                server["capabilities"] = ["learning_discovery_v1","traffic_capture_v1"]
+                server["capabilities"] = ["learning_discovery_v1", "traffic_capture_v1", TRAFFIC_SAMPLING_CAPABILITY]
                 if server.get('learning_coverage'):server['learning_coverage'].update(synthetic_capture_coverage())
                 server.setdefault("discovery_interval_seconds", 900)
                 if not server.get("firewall_snapshot"):

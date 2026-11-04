@@ -269,8 +269,11 @@ def reconcile(store, limit=100):
     session_ids = sorted({batch["session_id"] for batch in batches})
     with store.read_meta() as db:
         purpose = _expression(db, ("purpose",))
+        collection_mode = _expression(db, ("traffic_collection_mode",))
         markers = ",".join("?" for _ in session_ids)
-        traffic_sessions = {row[0] for row in db.execute(f"SELECT id FROM sessions WHERE id IN ({markers}) AND {purpose}=?", (*session_ids, TRAFFIC_PURPOSE))}
+        traffic_sessions = {row[0] for row in db.execute(
+            f"SELECT id FROM sessions WHERE id IN ({markers}) AND {purpose}=? AND COALESCE({collection_mode},'hits')<>'sampled'",
+            (*session_ids, TRAFFIC_PURPOSE))}
     with store.flow_lock, store.read_traffic() as db:
         for batch in batches:
             batch["accepted_capture_ids"]={row[0] for row in db.execute("SELECT event_id FROM flows WHERE batch_key=? AND event_id<>'' AND capture_processed=1",(batch["batch_key"],))}
@@ -547,7 +550,7 @@ def recommendations(store, session_id, limit=200, offset=0, server_id=None):
         pending,pending_total=pending_summaries(db,session_id,99 if initial_pending else 100)
         if initial_pending:
             pending.append(pending_summary({**initial, "kind": "initial_learning"}));pending_total+=1
-        return {"session_id": session_id, "purpose": session["purpose"], "evidence_expires_at": session["evidence_expires_at"], "evidence_expired": not available, "policy_action": session.get("policy_action", "observe"), "observation_kinds":session.get("observation_kinds",[]), "evidence_revision": session.get("evidence_revision", 0), "rows": rows, "total_rows": total, "limit": limit, "offset": offset, "has_more": offset + limit < total, "order": "server_id,id", "server_id": server_id, "coverage": {"servers": coverage, "total_servers":len(coverage_all),"limit":100,"offset":0,"has_more":len(coverage_all)>100,"rate_limited": any((row["learning_coverage"] or {}).get("rate_limited", True) for row in coverage), "message": "Transport connections, denied packets and legacy sampled logs have separate count units. Backend support, loss and gaps limit coverage; empty evidence does not prove no hits or application success. Coverage status lists up to 100 hosts; use server_id for another exact member."}, "generated_policies": policies, "generated_policy_total": policy_total, "pending_approvals": pending,"pending_approval_total":pending_total}
+        return {"session_id": session_id, "purpose": session["purpose"], **({"traffic_collection_mode": session["traffic_collection_mode"]} if "traffic_collection_mode" in session else {}), "evidence_expires_at": session["evidence_expires_at"], "evidence_expired": not available, "policy_action": session.get("policy_action", "observe"), "observation_kinds":session.get("observation_kinds",[]), "evidence_revision": session.get("evidence_revision", 0), "rows": rows, "total_rows": total, "limit": limit, "offset": offset, "has_more": offset + limit < total, "order": "server_id,id", "server_id": server_id, "coverage": {"servers": coverage, "total_servers":len(coverage_all),"limit":100,"offset":0,"has_more":len(coverage_all)>100,"rate_limited": any((row["learning_coverage"] or {}).get("rate_limited", True) for row in coverage), "message": "Transport connections, denied packets, sampled minutes and legacy logs have separate count units. Backend support, loss and gaps limit coverage; empty evidence does not prove no hits or application success. Coverage status lists up to 100 hosts; use server_id for another exact member."}, "generated_policies": policies, "generated_policy_total": policy_total, "pending_approvals": pending,"pending_approval_total":pending_total}
 
 
 

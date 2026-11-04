@@ -33,9 +33,11 @@ class PolicyImpactTests(unittest.TestCase):
         self.put("servers", item)
         return item
 
-    def observation(self, source="192.0.2.10", *, server="billing-a", port=443, protocol="tcp", origin="learning", scope="learning-a", kind="accepted_connection", count=1, seconds_ago=20, processed=1):
+    def observation(self, source="192.0.2.10", *, server="billing-a", port=443, protocol="tcp", origin="learning", scope="learning-a", kind="accepted_connection", count=1, seconds_ago=20, processed=1, count_unit=None):
         family = "ipv6" if ":" in source else "ipv4"
         backend, unit, verdict = {"accepted_connection": ("conntrack", "connections", "allowed"), "denied_packet": ("nflog", "packets", "denied"), "legacy_log": ("journal", "log_records", "allowed")}[kind]
+        if count_unit:
+            unit = count_unit
         with self.store.traffic() as db:
             for _ in range(count):
                 self.sequence += 1
@@ -142,18 +144,22 @@ class PolicyImpactTests(unittest.TestCase):
         self.observation(count=3)
         self.observation(kind="denied_packet", count=2)
         self.observation(kind="legacy_log", count=4)
+        self.observation(count_unit="sample_minutes")
         self.observation(origin="monitoring", scope="monitor-a", count=2)
         self.observation(origin="monitoring", scope="monitor-b", kind="denied_packet", count=3)
         result = self.preview()
-        self.assertEqual(result["total"], 5)
+        self.assertEqual(result["total"], 6)
         counts = {(item["origin"], item["capture_scope_id"], item["count_unit"]): item["count"] for item in result["summary"]["counts_by_origin_unit"]}
         self.assertEqual(counts[("learning", "learning-a", "connections")], 3)
         self.assertEqual(counts[("learning", "learning-a", "packets")], 2)
         self.assertEqual(counts[("learning", "learning-a", "log_records")], 4)
+        self.assertEqual(counts[("learning", "learning-a", "sample_minutes")], 1)
         self.assertEqual(counts[("monitoring", "monitor-a", "connections")], 2)
         self.assertEqual(counts[("monitoring", "monitor-b", "packets")], 3)
         legacy = next(row for row in result["items"] if row["capture_kind"] == "legacy_log")
         self.assertTrue(legacy["coverage"]["legacy_sampled_logs"])
+        sampled = next(row for row in result["items"] if row["count_unit"] == "sample_minutes")
+        self.assertTrue(sampled["coverage"]["sampled_minutes"])
         self.assertNotIn("verified", legacy["proposed_decision"])
 
     def test_filters_precede_pagination_and_exclude_pending_or_outside_window_observations(self):

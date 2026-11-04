@@ -180,6 +180,9 @@ func ValidatePolicy(p *Policy) error {
 		if err := validateObservationKinds(s.ObservationKinds); err != nil {
 			return err
 		}
+		if s.TrafficCollectionMode != "" && (s.Purpose != "traffic" || s.TrafficCollectionMode != "sampled" && s.TrafficCollectionMode != "hits") {
+			return errors.New("invalid traffic collection mode")
+		}
 		if s.PolicyAction != "" && s.PolicyAction != "observe" && s.PolicyAction != "auto_allow" {
 			return errors.New("invalid learning policy_action")
 		}
