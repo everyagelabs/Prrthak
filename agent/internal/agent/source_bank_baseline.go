@@ -245,6 +245,10 @@ func (a *Agent) sourceBankBaseline(ctx context.Context) (sourceBankBaseline, err
 }
 
 func (a *Agent) sourceBankBaselineState(ctx context.Context, allowInactive bool) (sourceBankBaseline, error) {
+	return a.sourceBankBaselineWithCommands(ctx, allowInactive, a.Commands)
+}
+
+func (a *Agent) sourceBankBaselineWithCommands(ctx context.Context, allowInactive bool, commands CommandRunner) (sourceBankBaseline, error) {
 	result := sourceBankBaseline{Runtime: map[string]sourceBankDefinition{}, Permanent: map[string]sourceBankDefinition{}, RuntimeBindings: map[string]string{}, PermanentBindings: map[string]string{}}
 	result.OwnedRules = append([]ManagedRule{}, a.sourceBankOwnedRulesOverride...)
 	if a.sourceBankOwnedRulesOverride == nil {
@@ -265,22 +269,22 @@ func (a *Agent) sourceBankBaselineState(ctx context.Context, allowInactive bool)
 		}
 		owned[rule.Zone+"\x00"+managedSemanticKey(rule.Rule)] = true
 	}
-	state, err := a.Commands.Run(ctx, "firewall-cmd", "--state")
+	state, err := commands.Run(ctx, "firewall-cmd", "--state")
 	if err != nil || strings.TrimSpace(state) != "running" {
 		return result, errors.New("firewalld is not running")
 	}
-	if text, _ := a.Commands.Run(ctx, "ufw", "status"); strings.Contains(strings.ToLower(text), "status: active") {
+	if text, _ := commands.Run(ctx, "ufw", "status"); strings.Contains(strings.ToLower(text), "status: active") {
 		return result, errors.New("UFW is active; source-bank activation refused")
 	}
 	contextValues := map[string]string{}
 	for _, option := range []string{"--get-default-zone", "--get-log-denied"} {
-		text, err := a.Commands.Run(ctx, "firewall-cmd", option)
+		text, err := commands.Run(ctx, "firewall-cmd", option)
 		if err != nil || strings.TrimSpace(text) == "" || len(text) > 1024 {
 			return result, errors.New("firewalld global state cannot be inspected")
 		}
 		contextValues[option] = strings.TrimSpace(text)
 	}
-	panicState, panicErr := a.Commands.Run(ctx, "firewall-cmd", "--query-panic")
+	panicState, panicErr := commands.Run(ctx, "firewall-cmd", "--query-panic")
 	if strings.TrimSpace(panicState) != "no" || panicErr == nil { // no normally exits 1; tolerate successful fake/readers below.
 		if strings.TrimSpace(panicState) != "no" {
 			return result, errors.New("panic mode is active or unknown")
@@ -291,7 +295,7 @@ func (a *Agent) sourceBankBaselineState(ctx context.Context, allowInactive bool)
 	activeZones := map[string]bool{contextValues["--get-default-zone"]: true}
 	activeServices := map[string]bool{}
 	for _, scope := range []string{"runtime", "permanent"} {
-		text, err := a.Commands.Run(ctx, "firewall-cmd", firewallArgs(scope, "--list-all-zones")...)
+		text, err := commands.Run(ctx, "firewall-cmd", firewallArgs(scope, "--list-all-zones")...)
 		if err != nil || len(text) > 512<<10 {
 			return result, errors.New("complete zone inventory unavailable")
 		}
@@ -327,12 +331,12 @@ func (a *Agent) sourceBankBaselineState(ctx context.Context, allowInactive bool)
 			return result, errors.New("runtime and permanent zones differ; review those differences in Firewall before activation")
 		}
 		for _, option := range []string{"--get-all-rules", "--get-all-passthroughs", "--get-all-chains"} {
-			text, err := a.Commands.Run(ctx, "firewall-cmd", firewallArgs(scope, "--direct", option)...)
+			text, err := commands.Run(ctx, "firewall-cmd", firewallArgs(scope, "--direct", option)...)
 			if err != nil || strings.TrimSpace(text) != "" {
 				return result, errors.New("direct rules, chains or passthroughs block source-bank activation")
 			}
 		}
-		policyNames, err := a.Commands.Run(ctx, "firewall-cmd", firewallArgs(scope, "--get-policies")...)
+		policyNames, err := commands.Run(ctx, "firewall-cmd", firewallArgs(scope, "--get-policies")...)
 		if err != nil && !unsupportedFirewallCommand(policyNames) {
 			return result, errors.New("policy context unavailable")
 		}
@@ -347,8 +351,8 @@ func (a *Agent) sourceBankBaselineState(ctx context.Context, allowInactive bool)
 			if !firewallName.MatchString(name) {
 				return result, errors.New("invalid policy name")
 			}
-			details, err := a.Commands.Run(ctx, "firewall-cmd", firewallArgs(scope, "--policy="+name, "--list-all")...)
-			if name == egressPolicyName && err == nil && OwnedEgressPolicyContext(ctx, a.Commands, a.Config.StateDir) == nil {
+			details, err := commands.Run(ctx, "firewall-cmd", firewallArgs(scope, "--policy="+name, "--list-all")...)
+			if name == egressPolicyName && err == nil && OwnedEgressPolicyContext(ctx, commands, a.Config.StateDir) == nil {
 				contextValues[scope+":policy:"+name] = shaText(details)
 				continue
 			}
@@ -357,7 +361,7 @@ func (a *Agent) sourceBankBaselineState(ctx context.Context, allowInactive bool)
 			}
 			contextValues[scope+":policy:"+name] = "verified-default-host-ipv6"
 		}
-		names, err := readBankSetNames(ctx, a.Commands, scope)
+		names, err := readBankSetNames(ctx, commands, scope)
 		if err != nil {
 			return result, err
 		}
@@ -365,7 +369,7 @@ func (a *Agent) sourceBankBaselineState(ctx context.Context, allowInactive bool)
 			if a.sourceBankSkipInventory {
 				continue
 			}
-			definition, err := bankDefinition(ctx, a.Commands, scope, name)
+			definition, err := bankDefinition(ctx, commands, scope, name)
 			if err != nil {
 				return result, err
 			}
@@ -403,7 +407,7 @@ func (a *Agent) sourceBankBaselineState(ctx context.Context, allowInactive bool)
 			}
 			first := ""
 			for _, scope := range []string{"runtime", "permanent"} {
-				text, err := a.Commands.Run(ctx, "firewall-cmd", firewallArgs(scope, "--info-"+item.kind+"="+name)...)
+				text, err := commands.Run(ctx, "firewall-cmd", firewallArgs(scope, "--info-"+item.kind+"="+name)...)
 				if err != nil || len(text) > 65536 {
 					return result, errors.New("referenced service/ICMP definition unavailable")
 				}
@@ -465,7 +469,7 @@ func (a *Agent) sourceBankBaselineState(ctx context.Context, allowInactive bool)
 		}
 		contextValues["global-config"] = value
 	} else {
-		digest, err := firewallActivationGlobalConfigDigest(ctx, a.Config.StateDir, "", a.Commands)
+		digest, err := firewallActivationGlobalConfigDigest(ctx, a.Config.StateDir, "", commands)
 		if err != nil {
 			return result, err
 		}

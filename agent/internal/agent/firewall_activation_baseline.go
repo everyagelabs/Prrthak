@@ -315,17 +315,14 @@ func (a *Agent) firewallActivationBaseline(ctx context.Context, operation string
 		return block(err)
 	}
 	if facts.FirewalldActive {
-		baselineAgent := a
+		commands := a.Commands
 		if operation == "deactivate_existing" {
-			commands, err := firewallDeactivationCommands(ctx, a.Commands, baseline.Files)
+			commands, err = firewallDeactivationCommands(ctx, commands, baseline.Files)
 			if err != nil {
 				return block(err)
 			}
-			copy := *a
-			copy.Commands = commands
-			baselineAgent = &copy
 		}
-		bank, err := baselineAgent.sourceBankBaseline(ctx)
+		bank, err := a.sourceBankBaselineWithCommands(ctx, false, commands)
 		if err != nil {
 			return block(err)
 		}
