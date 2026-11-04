@@ -4,6 +4,7 @@ function notificationDemo(){return state.authType==='demo'||state.data?.meta?.de
 
 const notificationEventChoices = [
   {kind:'service_discovered',label:'New services'},
+  {kind:'service_down',label:'Service down'},
   {kind:'traffic_burst',label:'Monitored traffic bursts'},
   {kind:'admin_change',label:'Admin changes',emailOnly:true},
   {kind:'port_allowed',label:'Confirmed port allowances',emailOnly:true},

@@ -171,6 +171,16 @@ class NotificationTests(unittest.TestCase):
         self.assertEqual(n.enqueue_alerts(self.manager), 1)
         self.assertEqual(n.deliveries(self.store)["items"][0]["event"]["alert_id"], "eligible")
 
+    def test_email_can_subscribe_only_to_service_down_alerts(self):
+        self.alert("old-outage", kind="service_down")
+        self.configure(self.body([self.email_channel(event_types=["service_down"], minimum_severity="warning")]))
+        self.alert("outage", kind="service_down")
+        self.alert("unrelated", kind="service_discovered", severity="critical")
+        self.assertEqual(n.enqueue_alerts(self.manager), 1)
+        delivery = n.deliveries(self.store)["items"][0]
+        self.assertEqual(delivery["channel_type"], "email")
+        self.assertEqual(delivery["event"]["alert_id"], "outage")
+
     def test_traffic_burst_requires_explicit_selection_and_only_new_occurrences_are_sent(self):
         self.configure(self.body([self.email_channel()]))
         self.alert("existing-burst", kind="traffic_burst")

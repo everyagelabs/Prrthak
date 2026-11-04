@@ -8,7 +8,13 @@ function networkControlHTML(){
 async function loadNetworkControl(redraw=true){
  const owner=networkControlIdentity(),serial=(state.networkControlSerial||0)+1;state.networkControlSerial=serial;
  try{const page=await api('/network-control?limit=50&offset='+num(state.networkControlOffset||0));if(owner!==networkControlIdentity()||serial!==state.networkControlSerial)return;state.networkControlOwner=owner;state.networkControlPage=page;state.networkControlError='';}catch(error){if(owner!==networkControlIdentity()||serial!==state.networkControlSerial)return;state.networkControlError='Network-control history is unavailable: '+error.message;}
- if(redraw&&state.view==='network-control'&&!$('#modal').open)render();
+ if(redraw&&state.view==='policies'&&state.networkControlOpen&&!$('#modal').open)render();
+}
+function networkControlToggle(event) {
+ const details = event.target;
+ if (details.id !== 'advanced-network-controls' || details.isConnected === false || state.view !== 'policies' || details.open === state.networkControlOpen) return;
+ state.networkControlOpen = details.open;
+ if (details.open) loadNetworkControl();
 }
 function networkServiceRowHTML(){return `<div class="field-row network-service-row"><div class="field"><label>Port<input name="egress_port" type="number" min="1" max="65535" value="443"></label></div><div class="field"><label>Protocol<select name="egress_protocol"><option value="tcp">TCP</option><option value="udp">UDP</option></select></label></div><div class="field"><label>Destination IPs / CIDRs<input name="egress_destinations" placeholder="10.20.0.0/16, 2001:db8::/64"></label><label class="host-check"><input name="egress_deny_port" type="checkbox">Deny this port to every unprotected destination</label></div><button type="button" class="text-button" data-action="network-control-remove-service">Remove row</button></div>`;}
 function showNetworkControlForm(kind){

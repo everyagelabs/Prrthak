@@ -4,9 +4,9 @@
   else root.PrithakPlatform=api;
 }(typeof globalThis!=='undefined'?globalThis:this,function(){
   'use strict';
-  const tabs=[['overview','Overview'],['setup','Setup'],['cluster','Cluster'],['storage','Storage'],['backups','Backups'],['recovery','Recovery'],['services','Services'],['updates','Updates'],['certificates','Certificates'],['agents','Agent polling'],['agent-upgrades','Agent upgrades'],['notifications','Notifications'],['siem','SIEM export'],['signing','Policy signing']];
+  const tabs=[['overview','Overview'],['setup','Setup'],['cluster','Cluster'],['backups','Backups'],['services','Services'],['updates','Updates'],['certificates','Certificates'],['agents','Agent polling'],['agent-upgrades','Agent upgrades'],['notifications','Notifications'],['siem','SIEM export']];
   function canConfigure(role){return role==='super_admin';}
-  function tab(value){return tabs.some(([key])=>key===value)||['demo','database','controllers'].includes(value)?value:'overview';}
+  function tab(value){if(value==='storage'||value==='signing')return 'setup';if(value==='recovery')return 'backups';return tabs.some(([key])=>key===value)||['demo','database','controllers'].includes(value)?value:'overview';}
   function connectionLabel(value){
     if(typeof value!=='string'||!value.trim())return 'Not configured';
     try{const parsed=new URL(value);if(!['postgres:','postgresql:','https:','http:'].includes(parsed.protocol))return 'Configured endpoint';return `${parsed.protocol}//${parsed.hostname}${parsed.port?':'+parsed.port:''}${parsed.pathname==='/'?'':parsed.pathname}`;}

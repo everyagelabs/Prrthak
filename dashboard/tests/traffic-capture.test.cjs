@@ -44,6 +44,17 @@ test('the production traffic chart selects a count unit instead of summing conne
  let html=env.run('chartHTML()');assert.match(html,/<strong>2<\/strong><span>connections/);assert.doesNotMatch(html,/<strong>509<\/strong>/);
  env.run("state.captureUnit='packets'");html=env.run('chartHTML()');assert.match(html,/<strong>500<\/strong><span>denied packets/);
  env.run("state.captureUnit='log_records'");html=env.run('chartHTML()');assert.match(html,/<strong>7<\/strong><span>legacy log records/);assert.match(html,/Legacy reported allowed/);
+ env.run("state.view='traffic';state.captureUnit='packets'");html=env.run('chartHTML()');assert.match(html,/id="traffic-chart-unit"/);assert.match(html,/<strong>500<\/strong><span>denied packets/);assert.doesNotMatch(html,/Legacy observed|aria-label="Traffic window"/);
+});
+
+test('traffic shows a short coverage summary with technical receipts collapsed by default',()=>{
+ const env=ui();
+ assert.match(env.run('trafficCaptureStatusHTML()'),/<summary>Capture coverage <strong>No reports yet<\/strong><\/summary>/);
+ env.context.filteredServers=()=>[{hostname:'db-1',learning_coverage:{session_id:'receipt-1',capture_backends:[{backend:'nflog',status:'active',ipv4:true,ipv6:false,lost_events:null}]}}];
+ const html=env.run('trafficCaptureStatusHTML()');
+ assert.match(html,/<details class="traffic-coverage limited" >\s*<summary>Capture coverage <strong>Limited<\/strong><\/summary>/);
+ assert.match(html,/<div class="traffic-coverage-details">.*receipt-1.*IPv6 unavailable/);
+ assert.match(env.run('state.trafficCoverageOpen=true;trafficCaptureStatusHTML()'),/<details class="traffic-coverage limited" open>/);
 });
 
 test('Discover traffic is metadata-only for up to 30 days and Discover policy uses the protected auto-allow flow',()=>{

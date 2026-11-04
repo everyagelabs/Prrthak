@@ -15,6 +15,10 @@ test('each section has a distinct direct URL and refresh resolves only that sect
 test('legacy hash bookmarks migrate to section paths without losing query strings', () => {
   assert.equal(routes.legacyDestination('/', '#servers'), '/servers');
   assert.equal(routes.legacyDestination('/overview', '#traffic', '?window=3600'), '/traffic?window=3600');
+  assert.equal(routes.viewFromPath('/network-control'), 'policies');
+  assert.equal(routes.advancedPolicies('/network-control', ''), true);
+  assert.equal(routes.legacyDestination('/', '#network-control', '?window=3600'), '/policies?window=3600&section=advanced');
+  assert.equal(routes.advancedPolicies('/policies', '?section=advanced'), true);
   assert.equal(routes.legacyDestination('/', '#untrusted'), null);
 });
 test('service identity comes from process or unit and works on a nonstandard SSH port', () => {

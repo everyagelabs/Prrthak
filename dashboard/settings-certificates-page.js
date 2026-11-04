@@ -13,38 +13,54 @@ function platformClearCertificateUpload(){
 function platformCertificateDetailsHTML(certificate={}){
   return `<dl class="detail-grid"><div><dt>Subject</dt><dd>${h(certificate.subject || 'Not reported')}</dd></div><div><dt>Issuer</dt><dd>${h(certificate.issuer || 'Not reported')}</dd></div><div><dt>Expires</dt><dd>${h(timestamp(certificate.not_after || certificate.expires_at))}</dd></div><div><dt>DNS / IP names</dt><dd>${h((certificate.sans || []).join(', ') || 'Not reported')}</dd></div></dl>${certificate.fingerprint || certificate.fingerprint_sha256?`<p class="help-text">SHA-256 fingerprint</p><code class="platform-certificate-fingerprint">${h(certificate.fingerprint_sha256 || certificate.fingerprint)}</code>`:''}`;
 }
+function platformCertificateSubjectDefault(value) {
+  const label = String(value || '').trim();
+  if (/[\p{C}\p{Z}]/u.test(label.replaceAll(' ', ''))) return '';
+  return new TextEncoder().encode(label).length <= 64 ? label : '';
+}
 function platformCertificateGenerationFields(info, certificate, mode) {
-  const hostname = info.hostname || '';
-  const additionalNames = [...new Set(certificate.sans || [])].filter(name => name !== hostname);
+  const {cluster = {}, identity = {}} = state.platformAppliance || {};
+  let savedHostname = '';
+  try {
+    const origin = new URL(cluster.origin);
+    if (origin.protocol === 'https:') savedHostname = origin.hostname.replace(/^\[|\]$/g, '');
+  } catch {}
+  const hostname = savedHostname || info.hostname || identity.ip || '';
+  const commonName = platformCertificateSubjectDefault(savedHostname ? hostname : certificate.common_name || hostname);
+  const organization = platformCertificateSubjectDefault(cluster.name) || certificate.organization || '';
+  const unit = platformCertificateSubjectDefault(identity.site) || certificate.organizational_unit || '';
+  const additionalNames = [...new Set([info.hostname, identity.ip, ...(certificate.sans || [])])]
+    .filter(name => name && name.toLowerCase() !== hostname.toLowerCase()).slice(0, 100);
   const issuerHelp = info.generation_issuer === 'existing_local_issuer'
     ? 'The configured local CA signs the replacement and supplies the issuer name.'
     : info.generation_issuer === 'literal_self_signed'
-      ? 'The new subject also becomes the issuer. Clients need to trust the new self-signed certificate.'
-      : 'The issuer comes from the signing CA or matches the subject for a self-signed certificate.';
+      ? 'Clients need to trust the new self-signed certificate.'
+      : 'The review shows the signing authority and client trust changes.';
   return `<div id="certificate-self-signed-fields" ${mode !== 'self_signed' ? 'hidden' : ''}>
-    <p class="inline-notice">${issuerHelp} The review shows the resulting identity and any change to client trust.</p>
+    <p class="help-text">${hostname ? `Generate for <strong>${h(hostname)}</strong>${cluster.name ? ' · ' + h(cluster.name) : ''}${identity.site ? ' · ' + h(identity.site) : ''}.` : 'Enter the controller’s HTTPS address.'} ${issuerHelp}</p>
+    <details id="certificate-identity-details" ${hostname ? '' : 'open'}>
+      <summary>Certificate names and addresses</summary>
     <div class="field-row">
       <div class="field"><label for="certificate-common-name">Subject common name (CN)</label>
-        <input id="certificate-common-name" name="subject_common_name" value="${h(certificate.common_name || hostname)}" maxlength="64" placeholder="prthak.example.com">
-        <small>Leave blank to use the HTTPS hostname or IP as the common name.</small>
+        <input id="certificate-common-name" name="subject_common_name" value="${h(commonName)}" maxlength="64" placeholder="prthak.example.com">
       </div>
       <div class="field"><label for="certificate-hostname">Controller HTTPS hostname or IP</label>
         <input id="certificate-hostname" name="hostname" value="${h(hostname)}" maxlength="253" placeholder="prthak.example.com">
-        <small>The replacement includes this address and the controller’s configured HTTPS hostname.</small>
       </div>
     </div>
     <div class="field-row">
       <div class="field"><label for="certificate-organization">Organization (O, optional)</label>
-        <input id="certificate-organization" name="subject_organization" value="${h(certificate.organization || '')}" maxlength="64">
+        <input id="certificate-organization" name="subject_organization" value="${h(organization)}" maxlength="64">
       </div>
       <div class="field"><label for="certificate-organizational-unit">Organizational unit (OU, optional)</label>
-        <input id="certificate-organizational-unit" name="subject_organizational_unit" value="${h(certificate.organizational_unit || '')}" maxlength="64">
+        <input id="certificate-organizational-unit" name="subject_organizational_unit" value="${h(unit)}" maxlength="64">
       </div>
     </div>
     <div class="field"><label for="certificate-sans">Additional DNS names and IP addresses</label>
       <textarea id="certificate-sans" name="sans" rows="3" placeholder="controller-noida.example.com, 10.241.10.11">${h(additionalNames.join('\n'))}</textarea>
-      <small>Separate entries with commas, spaces, or new lines. Browsers use these names to verify the address they open.</small>
+      <small>Separate addresses with commas or new lines.</small>
     </div>
+    </details>
   </div>`;
 }
 
@@ -55,30 +71,32 @@ function platformCertificatesHTML() {
   return `<section class="card platform-panel">
     <div class="section-line">
       <h2>Controller HTTPS certificate</h2>
-      <div class="toolbar-group">
-        <button type="button" class="text-button" data-action="platform-certificate-refresh">Reload details</button>
-        <button type="button" class="button secondary small" data-action="platform-certificate-edit-identity">Edit certificate names</button>
-        <button type="button" class="button primary small" data-action="platform-certificate-regenerate" ${info.hostname ? '' : 'disabled'}>Regenerate certificate</button>
-      </div>
+      <button type="button" class="text-button" data-action="platform-certificate-refresh">Reload details</button>
     </div>
     ${state.platformCertificatesError ? `<div class="inline-notice warning">${h(state.platformCertificatesError)}</div>` : ''}
     ${(info.warnings || []).map(warning => `<p class="inline-notice warning">${h(warning)}</p>`).join('')}
     ${platformCertificateDetailsHTML(certificate)}
-    <p class="help-text">This is the reported current certificate. Imported or generated material becomes active only after the reviewed restart and verification.</p>
+    <p class="help-text">A replacement takes effect after restart and verification.</p>
   </section>
   <section class="card platform-panel">
     <h2>Replace the certificate</h2>
-    <p class="help-text">Choose a certificate source. The identity of an imported certificate comes from the signed file.</p>
     <form id="platform-certificate-form">
       <div id="platform-certificate-error" class="form-error" role="alert" hidden></div>
       <div class="field">
         <label for="platform-certificate-mode">Certificate source</label>
         <select id="platform-certificate-mode" name="mode">
-          <option value="pem" ${mode === 'pem' ? 'selected' : ''}>Import PEM certificate and private key</option>
-          <option value="pkcs12" ${mode === 'pkcs12' ? 'selected' : ''}>Import PKCS#12 (.p12 / .pfx)</option>
-          <option value="self_signed" ${mode === 'self_signed' ? 'selected' : ''}>Generate a replacement certificate</option>
+          <option value="ca_signed" ${mode !== 'self_signed' ? 'selected' : ''}>Import CA-signed certificate</option>
+          <option value="self_signed" ${mode === 'self_signed' ? 'selected' : ''}>Generate self-signed certificate</option>
         </select>
       </div>
+      <div id="certificate-ca-signed-fields" ${mode === 'self_signed' ? 'hidden' : ''}>
+        <div class="field">
+          <label for="platform-certificate-format">File format</label>
+          <select id="platform-certificate-format" name="format">
+            <option value="pem" ${mode !== 'pkcs12' ? 'selected' : ''}>PEM</option>
+            <option value="pkcs12" ${mode === 'pkcs12' ? 'selected' : ''}>PKCS#12 (.p12 / .pfx)</option>
+          </select>
+        </div>
       <div id="certificate-pem-fields" ${mode !== 'pem' ? 'hidden' : ''}>
         <div class="field">
           <label for="certificate-pem">PEM certificate / chain</label>
@@ -87,7 +105,6 @@ function platformCertificatesHTML() {
         <div class="field">
           <label for="certificate-key-pem">PEM private key</label>
           <textarea id="certificate-key-pem" name="private_key_pem" class="appliance-masked-secret" rows="4" spellcheck="false" autocomplete="off"></textarea>
-          <small>Private material is submitted only to this controller. Existing private keys are never shown or downloaded here.</small>
         </div>
         <div class="field">
           <label for="certificate-key-password">PEM key password (if encrypted)</label>
@@ -112,38 +129,45 @@ function platformCertificatesHTML() {
           <input id="certificate-pkcs12-password" type="password" name="password" autocomplete="off">
         </div>
       </div>
+      </div>
       ${platformCertificateGenerationFields(info, certificate, mode)}
       <div class="platform-form-actions">
-        <button class="button secondary" type="submit">Validate and review certificate</button>
-        <span class="help-text">Validation checks the certificate chain, hostname and matching key before saving a review. The next screen shows the identity and typed activation confirmation.</span>
+        <button class="button secondary" type="submit">Review certificate</button>
       </div>
     </form>
-  </section>${platformEndpointCertificatesHTML()}${platformInternalCertificatesHTML()}${platformJobsHTML()}`;
+  </section><details class="card platform-panel"><summary>Endpoint and cluster certificates</summary>${platformEndpointCertificatesHTML()}${platformInternalCertificatesHTML()}</details>`;
 }
-async function loadPlatformCertificates(){
-  if(!canManagePlatform())return;await loadEndpointCertificates(false);try{state.platformCertificates=await api('/platform/certificates');state.platformCertificatesError='';}catch(error){state.platformCertificatesError='Certificate status is unavailable: '+error.message;}if(state.view==='settings'&&!platformHasDraft()&&!$('#modal').open&&!document.activeElement?.matches('input,select,textarea'))render();
+async function loadPlatformCertificates() {
+  if (!canManagePlatform()) return;
+  await Promise.all([
+    loadEndpointCertificates(false),
+    loadPlatformAppliance(),
+    api('/platform/certificates').then(info => {
+      state.platformCertificates = info;
+      state.platformCertificatesError = '';
+    }, error => {
+      state.platformCertificatesError = 'Certificate status is unavailable: ' + error.message;
+    })
+  ]);
+  if (state.view === 'settings' && !platformHasDraft() && !$('#modal').open && !document.activeElement?.matches('input,select,textarea')) render();
 }
 function platformSetCertificateMode(mode) {
   platformClearCertificateUpload();
   state.platformCertificateMode = mode;
-  $('#platform-certificate-mode').value = mode;
+  $('#platform-certificate-mode').value = mode === 'self_signed' ? mode : 'ca_signed';
+  if (mode !== 'self_signed') $('#platform-certificate-format').value = mode;
   $('#certificate-pkcs12-file').value = '';
   $('#certificate-file-status').textContent = 'Choose a .p12 or .pfx file, or paste base64 below. Maximum 2 MiB.';
+  $('#certificate-ca-signed-fields').hidden = mode === 'self_signed';
   $('#certificate-pem-fields').hidden = mode !== 'pem';
   $('#certificate-pkcs12-fields').hidden = mode !== 'pkcs12';
   $('#certificate-self-signed-fields').hidden = mode !== 'self_signed';
 }
-function platformOpenCertificateGeneration({preview = false} = {}) {
-  if (!canManagePlatform()) return;
-  const form = $('#platform-certificate-form');
-  if (!form || $('button[type="submit"]', form).disabled) return;
-  platformSetCertificateMode('self_signed');
-  platformMarkDraft(form);
-  if (preview) form.requestSubmit();
-  else $('#certificate-common-name').focus();
-}
 function platformCertificateChange(event){
-  if(event.target.id==='platform-certificate-mode'){platformSetCertificateMode(event.target.value);return true;}
+  if(event.target.id==='platform-certificate-mode'){
+    platformSetCertificateMode(event.target.value==='self_signed'?'self_signed':$('#platform-certificate-format').value || 'pem');return true;
+  }
+  if(event.target.id==='platform-certificate-format'){platformSetCertificateMode(event.target.value);return true;}
   if(event.target.id==='certificate-pkcs12-file'){
     platformClearCertificateUpload();const file=event.target.files?.[0];if(!file){$('#certificate-file-status').textContent='Choose a .p12 or .pfx file, or paste base64 below. Maximum 2 MiB.';return true;}if(file.size>2*1024*1024){$('#certificate-file-status').textContent='Choose a PKCS#12 file no larger than 2 MiB.';return true;}
     const reader=new FileReader(),sequence=state.platformP12ReadSequence,owner=platformCertificateUploadIdentity();state.platformP12Reader=reader;state.platformP12Loading=true;$('#certificate-file-status').textContent='Reading '+file.name+'…';
@@ -161,7 +185,8 @@ async function platformCertificateSubmit(event){
   const isCurrent = () => form.isConnected !== false && owner === platformCertificateUploadIdentity() &&
     sequence === (state.platformP12ReadSequence || 0) && canManagePlatform();
   try{
-    const values=new FormData(form),mode=String(values.get('mode') || 'pem'),body={mode};
+    const values=new FormData(form),source=String(values.get('mode') || 'ca_signed');
+    const mode=source==='ca_signed'?String(values.get('format') || 'pem'):source,body={mode};
     if(mode==='pem'){body.certificate_pem=String(values.get('certificate_pem') || '').trim();body.private_key_pem=String(values.get('private_key_pem') || '').trim();if(values.get('key_password'))body.key_password=String(values.get('key_password'));if(!body.certificate_pem||!body.private_key_pem)throw new Error('Provide the PEM certificate and its matching private key.');}
     else if(mode==='pkcs12'){const pasted=String(values.get('pkcs12_base64')||'').trim();if(!pasted&&state.platformP12Loading)throw new Error('Wait for the selected PKCS#12 file to finish reading.');if(!pasted&&state.platformP12Base64&&state.platformP12Owner!==platformCertificateUploadIdentity()){platformClearCertificateUpload();throw new Error('Choose the PKCS#12 file again after signing in.');}body.pkcs12_base64=pasted||state.platformP12Base64||'';body.password=String(values.get('password') || '');if(!body.pkcs12_base64)throw new Error('Upload a PKCS#12 file or paste its base64 content.');}
     else if (mode === 'self_signed') {

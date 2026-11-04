@@ -68,7 +68,7 @@ test('workspace links switch views without another sign-in check and restore Bac
  for (const [path, title, label] of [
   ['/locations', 'Location catalogue', ''],
   ['/policies', 'Access policies', 'Discover policy'],
-  ['/traffic', 'Traffic intelligence', 'Discover traffic'],
+  ['/traffic', 'Traffic', 'Discover traffic'],
   ['/servers', 'Server inventory', '']
  ]) {
   assert.equal(clickWorkspaceLink(env, path), true);
@@ -84,7 +84,7 @@ test('workspace links switch views without another sign-in check and restore Bac
  assert.ok(env.requests.some(({url}) => url === '/api/v1/metadata/subnets'));
  assert.deepEqual(env.routeHistory, ['/locations', '/policies', '/traffic', '/servers']);
  env.popRoute('/traffic');
- assert.equal(env.element('#page-title').textContent, 'Traffic intelligence');
+ assert.equal(env.element('#page-title').textContent, 'Traffic');
  env.popRoute('/servers');
  assert.equal(env.element('#page-title').textContent, 'Server inventory');
  assert.equal(env.context.document.activeElement, env.element('#main'));
@@ -114,6 +114,9 @@ test('Super Admin can save the selected controller display name and the workspac
   'PUT /api/v1/platform/controller-name': {controller_id: 'node-1', display_name: 'Primary DC'}
  }});
  assert.equal(env.element('#controller-display-name').textContent, 'Original');
+ assert.doesNotMatch(env.element('#view-content').innerHTML, /Edit display name/);
+ await env.click('platform-tab', {tab:'setup'});
+ assert.match(env.element('#view-content').innerHTML, /Edit display name/);
  await env.click('platform-appliance-controller-name');
  assert.match(env.element('#modal-content').innerHTML, /value="Original"/);
  await env.submit('platform-controller-name-form', {display_name: 'Primary DC'});
@@ -130,7 +133,7 @@ test('account shell moves real identity to the top right and keeps controller an
  const env=await workspace('servers',{mode:'entra',role:'admin',identity:{role:'admin',auth_type:'session',csrf_token:'session-csrf-fixture',user:{id:'own-user',display_name:'Maya <Owner>',email:'maya@example.test',role:'admin',tenant_id:'tenant-one',object_id:'object-one'}}});assert.equal(env.element('#identity-avatar').textContent,'MO');assert.equal(env.element('#identity-name').textContent,'Maya <Owner>');assert.equal(env.element('#role-label').textContent,'Admin');await env.click('account-toggle');assert.equal(env.element('#account-menu-toggle').getAttribute('aria-expanded'),'true');assert.match(env.element('#account-menu-panel').innerHTML,/Maya &lt;Owner&gt;/);assert.doesNotMatch(env.element('#account-menu-panel').innerHTML,/<Owner>/);await env.click('account-profile');const html=env.element('#modal-content').innerHTML;assert.match(html,/Entra-managed identity is read-only/);assert.match(html,/Microsoft Entra ID/);assert.match(html,/maya@example\.test/);assert.match(html,/tenant-one/);assert.doesNotMatch(html,/<form|name="role"|name="display_name"/);assert.equal(mutations(env).length,0);
 });
 test('account Manage users shortcut preserves existing Super Admin gates and profile access for all three roles',async()=>{
- for(const role of ['read_only','admin','super_admin']){const env=await workspace('servers',{mode:'entra',role});await env.click('account-toggle');const html=env.element('#account-menu-panel').innerHTML;assert.match(html,/My profile|Display preferences/);assert.equal(html.includes('data-action="account-users"'),role==='super_admin');assert.equal(env.element('#navigation').innerHTML.includes('href="/access"'),role==='super_admin');await env.click('account-users');assert.deepEqual(env.routeHistory,role==='super_admin'?['/access']:[]);assert.deepEqual(env.navigation,[]);await env.click('account-profile');assert.match(env.element('#modal-content').innerHTML,new RegExp(role==='read_only'?'Read Only':role==='super_admin'?'Super Admin':'Admin'));assert.equal(mutations(env).length,0);}
+ for(const role of ['read_only','admin','super_admin']){const env=await workspace('servers',{mode:'entra',role});await env.click('account-toggle');const html=env.element('#account-menu-panel').innerHTML;assert.match(html,/My profile|Display preferences/);assert.equal(html.includes('data-action="account-users"'),role==='super_admin');assert.equal(env.element('#navigation').innerHTML.includes('href="/access"'),false);assert.equal(env.element('#view-tabs').innerHTML.includes('href="/access"'),false);await env.click('account-users');assert.deepEqual(env.routeHistory,role==='super_admin'?['/access']:[]);assert.deepEqual(env.navigation,[]);await env.click('account-profile');assert.match(env.element('#modal-content').innerHTML,new RegExp(role==='read_only'?'Read Only':role==='super_admin'?'Super Admin':'Admin'));assert.equal(mutations(env).length,0);}
 });
 test('account menu supports arrow Home End Escape Tab outside click and returns focus after profile closes',async()=>{
  const env=await workspace('servers',{mode:'entra'}),{panel,trigger}=accountTestItems(env);let result=accountKey(env,'ArrowDown',trigger);assert.equal(result.prevented,true);assert.equal(env.run('state.accountMenuOpen'),true);assert.equal(env.context.document.activeElement.dataset.action,'account-profile');accountKey(env,'ArrowDown',env.context.document.activeElement);assert.equal(env.context.document.activeElement.dataset.action,'account-preferences');accountKey(env,'End',env.context.document.activeElement);assert.equal(env.context.document.activeElement.dataset.action,'account-signout');accountKey(env,'Home',env.context.document.activeElement);assert.equal(env.context.document.activeElement.dataset.action,'account-profile');result=accountKey(env,'Escape',env.context.document.activeElement);assert.equal(result.stopped,true);assert.equal(panel.hidden,true);assert.equal(env.context.document.activeElement,trigger);
@@ -152,7 +155,7 @@ test('account sign-out uses existing Entra flow while token disconnect and demo 
  const demo=await workspace('servers');await demo.click('account-toggle');assert.match(demo.element('#account-menu-panel').innerHTML,/No authenticated session to sign out/);assert.doesNotMatch(demo.element('#account-menu-panel').innerHTML,/data-action="account-signout"/);await demo.click('account-signout');assert.equal(demo.run('state.authType'),'demo');assert.equal(mutations(demo).length,0);
 });
 test('all eleven direct page components render with the actual shared shell and module contracts',async()=>{
- for(const view of ['network-control','overview','servers','locations','services','firewall','policies','traffic','alerts','activity','settings','access']){
+ for(const view of ['overview','servers','locations','services','firewall','policies','traffic','risk','alerts','activity','settings','access']){
   const env=await workspace(view),html=env.element('#view-content').innerHTML;
   assert.ok(html.length>30,view+' has rendered content');assert.notEqual(env.element('#page-title').textContent,'',view+' has a title');
   assert.doesNotMatch(html,/\bNaN\b/);assert.equal(env.run('state.view'),view);
@@ -370,7 +373,7 @@ function accessWorkspace(role='super_admin',extra={}){return workspace('access',
 function mutations(env){return env.requests.filter(item=>['POST','PUT','PATCH','DELETE'].includes(item.options.method)&&!['/api/v1/firewall/query','/api/v1/policies/query','/api/v1/learning-policies/query','/api/v1/policy-rollouts/query','/api/v1/host-default-deny/query'].includes(item.url));}
 function assertCookieMutation(request){assert.equal(request.options.credentials,'same-origin');assert.equal(request.options.headers['X-CSRF-Token'],'session-csrf-fixture');assert.equal(request.options.headers.Authorization,undefined);}
 test('only Super Admin sees Users & access and fetches the approved Entra user list',async()=>{
- const superEnv=await accessWorkspace();assert.match(superEnv.element('#navigation').innerHTML,/href="\/access"/);assert.match(superEnv.element('#view-content').innerHTML,/Approved &lt;Operator&gt;/);assert.doesNotMatch(superEnv.element('#view-content').innerHTML,/<Operator>/);assert.match(superEnv.element('#view-content').innerHTML,/data-action="access-user-new"/);assert.equal(superEnv.element('#identity-name').textContent,'Priya Operator');assert.equal(superEnv.element('#role-label').textContent,'Super Admin');
+ const superEnv=await accessWorkspace();assert.doesNotMatch(superEnv.element('#navigation').innerHTML,/href="\/access"/);assert.doesNotMatch(superEnv.element('#view-tabs').innerHTML,/href="\/access"/);assert.match(superEnv.element('#view-content').innerHTML,/Approved &lt;Operator&gt;/);assert.doesNotMatch(superEnv.element('#view-content').innerHTML,/<Operator>/);assert.match(superEnv.element('#view-content').innerHTML,/data-action="access-user-new"/);assert.equal(superEnv.element('#identity-name').textContent,'Priya Operator');assert.equal(superEnv.element('#role-label').textContent,'Super Admin');
  for(const role of ['admin','read_only','operator','viewer']){const env=await accessWorkspace(role);assert.doesNotMatch(env.element('#navigation').innerHTML,/href="\/access"/);assert.doesNotMatch(env.element('#view-tabs').innerHTML,/href="\/access"/);assert.match(env.element('#view-content').innerHTML,/Super Admin access required/);assert.doesNotMatch(env.element('#view-content').innerHTML,/Approved|data-action="access-user/);assert.equal(env.requests.some(item=>item.url==='/api/v1/access/users'),false);await env.click('access-user-new');assert.doesNotMatch(env.element('#modal-content').innerHTML,/id="access-user-form"/);assert.equal(mutations(env).length,0);}
 });
 test('Super Admin grants access only with an explicit existing Entra Object ID and one valid role',async()=>{
@@ -390,18 +393,18 @@ test('revoking user sessions is a separate reviewed Super Admin action',async()=
  for(const role of ['admin','read_only']){const denied=await accessWorkspace(role);await denied.click('access-user-edit',{id:approvedUser.id});await denied.click('access-user-revoke-confirm',{id:approvedUser.id});assert.equal(mutations(denied).length,0);}
 });
 test('configured Entra sign-in redirects to the controller without storing a bearer token',async()=>{
- const env=await workspace('overview',{mode:'entra',authStatus:401,storage:{'segment-token':'stale-role-token'}});const html=env.element('#sign-in-content').innerHTML;assert.match(html,/Sign in with Microsoft/);assert.doesNotMatch(html,/id="login-token"|id="login-form"/);assert.equal(env.storage.has('segment-token'),false);assert.equal(env.requests.every(request=>request.options.headers.Authorization===undefined),true);
+ const env=await workspace('overview',{mode:'entra',authStatus:401,storage:{'segment-token':'stale-role-token'}});const html=env.element('#sign-in-content').innerHTML;assert.match(html,/Sign in with SSO/);assert.doesNotMatch(html,/Microsoft|id="login-token"|id="login-form"/);assert.equal(env.storage.has('segment-token'),false);assert.equal(env.requests.every(request=>request.options.headers.Authorization===undefined),true);
  await env.click('auth-entra-login');assert.deepEqual(env.navigation,['/api/v1/auth/login']);assert.equal(mutations(env).length,0);assert.equal(env.requests.every(request=>request.options.credentials==='same-origin'),true);
 });
 test('unconfigured Entra has no synthetic user or token sign-in and cannot redirect',async()=>{
- const env=await workspace('access',{mode:'entra',authStatus:401,config:{configured:false,login_url:null}});const html=env.element('#sign-in-content').innerHTML;assert.match(html,/Microsoft Entra sign-in is not configured/);assert.doesNotMatch(html,/data-action="auth-entra-login"|id="login-token"|Demo administrator/);assert.equal(env.element('#workspace-shell').hidden,true);assert.equal(env.context.location.pathname,'/login');assert.equal(env.run('state.user'),null);assert.equal(env.requests.some(request=>request.url==='/api/v1/access/users'),false);await env.click('auth-entra-login');assert.deepEqual(env.navigation,[]);
+ const env=await workspace('access',{mode:'entra',authStatus:401,config:{configured:false,login_url:null}});const html=env.element('#sign-in-content').innerHTML;assert.match(html,/Single sign-on is unavailable/);assert.doesNotMatch(html,/data-action="auth-entra-login"|id="login-token"|Demo administrator/);assert.equal(env.element('#workspace-shell').hidden,true);assert.equal(env.context.location.pathname,'/login');assert.equal(env.run('state.user'),null);assert.equal(env.requests.some(request=>request.url==='/api/v1/access/users'),false);await env.click('auth-entra-login');assert.deepEqual(env.navigation,[]);
 });
 test('role token entry is limited to explicit tokens mode and carries no cookie CSRF secret',async()=>{
  const env=await workspace('servers',{mode:'tokens',authStatus:401});assert.match(env.element('#sign-in-content').innerHTML,/id="login-form"/);env.context.apiResponses['/api/v1/auth']={role:'admin',demo:false,auth_type:'token',user:null};await env.submit('login-form',{token:'controller-issued-fixture'});
  assert.equal(env.run('state.role'),'admin');assert.equal(env.storage.get('segment-token'),'controller-issued-fixture');const authenticated=env.requests.filter(request=>request.url==='/api/v1/auth').at(-1);assert.equal(authenticated.options.headers.Authorization,'Bearer controller-issued-fixture');assert.equal(authenticated.options.headers['X-CSRF-Token'],undefined);assert.equal(env.element('#identity-name').textContent,'Role-token session');
 });
 test('session sign-out sends cookie CSRF then clears the displayed identity',async()=>{
- const env=await workspace('servers',{mode:'entra',role:'admin'});await env.run('dashboardLogout()');const request=mutations(env)[0];assert.equal(request.url,'/api/v1/auth/logout');assert.deepEqual(JSON.parse(request.options.body),{});assertCookieMutation(request);assert.equal(env.run('state.user'),null);assert.equal(env.run('state.csrfToken'),'');assert.equal(env.element('#identity-name').textContent,'Sign in required');assert.match(env.element('#sign-in-content').innerHTML,/Sign in with Microsoft/);
+ const env=await workspace('servers',{mode:'entra',role:'admin'});await env.run('dashboardLogout()');const request=mutations(env)[0];assert.equal(request.url,'/api/v1/auth/logout');assert.deepEqual(JSON.parse(request.options.body),{});assertCookieMutation(request);assert.equal(env.run('state.user'),null);assert.equal(env.run('state.csrfToken'),'');assert.equal(env.element('#identity-name').textContent,'Sign in required');assert.match(env.element('#sign-in-content').innerHTML,/Sign in with SSO/);
 });
 test('display email and directory role/group claims cannot grant application roles',async()=>{
  for(const identity of [
@@ -410,7 +413,7 @@ test('display email and directory role/group claims cannot grant application rol
  ]){const env=await workspace('access',{mode:'entra',identity});assert.equal(env.run('state.role'),'read_only');assert.doesNotMatch(env.element('#navigation').innerHTML,/href="\/access"/);assert.equal(env.requests.some(request=>request.url==='/api/v1/access/users'),false);}
 });
 test('demo identity and access status explicitly identify a synthetic workspace',async()=>{
- const env=await workspace('access');assert.match(env.element('#role-label').textContent,/Demo.*Super Admin/);assert.equal(env.element('#identity-name').textContent,'Demo administrator');assert.match(env.element('#view-content').innerHTML,/Synthetic demo workspace/);assert.match(env.element('#view-content').innerHTML,/No Microsoft directory connection is claimed/);assert.doesNotMatch(env.element('#account-menu-panel').innerHTML,/data-action="account-signout"/);assert.match(env.element('#view-content').innerHTML,/data-action="access-user-new" disabled/);
+ const env=await workspace('access');assert.match(env.element('#role-label').textContent,/Demo.*Super Admin/);assert.equal(env.element('#identity-name').textContent,'Demo administrator');assert.match(env.element('#view-content').innerHTML,/Synthetic demo workspace/);assert.doesNotMatch(env.element('#view-content').innerHTML,/Configure SAML|Microsoft/);assert.doesNotMatch(env.element('#account-menu-panel').innerHTML,/data-action="account-signout"/);assert.match(env.element('#view-content').innerHTML,/data-action="access-user-new" disabled/);
 });
 
 test('an Entra page rejects a fabricated role-token form and never treats a demo claim as production elevation',async()=>{
@@ -649,12 +652,44 @@ test('read-only inventory and policy exports send complete current scopes with C
 function compactSession(id,extra={}){return {id,name:'Window '+id,status:'active',summary_only:true,server_ids:['host-1'],server_count:1,selection_mode:'discovered',policy_action:'observe',starts_at:new Date(Date.now()-60000).toISOString(),expires_at:new Date(Date.now()+600000).toISOString(),discovery_pending_count:0,discovery_error_count:0,discovery_no_listeners_count:0,...extra};}
 function compactSessionPage(items,extra={}){return {items,total:14,active_total:9,offset:0,limit:6,has_more:true,...extra};}
 function compactOverview(items,extra={}){const page=compactSessionPage(items,extra);return {...fixture,learning_sessions:items,learning_session_pagination:{...page,items:undefined},stats:{active_learning:page.active_total}};}
-test('compact session history pages explicitly and background overview refresh preserves the selected page',async()=>{
- const first=Array.from({length:6},(_,i)=>compactSession('first-'+i)),second=Array.from({length:6},(_,i)=>compactSession('second-'+i)),env=await workspace('traffic',{mode:'entra',role:'read_only',responses:{'/api/v1/overview':compactOverview(first),'/api/v1/learning?limit=6&offset=6':compactSessionPage(second,{offset:6})}});
- let html=env.element('#view-content').innerHTML;assert.match(html,/Loaded 6 · 1–6 of 14 sessions/);assert.match(html,/9 active globally/);assert.match(html,/Frozen ports and per-host state load separately/);assert.doesNotMatch(html,/No ports selected|confirmed collecting/);assert.equal(env.requests.some(request=>request.url.includes('/hosts?')),false);
- await env.click('learning-session-page',{offset:'6'});html=env.element('#view-content').innerHTML;assert.match(html,/Loaded 6 · 7–12 of 14 sessions/);assert.match(html,/Window second-5/);assert.doesNotMatch(html,/Window first-0/);
- await env.run('load({quiet:true})');assert.equal(env.run('learningSessionPage().offset'),6);assert.match(env.element('#view-content').innerHTML,/Window second-5/);
- env.run('state.search="missing-endpoint";render()');assert.match(env.element('#view-content').innerHTML,/No matching sessions on this loaded page/);assert.match(env.element('#view-content').innerHTML,/do not represent the full filtered history/);assert.equal(mutations(env).length,0);
+test('Traffic recent learning history is on demand, capped at 20, and survives background refresh',async()=>{
+ const recent=Array.from({length:20},(_,i)=>compactSession('recent-'+i,i===19?{status:'stopped'}:{}));
+ for(const catalogue of [false,true]){
+  const overview=compactOverview(recent.slice(0,6),{total:30});
+  overview.meta={...overview.meta,traffic_query_v1:catalogue};
+  const now=new Date().toISOString();
+  const env=await workspace('traffic',{mode:'entra',role:'admin',responses:{
+   '/api/v1/overview':overview,
+   '/api/v1/learning?limit=20&offset=0':compactSessionPage(recent,{limit:20,total:30}),
+   'POST /api/v1/flows/query':options=>({items:[],total:0,endpoint_count:0,counts_by_unit:{connections:0,packets:0,log_records:0},limit:50,offset:0,has_more:false,window_seconds:JSON.parse(options.body).window_seconds,as_of:now,from_time:now,coverage:'None reported.',filter_before_pagination:true})
+  }});
+  const learningReads=()=>env.requests.filter(row=>row.url.startsWith('/api/v1/learning?'));
+  let html=env.element('#view-content').innerHTML;
+  assert.match(html,/aria-expanded="false" aria-controls="traffic-learning-sessions"/);
+  assert.doesNotMatch(html,/Window recent-0|id="traffic-history-purpose"|data-action="discover-traffic"/);
+  assert.match(env.element('#learn-button').innerHTML,/Discover traffic/);
+  assert.equal(learningReads().length,0);
+  await env.click('traffic-learning-sessions');
+  html=env.element('#view-content').innerHTML;
+  assert.match(html,/aria-expanded="true" aria-controls="traffic-learning-sessions"/);
+  assert.match(html,/Latest 20 sessions, live and ended/);
+  assert.match(html,/Window recent-19/);
+  assert.match(html,/>Stopped<\/span>/);
+  assert.doesNotMatch(html,/Previous sessions|Next sessions|Load session history|No ports selected|confirmed collecting/);
+  assert.equal((html.match(/class="learning-card/g)||[]).length,20);
+  assert.equal(learningReads().length,1);
+  await env.run('load({quiet:true})');
+  await new Promise(setImmediate);
+  assert.match(env.element('#view-content').innerHTML,/Window recent-19/);
+  env.run('state.search="missing-endpoint";render()');
+  assert.match(env.element('#view-content').innerHTML,/No matching sessions in recent history/);
+  await env.click('traffic-learning-sessions');
+  const reads=learningReads().length;
+  await env.run('load({quiet:true})');
+  assert.equal(learningReads().length,reads);
+  assert.doesNotMatch(env.element('#view-content').innerHTML,/id="traffic-history-purpose"/);
+  assert.equal(env.requests.some(row=>row.url==='/api/v1/learning'&&row.options.method==='POST'),false);
+ }
 });
 test('server drawer has independent paged history and returning to page one keeps the fresh GET result',async()=>{
  const fleet=[compactSession('fleet')],first=Array.from({length:6},(_,i)=>compactSession('host-first-'+i)),second=[compactSession('host-second')],server={...host,learning_sessions:first,learning_session_pagination:{total:7,active_total:4,limit:6,offset:0,has_more:true}},env=await workspace('traffic',{mode:'entra',role:'read_only',responses:{'/api/v1/overview':compactOverview(fleet),'/api/v1/servers/host-1':server,'/api/v1/learning?limit=6&offset=6&server_id=host-1':compactSessionPage(second,{total:7,offset:6,has_more:false}),'/api/v1/learning?limit=6&offset=0&server_id=host-1':compactSessionPage([compactSession('fresh-first')],{total:1,has_more:false})}});
@@ -662,8 +697,8 @@ test('server drawer has independent paged history and returning to page one keep
  await env.click('learning-session-page',{serverId:'host-1',offset:'0'});assert.match(env.element('#server-drawer').innerHTML,/Window fresh-first/);assert.doesNotMatch(env.element('#server-drawer').innerHTML,/Window host-first-0/);assert.equal(mutations(env).length,0);
 });
 test('large compact membership stays exact while frozen host ports and failures load as a bounded separate page',async()=>{
- const ids=Array.from({length:20000},(_,i)=>'endpoint-'+i);ids[19999]='host-1';const session=compactSession('large',{server_ids:ids,server_count:20000,policy_action:'auto_allow',initial_approval_state:'waiting_for_discovery',discovery_pending_count:1}),page={session_id:'large',items:[{server_id:'host-1',ports:[{port:443,protocol:'tcp'}],status:'ready'},{server_id:'endpoint-1',ports:[{port:5432,protocol:'tcp'}],status:'ready'},{server_id:'endpoint-2',ports:[],status:'pending',pending:true},{server_id:'endpoint-3',ports:[],status:'error',error:'<script>not executable</script>'}],total:20000,limit:50,offset:19950,has_more:false},env=await workspace('traffic',{mode:'entra',role:'read_only',responses:{'/api/v1/overview':compactOverview([session],{total:1,has_more:false}),'/api/v1/learning/large/hosts?limit=50&offset=19950':page}});
- const html=env.element('#view-content').innerHTML;assert.match(html,/20[ ,]000 endpoints/);assert.match(html,/Window large/);assert.doesNotMatch(html,/No ports selected/);env.run('globalThis.nameCalls=0;globalThis.originalServerName=serverName;serverName=()=>{nameCalls++;return "host"}');assert.equal(env.run('sessionTitle({server_ids:Array.from({length:20000},(_,i)=>String(i))})'),'20000 endpoints');assert.equal(env.run('nameCalls'),0);env.run('serverName=originalServerName');
+ const ids=Array.from({length:20000},(_,i)=>'endpoint-'+i);ids[19999]='host-1';const session=compactSession('large',{server_ids:ids,server_count:20000,policy_action:'auto_allow',initial_approval_state:'waiting_for_discovery',discovery_pending_count:1}),page={session_id:'large',items:[{server_id:'host-1',ports:[{port:443,protocol:'tcp'}],status:'ready'},{server_id:'endpoint-1',ports:[{port:5432,protocol:'tcp'}],status:'ready'},{server_id:'endpoint-2',ports:[],status:'pending',pending:true},{server_id:'endpoint-3',ports:[],status:'error',error:'<script>not executable</script>'}],total:20000,limit:50,offset:19950,has_more:false},env=await workspace('traffic',{mode:'entra',role:'read_only',responses:{'/api/v1/overview':compactOverview([session],{total:1,has_more:false}),'/api/v1/learning?limit=20&offset=0':compactSessionPage([session],{limit:20,total:1,has_more:false}),'/api/v1/learning/large/hosts?limit=50&offset=19950':page}});
+ await env.click('traffic-learning-sessions');const html=env.element('#view-content').innerHTML;assert.match(html,/20[ ,]000 endpoints/);assert.match(html,/Window large/);assert.doesNotMatch(html,/No ports selected/);env.run('globalThis.nameCalls=0;globalThis.originalServerName=serverName;serverName=()=>{nameCalls++;return "host"}');assert.equal(env.run('sessionTitle({server_ids:Array.from({length:20000},(_,i)=>String(i))})'),'20000 endpoints');assert.equal(env.run('nameCalls'),0);env.run('serverName=originalServerName');
  await env.click('learning-host-scope',{id:'large',serverId:'host-1'});const scope=env.element('#modal-content').innerHTML;assert.match(scope,/19951–19954 of 20[ ,]000 endpoints/);assert.match(scope,/not proof that traffic was collected or firewall allowances applied/);const rows=scope.match(/<article class="learning-session-host">[\s\S]*?<\/article>/g);assert.match(rows[0],/443\/tcp/);assert.doesNotMatch(rows[0],/5432\/tcp/);assert.match(rows[1],/5432\/tcp/);assert.doesNotMatch(rows[1],/443\/tcp/);assert.match(rows[2],/Fresh discovery pending/);assert.match(rows[3],/&lt;script&gt;/);assert.doesNotMatch(scope,/<script>/);assert.match(rows[0],/data-server-id="host-1"/);assert.equal(mutations(env).length,0);
 });
 test('late host-scope requests cannot overwrite a different modal and failures never imply empty scope',async()=>{
@@ -764,7 +799,7 @@ test('cached preview sends the exact port filter and hides unselected host liste
 test('saved service groups copy into the optional discovery limit and no-match session scopes stay explicit',async()=>{
  const env=await workspace('traffic');await env.click('learn');env.element('#learning-port-filter-enabled').checked=true;env.element('#learning-mode').value='discovered';env.context.filterChange={target:{id:'learning-port-filter-enabled'}};env.run('learningChange(filterChange)');assert.equal(env.element('#learning-port-filter-fields').hidden,false);assert.equal(env.element('#learning-port-filter').required,true);assert.equal(env.element('#learning-port-filter').disabled,false);
  env.context.filterChange={target:{id:'learning-filter-service-group',value:'web-ports'}};env.run('learningChange(filterChange)');assert.equal(env.element('#learning-port-filter').value,'443/tcp, 8443/tcp');
- env.context.filteredSession={id:'443-session',status:'active',selection_mode:'discovered',policy_action:'auto_allow',port_filter:[{port:443,protocol:'tcp'}],server_ids:['host-1'],starts_at:new Date(Date.now()-60000).toISOString(),expires_at:new Date(Date.now()+3600000).toISOString(),server_ports:{'host-1':[]},discovery_results:{'host-1':{status:'no_listeners'}}};env.context.filteredHost=host;assert.match(env.run('learningHostSessionHTML(filteredSession,filteredHost)'),/No selected network listeners/);env.run('state.data.learning_sessions=[filteredSession]');const html=env.run('learningHTML()');assert.match(html,/Automatic · only 443\/tcp/);assert.match(html,/No selected network listeners/);assert.doesNotMatch(html,/Awaiting agents/);
+ env.context.filteredSession={id:'443-session',status:'active',selection_mode:'discovered',policy_action:'auto_allow',port_filter:[{port:443,protocol:'tcp'}],server_ids:['host-1'],starts_at:new Date(Date.now()-60000).toISOString(),expires_at:new Date(Date.now()+3600000).toISOString(),server_ports:{'host-1':[]},discovery_results:{'host-1':{status:'no_listeners'}}};env.context.filteredHost=host;assert.match(env.run('learningHostSessionHTML(filteredSession,filteredHost)'),/No selected network listeners/);env.context.apiResponses['/api/v1/learning?limit=20&offset=0']=compactSessionPage([env.context.filteredSession],{limit:20,total:1,has_more:false});env.run('closeModal()');await env.click('traffic-learning-sessions');const html=env.run('learningHTML()');assert.match(html,/Automatic · only 443\/tcp/);assert.match(html,/No selected network listeners/);assert.doesNotMatch(html,/Awaiting agents/);
 });
 
 test('Policies keeps managed and learned access on one page with service actions in details',async()=>{
@@ -793,7 +828,7 @@ const backupRecord={id:'backup-one',created_at:new Date().toISOString(),created_
 function demoCleanupReview(overrides={}){return {id:'demo-review-one',counts:{servers:14,policies:2,locations:4},preserved:{real_servers:2,users:3},blockers:[],can_clear:true,confirmation_nonce:'review-nonce',confirmation_phrase:'CLEAR DEFAULT DEMO DATA',fingerprint:'c'.repeat(64),expires_at:new Date(Date.now()+60000).toISOString(),...overrides};}
 test('Platform settings exposes actual node health to every role and configuration tabs only to Super Admin',async()=>{
  for(const role of ['read_only','admin','super_admin']){const env=await workspace('settings',{mode:'entra',role,responses:{'/api/v1/platform/status':platformStatus}});const html=env.element('#view-content').innerHTML;assert.match(html,/Controller nodes/);assert.match(html,/controller-one/);assert.match(html,/Mumbai/);assert.doesNotMatch(html,/do-not-display|postgresql:\/\/private/);assert.equal(env.element('#learn-button').hidden,true);assert.equal(env.element('#enroll-button').hidden,true);assert.equal(env.requests.some(request=>request.url==='/api/v1/platform/backups'),false);
-  if(role==='super_admin'){for(const tab of ['Cluster','Storage','Backups','Services','Certificates'])assert.match(html,new RegExp(tab));}else{assert.doesNotMatch(html,/data-tab="(?:backups|demo|database|controllers)"/);await env.click('platform-tab',{tab:'backups'});assert.equal(env.run('state.platformTab'),'overview');assert.equal(env.requests.some(request=>request.url==='/api/v1/platform/backups'),false);await env.click('platform-backup-create');await env.click('platform-backup-inspect',{id:'backup-one'});await env.click('platform-backup-download',{id:'backup-one'});await env.click('platform-demo-preview');assert.equal(mutations(env).length,0);}
+  if(role==='super_admin'){for(const tab of ['Setup','Cluster','Backups','Services','Certificates'])assert.match(html,new RegExp(tab));}else{assert.doesNotMatch(html,/data-tab="(?:setup|storage|backups|recovery|demo|database|controllers)"/);await env.click('platform-tab',{tab:'backups'});assert.equal(env.run('state.platformTab'),'overview');assert.equal(env.requests.some(request=>request.url==='/api/v1/platform/backups'),false);await env.click('platform-backup-create');await env.click('platform-backup-inspect',{id:'backup-one'});await env.click('platform-backup-download',{id:'backup-one'});await env.click('platform-demo-preview');assert.equal(mutations(env).length,0);}
  }
 });
 test('Super Admin creates, inspects, downloads and validates a backup without replacing the live database',async()=>{
@@ -879,8 +914,25 @@ const backupSchedule={revision:3,enabled:true,frequency:'daily',time:'02:00',tim
 function applianceReview(overrides={}){return {id:'appliance-review-one',digest:'f'.repeat(64),confirmation_nonce:'appliance-nonce',confirmation_phrase:'APPLY REVIEWED CHANGE',expires_at:new Date(Date.now()+60000).toISOString(),summary:{service:'controller',action:'restart'},blockers:[],warnings:[],...overrides};}
 async function applianceWorkspace(extra={}){return workspace('settings',{mode:'entra',role:'super_admin',responses:{'/api/v1/platform/status':productionPlatform,'/api/v1/platform/appliance':applianceState,'/api/v1/platform/backup-schedule':backupSchedule,...extra}});}
 test('default platform navigation is simple appliance operations and avoids all dedicated database and SSH fields',async()=>{
- const env=await applianceWorkspace();let html=env.element('#view-content').innerHTML;for(const label of ['Overview','Cluster','Storage','Backups','Services','Certificates'])assert.match(html,new RegExp('>'+label+'<'));assert.doesNotMatch(html,/data-tab="database"|data-tab="controllers"|SSH private key|Database node 1|Issue a DR join code/);assert.match(html,/Noida-local pool/);assert.match(html,/Pune-local pool/);assert.match(html,/Not reported/);
- await env.click('platform-appliance-create');html=env.element('#view-content').innerHTML;assert.match(html,/same appliance package/);assert.match(html,/name="cluster_password" type="password"/);assert.match(html,/name="replication_password" type="password"/);assert.doesNotMatch(html,/node_0_|host_key|private_key|PRTHAKJOIN1/);
+ const env=await applianceWorkspace();let html=env.element('#view-content').innerHTML;for(const label of ['Overview','Setup','Cluster','Backups','Services','Certificates'])assert.match(html,new RegExp('>'+label+'<'));assert.doesNotMatch(html,/data-tab="(?:storage|recovery|signing|database|controllers)"|data-action="platform-appliance-(?:create|connect|service-review)"|SSH private key|Database node 1|Issue a DR join code/);assert.doesNotMatch(html,/Site routing|Noida-local pool|Pune-local pool/);assert.match(html,/Not reported/);assert.match(html,/>Standalone<\/strong>/);assert.match(html,/>Appliance service health<\/h2>/);assert.match(html,/>Active<\/span>/);
+ await env.click('platform-tab',{tab:'cluster'});html=env.element('#view-content').innerHTML;assert.match(html,/same appliance package/);assert.match(html,/Noida-local pool/);assert.match(html,/Pune-local pool/);assert.match(html,/name="cluster_password" type="password"/);assert.match(html,/name="replication_password" type="password"/);assert.doesNotMatch(html,/node_0_|host_key|private_key|PRTHAKJOIN1/);
+});
+test('signing recovery stays under advanced Setup with no separate navigation',async()=>{
+ const env=await applianceWorkspace({'/api/v1/platform/signing':{mode:'online_controller',health:'online_key_available'}});
+ await env.click('platform-tab',{tab:'setup'});
+ let html=env.element('#view-content').innerHTML;
+ assert.doesNotMatch(html,/data-tab="signing"/);
+ assert.match(html,/id="platform-advanced-signing"[^>]*><summary>\s*Advanced policy signing recovery|id="platform-advanced-signing"[^>]*>\s*<summary>Advanced policy signing recovery/);
+ assert.doesNotMatch(html,/id="platform-advanced-signing"[^>]* open>/);
+ assert.equal(env.requests.filter(row=>row.url==='/api/v1/platform/signing').length,0);
+ await env.click('platform-tab',{tab:'signing'});
+ await new Promise(setImmediate);
+ html=env.element('#view-content').innerHTML;
+ assert.equal(env.run('state.platformTab'),'setup');
+ assert.match(html,/id="platform-advanced-signing"[^>]* open>/);
+ assert.match(html,/Automatic online policy signatures/);
+ assert.equal(env.requests.filter(row=>row.url==='/api/v1/platform/signing').length,1);
+ assert.equal(mutations(env).length,0);
 });
 test('appliance cluster settings preserve blank passwords and shared-password joining only sends existing peer and password',async()=>{
  const env=await applianceWorkspace({'POST /api/v1/platform/appliance/join/preview':applianceReview({summary:{peer_url:'https://noida.example.test',node_id:'controller-pune'}}),'POST /api/v1/platform/appliance/join/apply':haJob('appliance-join-job','appliance_join')});await env.click('platform-appliance-create');const form=renderedForm(env,'platform-appliance-config-form',{cluster_name:'Production cluster',site:'Noida',node_ip:'10.241.10.11',controller_origin:'https://prthak.example.test',cluster_password:'',replication_password:'',preferred_controller_url:'https://noida.example.test',fallback_controller_url:'https://pune.example.test'});await submitRendered(env,form);let request=mutations(env)[0],body=JSON.parse(request.options.body);assert.equal(request.url,'/api/v1/platform/appliance/config');assert.equal(body.expected_revision,4);assert.equal(body.cluster_password,undefined);assert.equal(body.replication_password,undefined);assertCookieMutation(request);
@@ -894,8 +946,35 @@ test('pruned backup history is identifiable and archive operations remain disabl
  const env=await applianceWorkspace({'/api/v1/platform/backups':{items:[{...backupRecord,status:'pruned'}]}});await env.click('platform-tab',{tab:'backups'});await new Promise(setImmediate);const html=env.element('#view-content').innerHTML;assert.match(html,/>Pruned<\/span>/);for(const action of ['inspect','download','validate'])assert.match(html,new RegExp('data-action="platform-backup-'+action+'"[^>]*disabled'));assert.match(html,/Archive removed by retention; history is preserved/);
 });
 test('storage and fixed service actions need an expiring typed review before queued changes',async()=>{
- const env=await applianceWorkspace({'POST /api/v1/platform/appliance/storage/review':applianceReview({summary:{current_data_root:'/var/lib/prthak',data_root:'/srv/prthak-data'}}),'POST /api/v1/platform/appliance/storage/apply':haJob('storage-job','appliance_storage'),'POST /api/v1/platform/appliance/services/review':applianceReview(),'POST /api/v1/platform/appliance/services/apply':haJob('service-job','appliance_service')});await env.click('platform-tab',{tab:'storage'});const form=renderedForm(env,'platform-appliance-storage-form',{data_root:'relative/path'});await submitRendered(env,form);assert.equal(mutations(env).length,0);form.values.data_root='/srv/prthak-data';await submitRendered(env,form);let request=mutations(env)[0];assert.deepEqual(JSON.parse(request.options.body),{data_root:'/srv/prthak-data'});assert.match(env.element('#modal-content').innerHTML,/\/srv\/prthak-data/);let review=renderedForm(env,'platform-appliance-review-form',{confirmation_phrase:'wrong'});await submitRendered(env,review);assert.equal(mutations(env).length,1);review.values.confirmation_phrase='APPLY REVIEWED CHANGE';await submitRendered(env,review);assert.equal(mutations(env)[1].url,'/api/v1/platform/appliance/storage/apply');assert.equal(env.run('state.platformAppliance.data_root'),'/var/lib/prthak','queued migration does not change displayed actual mount path');
+ const env=await applianceWorkspace({'POST /api/v1/platform/appliance/storage/review':applianceReview({summary:{current_data_root:'/var/lib/prthak',data_root:'/srv/prthak-data'}}),'POST /api/v1/platform/appliance/storage/apply':haJob('storage-job','appliance_storage'),'POST /api/v1/platform/appliance/services/review':applianceReview(),'POST /api/v1/platform/appliance/services/apply':haJob('service-job','appliance_service')});await env.click('platform-tab',{tab:'storage'});assert.equal(env.run('state.platformTab'),'setup');await env.click('platform-tab',{tab:'setup'});const html=env.element('#view-content').innerHTML;assert.match(html,/>Current data path<\/dt><dd><code>\/var\/lib\/prthak<\/code>/);assert.equal((html.match(/id="platform-appliance-storage-form"/g)||[]).length,1);assert.equal((html.match(/>Deployment operations/g)||[]).length,1);const form=renderedForm(env,'platform-appliance-storage-form',{data_root:'relative/path'});await submitRendered(env,form);assert.equal(mutations(env).length,0);form.values.data_root='/srv/prthak-data';await submitRendered(env,form);let request=mutations(env)[0];assert.deepEqual(JSON.parse(request.options.body),{data_root:'/srv/prthak-data'});assert.match(env.element('#modal-content').innerHTML,/\/srv\/prthak-data/);let review=renderedForm(env,'platform-appliance-review-form',{confirmation_phrase:'wrong'});await submitRendered(env,review);assert.equal(mutations(env).length,1);review.values.confirmation_phrase='APPLY REVIEWED CHANGE';await submitRendered(env,review);assert.equal(mutations(env)[1].url,'/api/v1/platform/appliance/storage/apply');assert.equal(env.run('state.platformAppliance.data_root'),'/var/lib/prthak','queued migration does not change displayed actual mount path');
  await env.click('platform-tab',{tab:'services'});await env.click('platform-appliance-service-review',{id:'arbitrary-service',serviceAction:'restart'});assert.equal(mutations(env).length,2);await env.click('platform-appliance-service-review',{id:'controller',serviceAction:'restart'});request=mutations(env)[2];assert.deepEqual(JSON.parse(request.options.body),{service:'controller',action:'restart'});review=renderedForm(env,'platform-appliance-review-form',{confirmation_phrase:'APPLY REVIEWED CHANGE'});await submitRendered(env,review);assert.equal(mutations(env)[3].url,'/api/v1/platform/appliance/services/apply');assertCookieMutation(mutations(env)[3]);
+});
+test('deployment history lives only in Setup and shows a safe visible blocker before expanding the job',async()=>{
+ const reason='Database start waits for authenticated etcd quorum <review voter health>';
+ const jobs=[
+  haJob('older-blocked','appliance','blocked',{phase:'node_manager',error:reason}),
+  haJob('generic-blocked','appliance','blocked',{error:'Appliance blocked',result:{blockers:['The selected storage target must be empty']}}),
+  haJob('unknown-blocked','appliance','blocked'),
+  haJob('failed','appliance','failed',{error:'A separate failure'})
+ ];
+ const env=await applianceWorkspace({'/api/v1/platform/status':{...productionPlatform,jobs}});
+ for(const tab of ['overview','cluster','services','backups','recovery','certificates','database','controllers']){
+  await env.click('platform-tab',{tab});
+  assert.doesNotMatch(env.element('#view-content').innerHTML,/id="platform-deployment-operations"/);
+ }
+ await env.click('platform-tab',{tab:'services'});
+ assert.match(env.element('#view-content').innerHTML,/View operation history in Setup/);
+ await env.click('platform-operation-history');
+ assert.equal(env.run('state.platformTab'),'setup');
+ const html=env.element('#view-content').innerHTML;
+ assert.equal((html.match(/id="platform-deployment-operations"/g)||[]).length,1);
+ const rows=Array.from(html.matchAll(/<details class="platform-job"([^>]*)>\s*<summary>([\s\S]*?)<\/summary>/g));
+ assert.equal(rows.length,4);
+ assert.ok(rows.every(row=>!row[1].includes('open')));
+ assert.ok(rows.some(row=>row[2].includes('Database start waits for authenticated etcd quorum &lt;review voter health&gt;')));
+ assert.ok(rows.some(row=>row[2].includes('The selected storage target must be empty')));
+ assert.ok(rows.some(row=>row[2].includes('The controller did not report a specific blocker')));
+ assert.ok(rows.every(row=>!row[2].includes('A separate failure')));
 });
 test('unused local HA services have no controls while stopped services on a voter remain visible as faults',async()=>{
  const haServices=[{id:'database',name:'PostgreSQL 16 / Patroni'},{id:'etcd',name:'etcd quorum'}];
@@ -928,7 +1007,7 @@ test('backup scheduling saves exact local timezone, weekday, interval and retent
 });
 test('certificate GUI imports private material without showing it in the typed review and never equates generated with active',async()=>{
  const certificate={subject:'CN=prthak.example.test',issuer:'CN=Test CA',sans:['prthak.example.test','10.241.10.11'],not_after:'2027-10-30T00:00:00Z',fingerprint_sha256:'ab:cd:ef'};
- const env=await applianceWorkspace({'/api/v1/platform/certificates':{current:certificate},'POST /api/v1/platform/certificates/preview':applianceReview({summary:{certificate}}),'POST /api/v1/platform/certificates/apply':haJob('cert-job','certificates')});await env.click('platform-tab',{tab:'certificates'});await new Promise(setImmediate);assert.match(env.element('#view-content').innerHTML,/ab:cd:ef/);assert.match(env.element('#view-content').innerHTML,/Imported or generated material becomes active only after/);let form=renderedForm(env,'platform-certificate-form',{mode:'pem',certificate_pem:'PEM public certificate',private_key_pem:'PRIVATE KEY secret fixture'});await submitRendered(env,form);let request=mutations(env)[0];assert.deepEqual(JSON.parse(request.options.body),form.values);assert.equal(request.url,'/api/v1/platform/certificates/preview');assert.match(env.element('#modal-content').innerHTML,/CN=prthak.example.test/);assert.doesNotMatch(env.element('#modal-content').innerHTML,/PRIVATE KEY secret fixture/);const review=renderedForm(env,'platform-appliance-review-form',{confirmation_phrase:'APPLY REVIEWED CHANGE'});await submitRendered(env,review);assert.equal(mutations(env)[1].url,'/api/v1/platform/certificates/apply');assert.equal(env.storageChanges.some(change=>String(change.value).includes('PRIVATE KEY')),false);
+ const env=await applianceWorkspace({'/api/v1/platform/certificates':{current:certificate},'POST /api/v1/platform/certificates/preview':applianceReview({summary:{certificate}}),'POST /api/v1/platform/certificates/apply':haJob('cert-job','certificates')});await env.click('platform-tab',{tab:'certificates'});await new Promise(setImmediate);assert.match(env.element('#view-content').innerHTML,/ab:cd:ef/);assert.match(env.element('#view-content').innerHTML,/A replacement takes effect after restart and verification/);const pem={certificate_pem:'PEM public certificate',private_key_pem:'PRIVATE KEY secret fixture'};let form=renderedForm(env,'platform-certificate-form',{mode:'ca_signed',format:'pem',...pem});await submitRendered(env,form);let request=mutations(env)[0];assert.deepEqual(JSON.parse(request.options.body),{mode:'pem',...pem});assert.equal(request.url,'/api/v1/platform/certificates/preview');assert.match(env.element('#modal-content').innerHTML,/CN=prthak.example.test/);assert.doesNotMatch(env.element('#modal-content').innerHTML,/PRIVATE KEY secret fixture/);const review=renderedForm(env,'platform-appliance-review-form',{confirmation_phrase:'APPLY REVIEWED CHANGE'});await submitRendered(env,review);assert.equal(mutations(env)[1].url,'/api/v1/platform/certificates/apply');assert.equal(env.storageChanges.some(change=>String(change.value).includes('PRIVATE KEY')),false);
  env.run('closeModal()');await env.click('platform-tab',{tab:'certificates'});await new Promise(setImmediate);form=renderedForm(env,'platform-certificate-form',{mode:'self_signed',hostname:'controller-pune.example.test',sans:'10.241.20.11, controller-pune.example.test'});await submitRendered(env,form);request=mutations(env).at(-1);assert.deepEqual(JSON.parse(request.options.body),{mode:'self_signed',hostname:'controller-pune.example.test',sans:['10.241.20.11','controller-pune.example.test']});
 });
 test('encrypted PEM key passwords are optional, masked and sent only with their certificate review',async()=>{
@@ -1001,7 +1080,7 @@ test('actual notification test and uncertain retry each require explicit saved-d
  await env.click('platform-notification-retry',{id:'delivery-one'});form=renderedForm(env,'platform-notification-send-form',{});await submitRendered(env,form);assert.equal(mutations(env).length,1);form.values.confirm_duplicate='on';await submitRendered(env,form);request=mutations(env)[1];assert.deepEqual(JSON.parse(request.options.body),{expected_revision:4,expected_attempts:2,confirm_possible_duplicate:true});assertCookieMutation(request);assert.match(env.element('#view-content').innerHTML,/Acknowledgement unknown/);
 });
 test('SMTP channels start with no alerts selected and submit only chosen event types',async()=>{
- const email={id:'security-email',name:'Security email',type:'email',enabled:true,minimum_severity:'info',event_types:['service_discovered','traffic_burst','admin_change','port_allowed','agent_offline'],destination:'smtp.example.test:587',addresses:['192.0.2.23'],to_addresses:['oncall@example.test']};
+ const email={id:'security-email',name:'Security email',type:'email',enabled:true,minimum_severity:'info',event_types:['service_discovered','service_down','traffic_burst','admin_change','port_allowed','agent_offline'],destination:'smtp.example.test:587',addresses:['192.0.2.23'],to_addresses:['oncall@example.test']};
  const plan=applianceReview({summary:{enabled:true,channels:[email]},confirmation_phrase:'ENABLE REVIEWED NOTIFICATIONS'});
  const env=await notificationWorkspace({'POST /api/v1/platform/notifications/preview':plan});
  await env.click('platform-tab',{tab:'notifications'});
@@ -1013,6 +1092,7 @@ test('SMTP channels start with no alerts selected and submit only chosen event t
  assert.match(channels.innerHTML,/<option value="email" selected>/);
  assert.match(channels.innerHTML,/<option value="warning" selected>/);
  assert.match(channels.innerHTML,/SMTP hostname/);
+ assert.match(channels.innerHTML,/value="service_down" >Service down/);
  assert.match(channels.innerHTML,/100 observed connections or denied packets/);
  assert.doesNotMatch(channels.innerHTML,/name="channel_event_choice"[^>]*checked/);
  const form=renderedForm(env,'platform-notification-form',{enabled:'on'});
@@ -1021,7 +1101,7 @@ test('SMTP channels start with no alerts selected and submit only chosen event t
  await submitRendered(env,form);
  assert.equal(mutations(env).length,0);
  assert.match(env.element('#platform-notification-error').textContent,/Select at least one alert type/);
- const choices=['service_discovered','traffic_burst','admin_change','port_allowed'];
+ const choices=['service_discovered','service_down','traffic_burst','admin_change','port_allowed'];
  const row=notificationFixtureRow({...fields,event_types:'agent_offline, traffic_burst'},choices);
  delete row.dataset.id;
  form.querySelectorAll=selector=>selector==='.notification-channel'?[row]:[];
@@ -1033,7 +1113,7 @@ test('SMTP channels start with no alerts selected and submit only chosen event t
  assert.equal(channel.minimum_severity,'info');
  assert.equal(channel.smtp_host,'smtp.example.test');
  assert.equal(channel.password,'smtp-private-pass');
- assert.match(env.element('#modal-content').innerHTML,/Monitored traffic bursts, Admin changes, Confirmed port allowances/);
+ assert.match(env.element('#modal-content').innerHTML,/Service down, Monitored traffic bursts, Admin changes, Confirmed port allowances/);
  assert.doesNotMatch(env.element('#modal-content').innerHTML,/smtp-private-pass/);
 });
 test('saved SMTP filters preserve standard alerts, explicit categories and custom event codes',async()=>{
@@ -1109,6 +1189,27 @@ test('internal controller suspension is typed, blocks last-member reviews and ne
 function recoveryFixture(count=0){const digest='e'.repeat(64);return {id:'recovery-1',kind:'database-recovery-v1',status:count?'awaiting_second_confirmation':'draft',backend:'sqlite',source_node:'controller-noida',controller_ids:['controller-noida','controller-pune'],voters:[],backup:{id:'archive-1',created_at:'2026-10-30T12:00:00Z',backend:'sqlite',verified:true,status:'complete'},reason:'Recover from verified incident archive',digest,plan_digest:digest,can_restore:true,blockers:[],warnings:['All controllers must drain before the restored database is admitted.'],expires_at:new Date(Date.now()+60000).toISOString(),confirmation_count:count,confirmation_nonce:'recovery-nonce-'+count,confirmation_phrase:'RESTORE DATABASE '+digest.slice(0,12),approval:{mode:'single_admin',stage:count?'submitted':'requested',plan_digest:digest,requester:{user_id:'recovery-maker',tenant_id:'tenant-one',actor:'entra:recovery-maker',display_name:'Recovery maker',role:'super_admin'}}};}
 function recoveryIdentity(id='recovery-maker',role='super_admin'){return {role,auth_type:'session',demo:false,csrf_token:'session-csrf-fixture',user:{id,tenant_id:'tenant-one',role,display_name:id}};}
 async function recoveryWorkspace({id='recovery-maker',plan=recoveryFixture(),active=null,extra={}}={}){const env=await workspace('settings',{mode:'entra',identity:recoveryIdentity(id),responses:{'/api/v1/platform/status':{runtime:{demo:false},capabilities:{supervised:true},cluster:{nodes:[]}},'/api/v1/platform/recovery':{active,pending_reviews:plan?[plan]:[],requires_supervisor:true},'/api/v1/platform/backups':{items:[recoveryFixture().backup,{...recoveryFixture().backup,id:'pruned-archive',status:'pruned'},{...recoveryFixture().backup,id:'unverified-archive',verified:false}]},...extra}});await env.click('platform-tab',{tab:'recovery'});await new Promise(setImmediate);return env;}
+test('Backups has one collapsed restore option and legacy recovery navigation opens it',async()=>{
+ const env=await applianceWorkspace({'/api/v1/platform/recovery':{active:null,pending_reviews:[],requires_supervisor:true}});
+ await env.click('platform-tab',{tab:'backups'});
+ await new Promise(setImmediate);
+ let html=env.element('#view-content').innerHTML;
+ assert.doesNotMatch(html,/data-tab="recovery"|id="platform-recovery-request-form"/);
+ assert.match(html,/aria-expanded="false" aria-controls="platform-restore-options">Restore a backup/);
+ assert.equal(env.requests.filter(row=>row.url==='/api/v1/platform/recovery').length,0);
+ await env.click('platform-restore-toggle');
+ html=env.element('#view-content').innerHTML;
+ assert.match(html,/aria-expanded="true" aria-controls="platform-restore-options">Restore a backup/);
+ assert.match(html,/id="platform-recovery-request-form"/);
+ assert.ok(html.indexOf('Database backups')<html.indexOf('Restore a backup'));
+ await env.click('platform-restore-toggle');
+ assert.doesNotMatch(env.element('#view-content').innerHTML,/id="platform-recovery-request-form"/);
+ await env.click('platform-tab',{tab:'recovery'});
+ await new Promise(setImmediate);
+ assert.equal(env.run('state.platformTab'),'backups');
+ assert.match(env.element('#view-content').innerHTML,/id="platform-recovery-request-form"/);
+ assert.equal(mutations(env).length,0);
+});
 test('recovery keeps two explicit typed confirmations by the same live Super Admin',async()=>{
  const first=recoveryFixture(),second=recoveryFixture(1),env=await recoveryWorkspace({extra:{'POST /api/v1/platform/recovery/preview':first,'POST /api/v1/platform/recovery/confirm':{pending_approval:true,preview:second}}});
  assert.match(env.element('#view-content').innerHTML,/two explicit confirmations/);assert.doesNotMatch(env.element('#view-content').innerHTML,/different.*Super Admin|TWO SUPER ADMINS/i);
@@ -1315,7 +1416,7 @@ test('normal Admin authority has no pilot nonce, host-count cap or seven-day app
 });
 
 test('optional continuous monitoring is separate, default off, bounded and only loaded on Traffic',async()=>{
- const env=await workspace('traffic',{mode:'entra',role:'read_only'}),html=env.element('#view-content').innerHTML;assert.match(html,/Continuous port hit monitoring/);assert.match(html,/disabled by default/);assert.match(html,/never creates or applies access policies/);assert.match(html,/120-second endpoint leases/);assert.match(html,/Conntrack uses bounded queues/);assert.match(html,/200\/second per rule, port and IP family/);assert.match(html,/omitted records have an unknown count/);assert.doesNotMatch(html,/20 events\/second/);assert.match(html,/storage pressure/);assert.equal(env.requests.some(row=>row.url==='/api/v1/hit-monitors?limit=20&offset=0'),true);await env.click('hit-monitor-new');assert.equal(env.element('#modal').open,false);
+ const env=await workspace('traffic',{mode:'entra',role:'read_only'}),html=env.element('#view-content').innerHTML;assert.match(html,/Continuous port hit monitoring/);assert.match(html,/disabled by default/);assert.match(html,/<details class="traffic-monitor-coverage"><summary>Monitoring details<\/summary>/);assert.match(html,/120-second capture leases/);assert.match(html,/200 per second per rule, port and IP family/);assert.match(html,/Backend or storage gaps may reduce counts/);assert.equal(env.requests.some(row=>row.url==='/api/v1/hit-monitors?limit=20&offset=0'),true);await env.click('hit-monitor-new');assert.equal(env.element('#modal').open,false);
  const other=await workspace('servers',{mode:'entra'});assert.equal(other.requests.some(row=>row.url.includes('hit-monitors')),false);
 });
 function hitMonitorTestPlan(extra={}){return {id:'monitor-review',operation:'enable',name:'HTTPS observation',target_count:1,ports:[{port:443,protocol:'tcp'}],digest:'exact-digest',confirmation_nonce:'exact-nonce',confirmation_phrase:'START HIT MONITOR ABC123',expires_at:new Date(Date.now()+60000).toISOString(),...extra};}
@@ -1326,7 +1427,7 @@ test('monitoring pair validation rejects CIDR-like authority, ranges and malform
  const env=await workspace('traffic',{mode:'entra'});assert.deepEqual(JSON.parse(env.run('JSON.stringify(hitMonitorPorts("22/tcp,65535/udp,22/tcp"))')),[{port:22,protocol:'tcp'},{port:65535,protocol:'udp'}]);for(const value of ['0/tcp','65536/tcp','443/tcp:10.0.0.1','20-22/tcp','443/sctp',''])assert.throws(()=>env.run('hitMonitorPorts('+JSON.stringify(value)+')'));await env.click('hit-monitor-new');await env.submit('hit-monitor-form',{name:'Invalid',ports:'443/tcp:10.0.0.1',retention_hours:'1'});assert.equal(env.requests.some(row=>row.options.method==='POST'&&row.url.includes('/hit-monitors')),false);
 });
 test('monitor hits and exact per-host receipt page escape IPv6 service metadata and never label desired off as verified',async()=>{
- const monitor={id:'m1',name:'<img src=x>',target_count:120,ports:[{port:443,protocol:'tcp'}],retention_hours:24,enabled:false,revision:2},env=await workspace('traffic',{mode:'entra',responses:{'/api/v1/hit-monitors?limit=20&offset=0':{items:[monitor],total:1,offset:0,limit:20,storage_budget:{event_count:10,max_events:2000000}},'/api/v1/hit-monitors/m1/hits?window_hours=1&limit=100&offset=0':{items:[{server_id:'host-1',hostname:'<host>',source_ip:'2001:db8::12',port:443,protocol:'tcp',count:2,service:'<script>unsafe()</script>',first_seen:new Date().toISOString(),last_seen:new Date().toISOString()}],total:1,monitor},'/api/v1/hit-monitors/m1/targets?limit=50&offset=0':{items:[{server_id:'host-1',hostname:'<host>',last_outcome:{status:'error',error:'<img onerror=bad>',checked_at:new Date().toISOString()}}],total:120,offset:0,has_more:true}}});await env.click('hit-monitor-open',{id:'m1'});const html=env.element('#view-content').innerHTML;assert.match(html,/2001:db8::12/);assert.match(html,/&lt;script&gt;/);assert.doesNotMatch(html,/<script>|<img/);assert.match(html,/Central off is not an endpoint cleanup acknowledgement/);assert.match(html,/Loaded 1 of 120 frozen endpoints/);assert.match(html,/2,000,000/);assert.match(html,/not complete flows/);
+ const monitor={id:'m1',name:'<img src=x>',target_count:120,ports:[{port:443,protocol:'tcp'}],retention_hours:24,enabled:false,revision:2},env=await workspace('traffic',{mode:'entra',responses:{'/api/v1/hit-monitors?limit=20&offset=0':{items:[monitor],total:1,offset:0,limit:20,storage_budget:{event_count:10,max_events:2000000}},'/api/v1/hit-monitors/m1/hits?window_hours=1&limit=100&offset=0':{items:[{server_id:'host-1',hostname:'<host>',source_ip:'2001:db8::12',port:443,protocol:'tcp',count:2,service:'<script>unsafe()</script>',first_seen:new Date().toISOString(),last_seen:new Date().toISOString()}],total:1,monitor},'/api/v1/hit-monitors/m1/targets?limit=50&offset=0':{items:[{server_id:'host-1',hostname:'<host>',last_outcome:{status:'error',error:'<img onerror=bad>',checked_at:new Date().toISOString()}}],total:120,offset:0,has_more:true}}});await env.click('hit-monitor-open',{id:'m1'});const html=env.element('#view-content').innerHTML;assert.match(html,/2001:db8::12/);assert.match(html,/&lt;script&gt;/);assert.doesNotMatch(html,/<script>|<img/);assert.match(html,/Central off is not an endpoint cleanup acknowledgement/);assert.match(html,/Loaded 1 of 120 frozen endpoints/);assert.match(html,/2,000,000/);assert.match(html,/Backend or storage gaps may reduce counts/);
 });
 test('stop preview binds current monitor revision and old detail response cannot replace the newly selected monitor',async()=>{
  const env=await workspace('traffic',{mode:'entra',responses:{'/api/v1/hit-monitors?limit=20&offset=0':{items:[{id:'one',name:'One',revision:8,enabled:true,ports:[],target_count:1,retention_hours:1}],total:1},'POST /api/v1/hit-monitors/one/stop-preview':hitMonitorTestPlan({operation:'disable'})}});await env.click('hit-monitor-stop',{id:'one'});assert.deepEqual(JSON.parse(env.requests.find(row=>row.url.endsWith('/one/stop-preview')).options.body),{expected_revision:8});let release;const gate=new Promise(resolve=>release=resolve);env.context.apiResponses ||= {};env.context.apiResponses['/api/v1/hit-monitors/one/hits?window_hours=1&limit=100&offset=0']=async()=>{await gate;return {items:[],monitor:{id:'one'}};};env.context.apiResponses['/api/v1/hit-monitors/two/hits?window_hours=1&limit=100&offset=0']={items:[],monitor:{id:'two'}};const first=env.run('state.hitMonitorId="one";loadHitMonitorDetails(false)');await new Promise(setImmediate);await env.run('state.hitMonitorId="two";loadHitMonitorDetails(false)');release();await first;assert.equal(env.run('state.hitMonitorHits.monitor.id'),'two');
@@ -1471,7 +1572,7 @@ test('Read Only Traffic finds older matching relationships beyond the overview p
 test('Read Only Traffic page actions reach the shared API and show exact full-scope counts beyond500',async()=>{
  const at=new Date().toISOString(),before=new Date(Date.now()-3600000).toISOString(),overview={...structuredClone(fixture),meta:{...fixture.meta,traffic_query_v1:true}};
  const env=await workspace('traffic',{mode:'entra',role:'read_only',responses:{'/api/v1/overview':overview,'POST /api/v1/flows/query':options=>{const query=JSON.parse(options.body),count=Math.min(50,507-query.offset);return {items:Array.from({length:count},(_,index)=>({server_id:'host-1',source_ip:`198.51.${Math.floor((query.offset+index)/255)}.${(query.offset+index)%255}`,port:8443,protocol:'tcp',count:1,verdict:'allowed',count_unit:'connections',capture_kind:'accepted_connection',capture_backend:'conntrack',address_family:'ipv4',first_seen:at,last_seen:at})),total:507,endpoint_count:1,counts_by_unit:{connections:507,packets:0,log_records:0},limit:50,offset:query.offset,has_more:query.offset+count<507,window_seconds:query.window_seconds,as_of:query.as_of||at,from_time:before,coverage:'All matching retained traffic before pagination.',filter_before_pagination:true};}}});
- await env.click('traffic-catalogue-page',{offset:'500'});const request=env.requests.filter(row=>row.url==='/api/v1/flows/query').at(-1);assert.equal(JSON.parse(request.options.body).offset,500);assertCookieMutation(request);assert.match(env.element('#view-content').innerHTML,/501–507 of 507 matching relationships/);assert.match(env.element('#view-content').innerHTML,/graph and chart visualize the loaded page/);assert.equal(env.run('visibleFlows().length'),7);assert.match(env.run("filterResultText('traffic')"),/507 matching relationships/);
+ await env.click('traffic-catalogue-page',{offset:'500'});const request=env.requests.filter(row=>row.url==='/api/v1/flows/query').at(-1);assert.equal(JSON.parse(request.options.body).offset,500);assertCookieMutation(request);assert.match(env.element('#view-content').innerHTML,/501–507 of 507 matching relationships/);assert.match(env.element('#view-content').innerHTML,/Charts show the current page\./);assert.equal(env.run('visibleFlows().length'),7);assert.match(env.run("filterResultText('traffic')"),/507 matching relationships/);
 });
 
 
@@ -1537,8 +1638,22 @@ const localUserFixture={id:'realm:analyst',provider:'local',username:'analyst',d
 function localDeferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};}
 test('hybrid login offers local and configured Entra/SAML without saving credentials',async()=>{
  const env=await workspace('overview',{mode:'hybrid',authStatus:401,config:{local_enabled:true,providers:['local','entra','saml'],saml:{enabled:true,display_name:'Corporate SSO'}}});
- const html=env.element('#sign-in-content').innerHTML;assert.match(html,/id="local-login-form"/);assert.match(html,/name="username" autocomplete="username"/);assert.match(html,/name="password" type="password" autocomplete="current-password"/);assert.match(html,/Sign in with Microsoft/);assert.match(html,/Sign in with Corporate SSO/);assert.doesNotMatch(html,/value="admin"|id="login-token"/);
+ const html=env.element('#sign-in-content').innerHTML;assert.match(html,/id="local-login-form"/);assert.match(html,/name="username" autocomplete="username"/);assert.match(html,/name="password" type="password" autocomplete="current-password"/);assert.match(html,/Sign in with existing SSO/);assert.match(html,/Sign in with Corporate SSO/);assert.doesNotMatch(html,/Microsoft/);assert.doesNotMatch(html,/value="admin"|id="login-token"/);
  await env.click('auth-entra-login');await env.click('auth-saml-login');assert.deepEqual(env.navigation,['/api/v1/auth/login','/api/v1/auth/saml/login']);assert.equal(mutations(env).length,0);assert.equal(env.storageChanges.some(row=>row.operation==='set'&&/password|username|admin/.test(row.value)),false);
+});
+test('Users & access offers generic SAML setup without a legacy provider on a local installation',async()=>{
+ const env=await localWorkspace('access');
+ const html=env.element('#view-content').innerHTML;
+ assert.match(html,/<strong>Local accounts<\/strong>/);
+ assert.match(html,/<strong>SAML SSO<\/strong>/);
+ assert.doesNotMatch(html,/Microsoft|existing directory SSO/);
+ assert.equal((html.match(/data-action="access-saml-edit"/g)||[]).length,1);
+ await env.click('access-saml-edit');
+ assert.match(env.element('#modal-content').innerHTML,/Identity provider metadata XML/);
+ await env.click('close-modal');
+ await env.click('access-user-new');
+ const picker=env.element('#modal-content').innerHTML.match(/<select id="access-provider"[\s\S]*?<\/select>/)[0];
+ assert.deepEqual([...picker.matchAll(/<option value="([^"]+)"/g)].map(([,value])=>value),['local','saml']);
 });
 test('signed-out deep links show only sign-in and return to the requested page after authentication',async()=>{
  const identity=localPerson('admin',false);
@@ -1608,7 +1723,7 @@ test('SAML provider changes that revoke their caller return to sign-in without c
  const identity={...localPerson(),auth_provider:'saml',user:{id:'saml:operator',provider:'saml',subject:'operator-subject',role:'super_admin',display_name:'SSO Operator'}},status={local:{enabled:true},entra:{configured:false},saml:{enabled:true,configured:true,origin:'https://controller.example.test',sp_entity_id:'pilot',display_name:'Company SSO'}},env=await workspace('access',{mode:'hybrid',identity,config:{local_enabled:true,saml:status.saml,providers:['local','saml']},responses:{'GET /api/v1/auth/providers':status,'PUT /api/v1/auth/providers/saml':{...status,signed_out:true}}});await new Promise(setImmediate);await env.click('access-saml-edit');await env.submit('access-saml-form',{enabled:'on',origin:'https://controller.example.test',sp_entity_id:'pilot',display_name:'Company SSO',idp_metadata_xml:''});assert.equal(env.run('state.authType'),null);assert.equal(env.run('state.user'),null);assert.equal(env.run('state.data'),null);assert.match(env.element('#sign-in-content').innerHTML,/id="local-login-form"/);assert.equal(mutations(env).length,1);
 });
 test('local and SAML operators must explicitly identify the Entra candidate instead of reusing their own object ID',async()=>{
- for(const provider of ['local','saml']){const identity={...localPerson(),auth_provider:provider,user:{...localPerson().user,provider,object_id:'not-an-entra-object-id'}},env=await guiSetupWorkspace({'/api/v1/platform/setup':guiSetupStatus({entra_configured:true})},{mode:'hybrid',identity,config:{local_enabled:true}});const html=env.element('#view-content').innerHTML;assert.match(html,/Candidate Super Admin Entra Object ID \(required for local or SAML operator\)/);assert.match(html,/id="setup-bootstrap-oid" required name="candidate_object_id"/);assert.match(html,/actual Entra Object ID/);assert.doesNotMatch(html,/value="not-an-entra-object-id"/);
+ for(const provider of ['local','saml']){const identity={...localPerson(),auth_provider:provider,user:{...localPerson().user,provider,object_id:'not-an-entra-object-id'}},env=await guiSetupWorkspace({'/api/v1/platform/setup':guiSetupStatus({entra_configured:true})},{mode:'hybrid',identity,config:{local_enabled:true}});const html=env.element('#view-content').innerHTML;assert.match(html,/Candidate Super Admin Entra Object ID \(required for local or SAML operator\)/);assert.match(html,/id="setup-bootstrap-oid" data-required="true" name="candidate_object_id"/);const candidate=env.element('#setup-bootstrap-oid');candidate.dataset.required='true';assert.notEqual(candidate.required,true);env.run('platformSetupInput({target:{id:"setup-enable-entra",checked:true}})');assert.equal(candidate.required,true);env.run('platformSetupInput({target:{id:"setup-enable-entra",checked:false}})');assert.equal(candidate.required,false);assert.match(html,/actual Entra Object ID/);assert.doesNotMatch(html,/value="not-an-entra-object-id"/);
  const values=guiSetupValues({configure_entra:'on',SEG_ENTRA_TENANT_ID:'11111111-1111-1111-1111-111111111111',SEG_ENTRA_CLIENT_ID:'22222222-2222-2222-2222-222222222222',SEG_ENTRA_REDIRECT_URI:'https://controller.example.test/api/v1/auth/callback'});await submitRendered(env,renderedForm(env,'platform-setup-form',values));assert.equal(mutations(env).length,0);assert.match(env.element('#form-error').textContent,/actual Entra Object ID/);values.candidate_object_id='33333333-3333-3333-3333-333333333333';env.context.apiResponses['POST /api/v1/platform/setup/preview']=guiSetupPlan();await submitRendered(env,renderedForm(env,'platform-setup-form',values));const body=JSON.parse(mutations(env)[0].options.body);assert.equal(body.candidate_object_id,values.candidate_object_id);assert.equal(body.candidate_object_id==='not-an-entra-object-id',false);}
 });
 test('password forms use POST and Unicode password validation matches character and byte boundaries',async()=>{
@@ -1623,13 +1738,13 @@ test('SAML trust updates bind the form-open revision and preserve a rejected sta
 
 
 // Built-in identity protection is flagged by the controller, never guessed from a username.
-test('built-in admin row offers password changes only while ordinary accounts remain editable',async()=>{
+test('built-in admin row offers password changes while ordinary accounts remain editable',async()=>{
  const builtin={...localPerson().user,protected_account:true,enabled:true},ordinary={...localUserFixture,username:'admin',protected_account:false};
  const env=await localWorkspace('access',{identity:{...localPerson(),user:builtin},responses:{'GET /api/v1/access/users':{items:[builtin,ordinary]}}});
  const html=env.element('#view-content').innerHTML,builtinRow=html.match(/<tr><td><strong>Local Administrator[\s\S]*?<\/tr>/)[0];
- assert.match(builtinRow,/Built-in admin/);assert.match(builtinRow,/Password changes only/);assert.match(builtinRow,/data-action="account-password"/);assert.doesNotMatch(builtinRow,/access-user-edit|access-user-reset-review|access-user-delete/);
+ assert.match(builtinRow,/Built-in admin/);assert.match(builtinRow,/Protected account/);assert.match(builtinRow,/data-action="account-password"/);assert.doesNotMatch(builtinRow,/access-user-edit|access-user-reset-review|access-user-delete/);
  assert.match(html,/data-action="access-user-edit" data-id="realm:analyst"/);await env.click('account-password');assert.match(env.element('#modal-content').innerHTML,/id="local-password-form"/);
- await env.click('access-user-edit',{id:builtin.id});const modal=env.element('#modal-content').innerHTML;assert.match(modal,/cannot be deleted, disabled, renamed or assigned another role/);assert.doesNotMatch(modal,/access-user-form|name="role"|name="enabled"/);assert.equal(mutations(env).length,0);
+ await env.click('access-user-edit',{id:builtin.id});const modal=env.element('#modal-content').innerHTML;assert.match(modal,/username, role and access are fixed/);assert.doesNotMatch(modal,/access-user-form|name="role"|name="enabled"/);assert.equal(mutations(env).length,0);
  await env.click('access-user-edit',{id:ordinary.id});assert.match(env.element('#modal-content').innerHTML,/id="access-user-form"/);
 });
 test('another Super Admin may reset built-in password but cannot submit a stale access edit',async()=>{
@@ -1639,23 +1754,81 @@ test('another Super Admin may reset built-in password but cannot submit a stale 
  await env.click('access-user-reset-review',{id:builtin.id});assert.match(env.element('#modal-content').innerHTML,/id="access-password-reset-form"/);
  env.run('state.accessUsers[0].protected_account=false');await env.click('access-user-edit',{id:builtin.id});
  const form=renderedForm(env,'access-user-form',{display_name:'Replacement',email:'replacement@example.test',role:'read_only',enabled:'false'});env.run('state.accessUsers[0].protected_account=true');
- await submitRendered(env,form);assert.equal(mutations(env).length,0);assert.match(env.element('#form-error').textContent,/only its password can be changed/);
+ await submitRendered(env,form);assert.equal(mutations(env).length,0);assert.match(env.element('#form-error').textContent,/account’s access is protected/);
 });
-test('built-in admin profile states immutable access and retains own password action',async()=>{
- const person=localPerson();person.user.protected_account=true;const env=await localWorkspace('servers',{identity:person});await env.click('account-profile');
- const html=env.element('#modal-content').innerHTML;assert.match(html,/Built-in admin · Password changes only/);assert.match(html,/cannot be deleted, disabled, renamed or assigned another role/);assert.match(html,/data-action="account-password"/);
+test('built-in admin can save display details through My profile while its username and role stay fixed',async()=>{
+ const person=localPerson();Object.assign(person.user,{protected_account:true,display_name:'Admin'});
+ const result={...person.user,display_name:'Pratik <Admin>',email:'admin@example.test'};
+ const env=await localWorkspace('servers',{identity:person,responses:{['PATCH /api/v1/access/users/'+encodeURIComponent(person.user.id)]:result}});
+ await env.click('account-profile');
+ const html=env.element('#modal-content').innerHTML;
+ assert.match(html,/username and Super Admin role are fixed/);
+ assert.match(html,/data-action="account-password"/);
+ await env.click('account-profile-edit');
+ const edit=env.element('#modal-content').innerHTML;
+ assert.match(edit,/id="account-profile-form"/);
+ assert.doesNotMatch(edit,/name="username"|name="role"|name="enabled"/);
+ await env.submit('account-profile-form',{display_name:'Pratik <Admin>',email:'admin@example.test',username:'forged',role:'read_only'});
+ const [request]=mutations(env);
+ assertCookieMutation(request);
+ assert.deepEqual(JSON.parse(request.options.body),{display_name:'Pratik <Admin>',email:'admin@example.test'});
+ assert.equal(env.element('#identity-name').textContent,'Pratik <Admin>');
+ assert.equal(env.run('state.user.username'),'admin');
+ assert.equal(env.run('state.role'),'super_admin');
+ await env.click('account-profile');
+ assert.match(env.element('#modal-content').innerHTML,/Pratik &lt;Admin&gt;|admin@example\.test/);
 });
 
-test('network controls have a routed page and accurate per-server uncertainty badges',async()=>{
+test('network controls open under Policies with compatible links and accurate endpoint status',async()=>{
  const env=await workspace('network-control',{mode:'entra',role:'read_only'});
- assert.equal(env.run('state.view'),'network-control');assert.match(env.element('#navigation').innerHTML,/href="\/network-control"/);
+ assert.equal(env.run('state.view'),'policies');assert.doesNotMatch(env.element('#navigation').innerHTML,/href="\/network-control"/);
+ assert.doesNotMatch(env.element('#view-tabs').innerHTML,/href="\/network-control"/);
+ assert.match(env.element('#view-content').innerHTML,/<details id="advanced-network-controls"[^>]* open>/);
  assert.match(env.element('#view-content').innerHTML,/Outbound &amp; quarantine|Outbound & quarantine/);
  assert.ok(env.requests.some(request=>request.url==='/api/v1/network-control?limit=50&offset=0'));
  env.run(`state.data.servers[0].network_control={checked_at:"2026-11-04T00:00:00Z",stale:true,egress:{status:"enforced"},quarantine:{status:"expiry_unconfirmed",expiry_unconfirmed:true,expires_at:"2026-11-04T01:00:00Z",error:"<unsafe>"}};state.view="servers";render();`);
  let html=env.element('#view-content').innerHTML;assert.match(html,/Quarantine expiry unconfirmed/);assert.match(html,/Outbound · stale receipt/);assert.doesNotMatch(html,/Quarantine released|Outbound applied/);
  html=env.run('networkControlStatusHTML(state.data.servers[0],true)');assert.match(html,/&lt;unsafe&gt;/);assert.doesNotMatch(html,/<unsafe>/);
+ assert.match(html,/href="\/policies\?section=advanced"/);
  await assert.rejects(env.run(`api('/network-control/assess',{method:'POST',body:{}})`),/Read Only/);
  const before=env.requests.length;await env.run(`api('/firewall-activation/query',{method:'POST',body:{}})`);assert.equal(env.requests.length,before+1);
+});
+
+test('Policies opens Advanced controls only on demand or from a direct link',async()=>{
+ const env=await workspace('policies',{mode:'entra',role:'admin'});
+ const historyRequests=()=>env.requests.filter(request=>request.url.startsWith('/api/v1/network-control?')).length;
+ assert.match(env.element('#view-content').innerHTML,/<details id="advanced-network-controls"[^>]*>\s*<summary>Advanced controls/);
+ assert.doesNotMatch(env.element('#view-content').innerHTML,/<details id="advanced-network-controls"[^>]* open>/);
+ assert.equal(historyRequests(),0);
+ const toggle=env.listeners.toggle.at(-1);
+ toggle({target:{id:'advanced-network-controls',open:true}});
+ await new Promise(setImmediate);
+ assert.equal(historyRequests(),1);
+ assert.match(env.element('#view-content').innerHTML,/data-action="network-control-new-quarantine"/);
+ await env.click('network-control-new-quarantine');
+ assert.equal(env.element('#modal-title').textContent,'Emergency quarantine');
+ assert.equal(mutations(env).length,0);
+ await env.click('close-modal');
+ assert.equal(clickWorkspaceLink(env,'/servers'),true);
+ assert.equal(clickWorkspaceLink(env,'/policies?section=advanced'),true);
+ assert.equal(env.run('state.view'),'policies');
+ assert.equal(env.run('state.networkControlOpen'),true);
+ assert.equal(env.routeHistory.at(-1),'/policies?section=advanced');
+ env.popRoute('/policies');
+ assert.equal(env.run('state.networkControlOpen'),false);
+});
+
+test('a signed-out Network controls bookmark returns to Advanced controls after login',async()=>{
+ const identity=localPerson('admin',false);
+ const env=await workspace('network-control',{mode:'local',authStatus:401,config:{local_enabled:true},responses:{'POST /api/v1/auth/local':identity}});
+ assert.equal(env.context.location.pathname,'/login');
+ assert.equal(env.context.location.search,'?next=network-control');
+ assert.equal(env.requests.some(request=>request.url.startsWith('/api/v1/network-control?')),false);
+ env.context.apiResponses['GET /api/v1/auth']=identity;
+ await env.submit('local-login-form',{username:'operator',password:'test-only'});
+ assert.equal(env.context.location.pathname,'/policies');
+ assert.equal(env.context.location.search,'?section=advanced');
+ assert.match(env.element('#view-content').innerHTML,/<details id="advanced-network-controls"[^>]* open>/);
 });
 
 test('failed quarantine replacement keeps prior active isolation visible',async()=>{
@@ -1784,49 +1957,45 @@ test('Traffic discovery reports typed rate and retention with CSV access and no 
  assert.equal(mutations(env).length,0);
 });
 
-test('certificate names can be edited and regeneration opens a review with the current identity', async () => {
+test('certificate source has two choices and generation defaults to saved cluster and node details', async () => {
  const current = {
   subject: 'CN=controller-label',
   issuer: 'CN=Existing CA',
   common_name: 'controller-label',
   organization: 'Network & Cloud',
   organizational_unit: 'Operations',
-  sans: ['prthak.example.test', '10.241.10.11', '10.241.10.11']
+  sans: ['prthak.example.test', '10.241.10.11', '10.241.10.11', 'old.example.test']
  };
  const env = await applianceWorkspace({
-  '/api/v1/platform/certificates': {current, hostname: 'prthak.example.test', generation_issuer: 'existing_local_issuer'},
+  '/api/v1/platform/certificates': {current, hostname: 'old.example.test', generation_issuer: 'existing_local_issuer'},
   'POST /api/v1/platform/certificates/preview': applianceReview({summary: {certificate: current}})
  });
  await env.click('platform-tab', {tab: 'certificates'});
  await new Promise(setImmediate);
  const html = env.element('#view-content').innerHTML;
  assert.match(html, />Reload details<\/button>/);
- assert.match(html, /name="subject_common_name" value="controller-label"/);
- assert.match(html, /name="subject_organization" value="Network &amp; Cloud"/);
+ const source = html.match(/<select id="platform-certificate-mode"[\s\S]*?<\/select>/)[0];
+ assert.deepEqual([...source.matchAll(/<option value="([^"]+)"/g)].map(([, value]) => value), ['ca_signed', 'self_signed']);
+ assert.match(html, /name="subject_common_name" value="prthak.example.test"/);
+ assert.match(html, /name="subject_organization" value="Production cluster"/);
+ assert.match(html, /name="subject_organizational_unit" value="Noida"/);
  assert.match(html, /name="hostname" value="prthak.example.test"/);
- assert.match(html, /name="sans"[^>]*>10\.241\.10\.11<\/textarea>/);
+ assert.match(html, /name="sans"[^>]*>old\.example\.test\n10\.241\.10\.11<\/textarea>/);
  assert.match(html, /configured local CA signs the replacement/);
 
- await env.click('platform-certificate-edit-identity');
+ env.run('platformCertificateChange({target:{id:"platform-certificate-mode",value:"self_signed"}})');
  assert.equal(env.element('#certificate-self-signed-fields').hidden, false);
- assert.equal(env.context.document.activeElement, env.element('#certificate-common-name'));
+ assert.equal(env.element('#certificate-ca-signed-fields').hidden, true);
  assert.equal(mutations(env).length, 0);
- const form = env.element('#platform-certificate-form');
- let submitted;
- form.requestSubmit = () => {
-  const formWithEditedValues = renderedForm(env, 'platform-certificate-form', {
+ const formWithEditedValues = renderedForm(env, 'platform-certificate-form', {
    mode: 'self_signed',
    hostname: 'prthak.example.test',
    subject_common_name: 'Edited label',
    subject_organization: 'Network & Cloud',
    subject_organizational_unit: 'Operations',
    sans: '10.241.10.11, controller-pune.example.test'
-  });
-  submitted = submitRendered(env, formWithEditedValues);
- };
- await env.click('platform-certificate-regenerate');
- assert.ok(submitted);
- await submitted;
+ });
+ await submitRendered(env, formWithEditedValues);
  const [request] = mutations(env);
  assert.equal(request.url, '/api/v1/platform/certificates/preview');
  assert.deepEqual(JSON.parse(request.options.body), {

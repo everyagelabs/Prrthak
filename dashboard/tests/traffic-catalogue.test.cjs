@@ -24,7 +24,7 @@ test('Read Only traffic pagination passes the real shared API guard and sends co
  const f=fixture(async(url,options)=>page(Array.from({length:7},(_,index)=>flow('192.0.2.'+(index+1))),{offset:500,has_more:false}));
  await f.c.loadTrafficCatalogue(500);
  assert.equal(f.requests.length,1);assert.equal(f.requests[0].url,'/api/v1/flows/query');assert.equal(f.requests[0].options.method,'POST');assert.equal(f.requests[0].options.credentials,'same-origin');assert.equal(f.requests[0].options.headers['X-CSRF-Token'],'csrf-fixture');
- const html=f.c.trafficCatalogueHTML();assert.match(html,/501–507 of 507 matching relationships/);assert.match(html,/data-offset="450"/);assert.match(html,/data-offset="507" disabled/);assert.match(html,/graph and chart visualize the loaded page/);assert.match(html,/Export matching CSV/);assert.doesNotMatch(html,/Showing up to500|Showing up to 500/);assert.equal(f.c.trafficCatalogueResultText(),'507 matching relationships · 1 endpoints');
+ const html=f.c.trafficCatalogueHTML();assert.match(html,/501–507 of 507 matching relationships/);assert.match(html,/data-offset="450"/);assert.match(html,/data-offset="507" disabled/);assert.match(html,/Charts show the current page\./);assert.match(html,/Export matching CSV/);assert.doesNotMatch(html,/Showing up to500|Showing up to 500/);assert.equal(f.c.trafficCatalogueResultText(),'507 matching relationships · 1 endpoints');
  await assert.rejects(()=>f.c.api('/policies',{method:'POST',body:{}}),/Read Only/);
 });
 test('combined application location group custom tag port and endpoint filters build one pre-pagination scope',()=>{

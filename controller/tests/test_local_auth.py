@@ -52,6 +52,7 @@ class LocalAuthenticationTests(unittest.TestCase):
         first = self.login()
         principal = first["principal"]
         self.assertEqual(principal["role"], "super_admin")
+        self.assertEqual(principal["user"]["display_name"], "Admin")
         self.assertTrue(principal["password_change_required"])
         self.assertEqual(principal["auth_provider"], "local")
         self.assertTrue(principal["actor"].startswith("local:"))
@@ -89,7 +90,7 @@ class LocalAuthenticationTests(unittest.TestCase):
         self.assertNotIn(record["password_hash"]["salt"], exposed)
         self.assertNotEqual(hash_password(PASSWORD), hash_password(PASSWORD))
 
-    def test_builtin_admin_has_durable_protected_identity_and_only_password_changes(self):
+    def test_builtin_admin_has_durable_protected_identity_and_cannot_change_role_or_enabled_state(self):
         principal = self.super()
         admin_id = principal["user"]["id"]
         self.assertTrue(principal["user"]["protected_account"])
@@ -98,18 +99,56 @@ class LocalAuthenticationTests(unittest.TestCase):
         second = self.complete(self.login(other["username"], TEMP_PASSWORD), TEMP_PASSWORD, SECOND_PASSWORD)["principal"]
         before = self.store.get("auth_users", admin_id)
         for changes in ({"enabled": False}, {"role": "read_only"}, {"role": "admin"},
-                        {"display_name": "Replacement"}, {"email": "replacement@example.test"},
+                        {"display_name": "Replacement", "role": "admin"},
                         {"role": "super_admin", "enabled": True}):
             with self.subTest(changes=changes), self.assertRaisesRegex(AuthConflict, "built-in admin account is protected"):
                 self.auth.update_user(admin_id, changes, second)
         for changes in ({"username": "replacement"}, {"provider": "saml"}, {"protected_account": False}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 self.auth.update_user(admin_id, changes, second)
+        with self.assertRaisesRegex(AuthDenied, "Sign in as the built-in admin"):
+            self.auth.update_user(admin_id, {"display_name": "Replacement", "email": "replacement@example.test"}, second)
+        with self.assertRaises(AuthConflict):
+            self.auth.update_user(admin_id, {"enabled": False}, principal)
         self.assertEqual(self.store.get("auth_users", admin_id), before)
         self.assertTrue(next(user for user in self.auth.list_users(second)["items"] if user["id"] == admin_id)["protected_account"])
         # The protection is specific to the seeded account, not every Super Admin.
         self.auth.update_user(other["id"], {"display_name": "Second administrator"}, principal)
         self.assertEqual(self.store.get("auth_users", other["id"])["display_name"], "Second administrator")
+
+    def test_builtin_admin_can_edit_own_profile_without_changing_credentials_or_revoking_session(self):
+        first = self.login()
+        admin_id = first["principal"]["user"]["id"]
+        with self.assertRaises(AuthDenied):
+            self.auth.update_user(admin_id, {"display_name": "Before password change"}, first["principal"])
+        signed = self.complete(first)
+        principal = signed["principal"]
+        before = self.store.get("auth_users", admin_id)
+        for changes in ({"email": "not an address"}, {"display_name": "two\nlines"}, {"password": PASSWORD}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.auth.update_user(admin_id, changes, principal)
+        self.assertEqual(self.store.get("auth_users", admin_id), before)
+        result = self.auth.update_user(admin_id, {"display_name": " Pratik Srivastava ", "email": " PRATIK@example.test "}, principal)
+        self.assertEqual(result["display_name"], "Pratik Srivastava")
+        self.assertEqual(result["email"], "pratik@example.test")
+        self.assertEqual(result["username"], "admin")
+        self.assertEqual(result["role"], "super_admin")
+        self.assertTrue(result["enabled"])
+        self.assertTrue(result["protected_account"])
+        self.assertEqual(result["revoked_sessions"], 0)
+        self.assertNotIn("display_name_customized", result)
+        after = self.store.get("auth_users", admin_id)
+        for key in ("password_hash", "credential_version", "password_change_required"):
+            self.assertEqual(after[key], before[key])
+        self.assertEqual(self.auth.authenticate(cookie(signed))["user"]["display_name"], "Pratik Srivastava")
+        audit, = [event for event in self.store.all("audit") if event["action"] == "access.user.updated"]
+        self.assertEqual(audit["actor"], principal["actor"])
+        self.assertEqual(audit["details"]["before"]["display_name"], "Admin")
+        self.assertEqual(audit["details"]["after"]["email"], "pratik@example.test")
+        self.assertEqual(audit["details"]["revoked_sessions"], 0)
+        self.assertNotIn("password_hash", audit["details"]["after"])
+        cleared = self.auth.update_user(admin_id, {"display_name": "", "email": ""}, principal)
+        self.assertEqual((cleared["display_name"], cleared["email"]), ("Admin", ""))
 
     def test_prior_seeded_install_backfills_protection_without_changing_credentials(self):
         principal = self.super()
@@ -121,12 +160,17 @@ class LocalAuthenticationTests(unittest.TestCase):
             self.store._put(db, "maintenance_settings", realm)
             user = self.store._get(db, "auth_users", identifier)
             user.pop("protected_account")
+            user["display_name"] = "Initial Super Admin"
             self.store._put(db, "auth_users", user)
         restarted = Authentication(self.store, entra=EntraAuth(self.store, EntraConfig()), origin=ORIGIN)
         migrated = self.store.get("auth_users", identifier)
-        self.assertEqual(migrated, {**original, "protected_account": True})
+        self.assertEqual(migrated, {**original, "display_name": "Initial Super Admin", "protected_account": True})
         self.assertEqual(self.store.get("maintenance_settings", REALM_ID)["bootstrap_user_id"], identifier)
-        self.assertTrue(restarted.local_login({"username": "admin", "password": PASSWORD}, self.headers)["principal"]["user"]["protected_account"])
+        signed = restarted.local_login({"username": "admin", "password": PASSWORD}, self.headers)
+        self.assertTrue(signed["principal"]["user"]["protected_account"])
+        self.assertEqual(signed["principal"]["user"]["display_name"], "Admin")
+        restarted.update_user(identifier, {"display_name": "Initial Super Admin"}, signed["principal"])
+        self.assertEqual(restarted.authenticate(cookie(signed))["user"]["display_name"], "Initial Super Admin")
         with self.assertRaises(AuthDenied):
             restarted.local_login({"username": "admin", "password": "admin"}, self.headers)
 

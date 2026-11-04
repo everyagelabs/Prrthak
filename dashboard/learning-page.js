@@ -15,9 +15,11 @@ function captureCoverageHTML(coverage={}){
   return `<div class="capture-coverage">${backends.map(row=>`<small><strong>${h(row.backend)}</strong>: ${h(row.status)} · IPv4 ${row.ipv4===true?'supported':'unavailable'} / IPv6 ${row.ipv6===true?'supported':'unavailable'} · lost events ${Number.isInteger(row.lost_events)&&row.lost_events>=0?format(row.lost_events):'unknown'}${row.error?' · '+h(row.error):''}</small>`).join('')}${gaps.map(reason=>`<small class="danger-text">Gap: ${h(reason)}</small>`).join('')}<small>No complete-ledger or application-success claim.</small></div>`;
 }
 function captureCoverageLimited(coverage={}){return !!coverage.error||coverage.rate_limited===true||num(coverage.dropped_events)>0||!!coverage.capture_gaps?.length||!coverage.capture_backends?.length||coverage.capture_backends.some(row=>row.status!=='active'||row.ipv4!==true||row.ipv6!==true||!Number.isInteger(row.lost_events)||row.lost_events>0);}
-function trafficCaptureStatusHTML(){
+function trafficCaptureStatusHTML(page){
   const hosts=filteredServers().filter(server=>server.learning_coverage),issues=hosts.filter(server=>captureCoverageLimited(server.learning_coverage));
-  return `<div class="inline-notice ${!hosts.length||issues.length?'warning':''}"><strong>Capture coverage before interpreting an empty window</strong><p>Missing hits do not prove no traffic. Connection and packet counts use separate units; unsupported families/backends, outages and loss may omit observations. ${hosts.length?'These are last reported learning receipts, which may be historical.':'No learning capture coverage receipts are loaded for this scope; support and loss remain unknown.'}</p>${issues.slice(0,3).map(server=>`<div><strong>${h(server.hostname)}</strong> · session ${h(server.learning_coverage.session_id || 'unknown')}${captureCoverageHTML(server.learning_coverage)}</div>`).join('')}${issues.length>3?`<small>${issues.length-3} other loaded endpoint receipts have gaps or unknown coverage; inspect endpoint/session details.</small>`:''}</div>`;
+  const label=!hosts.length?'No reports yet':issues.length?'Limited':'Reported';
+  const samples=issues.length?issues:hosts;
+  return `<details class="traffic-coverage ${!hosts.length||issues.length?'limited':''}" ${state.trafficCoverageOpen?'open':''}><summary>Capture coverage <strong>${label}</strong></summary><div class="traffic-coverage-details"><p>Capture gaps can reduce counts.</p>${samples.slice(0,3).map(server=>`<div><strong>${h(server.hostname)}</strong>${server.learning_coverage.session_id?` <small>· ${h(server.learning_coverage.session_id)}</small>`:''}${captureCoverageHTML(server.learning_coverage)}</div>`).join('')}${samples.length>3?`<p>See endpoint details for ${format(samples.length-3)} more capture reports.</p>`:''}${page?`<p>${h(page.coverage || 'The table and export use all matching observations. The charts use the current page.')}</p>`:''}</div></details>`;
 }
 function learningHosts(scope,serverId) { return scope==='all'||serverId?state.data.servers:filteredServers(); }
 function endpointPickerAddress(value){
@@ -145,7 +147,7 @@ async function learningSubmit(event) {
     if(identity!==accessIdentityKey()||$('#learning-form')!==form)return;
     if(body.purpose==='traffic')state.learningHistoryPurpose='traffic';
     closeModal();await load();
-    if(body.purpose==='traffic')await loadLearningSessionPage(undefined,0,'traffic');
+    if(body.purpose==='traffic'&&state.view==='traffic'&&state.trafficLearningSessionsOpen)await loadTrafficLearningHistory({quiet:true});
     toast(body.purpose==='traffic'?'Traffic discovery requested. Collection starts after each endpoint reports its fresh listener scan.':body.policy_action==='auto_allow'?'Automatic source allowances enabled for this session. Learned policies appear as observations arrive; endpoint guards determine application.':body.selection_mode==='discovered'?'Fresh discovery requested on selected endpoints. Collection waits for each server’s own scan.':'Manual learning requested. Collection starts when each agent syncs.');
   }catch(error){if(identity===accessIdentityKey()&&$('#learning-form')===form)formError(error);}finally{submit.disabled=false;}
 }
@@ -184,15 +186,33 @@ function learningSessionPage(serverId,purpose=''){
   const remote=!!state.data?.learning_session_pagination;
   return {items:remote&&serverId?[]:items,total:remote&&serverId?null:items.length,offset:0,limit:6,has_more:false,remote,unloaded:remote&&!!serverId,error:''};
 }
+const trafficLearningHistoryLimit=20;
+function trafficLearningHistoryPage(purpose=state.learningHistoryPurpose || ''){
+  return learningPageCache().get('traffic-history:'+purpose) || {items:[],unloaded:true};
+}
+function loadTrafficLearningHistory({quiet=false}={}){
+  const purpose=state.learningHistoryPurpose || '';
+  if(!trafficLearningHistoryPage(purpose).loading)return loadLearningSessionPage(undefined,0,purpose,{quiet,traffic:true});
+}
 let learningSessionRequestSequence=0;
-async function loadLearningSessionPage(serverId,offset=0,purpose='',{quiet=false}={}){
-  if(!Number.isSafeInteger(offset)||offset<0)return;const key=learningPageKey(serverId,purpose),cache=learningPageCache(),previous=learningSessionPage(serverId,purpose),sequence=++learningSessionRequestSequence;
+async function loadLearningSessionPage(serverId,offset=0,purpose='',{quiet=false,traffic=false}={}){
+  if(!Number.isSafeInteger(offset)||offset<0)return;const key=traffic?'traffic-history:'+purpose:learningPageKey(serverId,purpose),cache=learningPageCache(),previous=traffic?trafficLearningHistoryPage(purpose):learningSessionPage(serverId,purpose),sequence=++learningSessionRequestSequence;
   learningSetPage(key,{...previous,loading:true,error:'',sequence});if(!quiet)learningRedraw(serverId);
-  try{const response=await api('/learning?limit=6&offset='+offset+(serverId?'&server_id='+encodeURIComponent(serverId):'')+(purpose?'&purpose='+encodeURIComponent(purpose):''));if(learningPageCache()!==cache||cache.get(key)?.sequence!==sequence)return;learningSetPage(key,learningPageRecord(response.items,response));}
+  try{const response=await api('/learning?limit='+(traffic?trafficLearningHistoryLimit:6)+'&offset='+offset+(serverId?'&server_id='+encodeURIComponent(serverId):'')+(purpose?'&purpose='+encodeURIComponent(purpose):''));if(learningPageCache()!==cache||cache.get(key)?.sequence!==sequence)return;learningSetPage(key,learningPageRecord(response.items,response));}
   catch(error){if(learningPageCache()===cache&&cache.get(key)?.sequence===sequence)learningSetPage(key,{...previous,loading:false,error:'Session history unavailable: '+error.message});}
   learningRedraw(serverId);
 }
-function learningRedraw(serverId){if(serverId){if(state.detail===serverId&&state.detailData)renderServerDrawer(state.detailData);}else if(['overview','traffic'].includes(state.view)&&!$('#modal').open&&!document.activeElement?.matches('input,select,textarea'))render();}
+function learningRedraw(serverId){
+  if(serverId){
+    if(state.detail===serverId&&state.detailData)renderServerDrawer(state.detailData);
+    return;
+  }
+  if(!['overview','traffic'].includes(state.view)||$('#modal').open)return;
+  const active=document.activeElement,restoreFocus=['traffic-history-purpose','traffic-learning-sessions-toggle'].includes(active?.id);
+  if(!restoreFocus&&active?.matches('input,select,textarea'))return;
+  render();
+  if(restoreFocus)document.getElementById(active.id)?.focus();
+}
 function learningSessionPaginationHTML(page,serverId,purpose=''){
   const count=page.remote?page.items.length:Math.min(page.items.length,state.learningSessionLimit || 6),total=page.total,offset=page.offset || 0;
   return `<div class="recommendation-pagination"><span>${total===null?'Session history not loaded':`Loaded ${format(count)} · ${count?offset+1:0}–${count?offset+count:0} of ${format(total)} sessions`}${page.loading?' · Loading…':''}</span><div>${page.unloaded?`<button class="button secondary small" data-action="learning-session-page" data-server-id="${h(serverId || '')}" data-purpose="${h(purpose)}" data-offset="0">Load session history</button>`:page.remote?`<button class="button secondary small" data-action="learning-session-page" data-server-id="${h(serverId || '')}" data-purpose="${h(purpose)}" data-offset="${Math.max(0,offset-page.limit)}" ${!offset||page.loading?'disabled':''}>Previous sessions</button><button class="button secondary small" data-action="learning-session-page" data-server-id="${h(serverId || '')}" data-purpose="${h(purpose)}" data-offset="${offset+page.limit}" ${!page.has_more||page.loading?'disabled':''}>Next sessions</button>`:''}</div></div>${page.error?`<p class="form-error">${h(page.error)}</p>`:''}`;
@@ -203,9 +223,19 @@ function learningSessionCardHTML(session,serverId){
   const scope=summary?`<p class="help-text">${pending?`${pending} awaiting fresh discovery · `:''}${errors?`${errors} discovery errors · `:''}Frozen ports and per-host state load separately.</p><button class="text-button" data-action="learning-host-scope" data-id="${h(session.id)}" data-server-id="${h(serverId || '')}">View endpoint scope and status</button>`:`<details class="learning-session-hosts"><summary>View each endpoint's scope and status</summary>${hosts.slice(0,50).map(server=>learningHostSessionHTML(session,server,assigned)).join('')}${hosts.length>50?'<p class="help-text">First 50 loaded endpoints shown.</p>':''}</details>`;
   return `<article class="learning-card ${assigned?'':'finished'}"><div class="learning-top"><div class="learning-name">${h(discover?'Traffic discovery · '+sessionTitle(session):sessionTitle(session))}</div>${badge(status,errors?'warning':assigned?'learning':'neutral')}</div><div class="learning-details">${session.selection_mode==='discovered'?(session.port_filter?.length?'Automatic · only '+portList(session.port_filter):'Automatic · all network listeners per host'):'Manual · '+portList(session.ports)} · ${format(hostCount)} endpoints${assigned&&!summary?` · ${collecting} confirmed collecting`:''}</div><p class="help-text learning-policy-behavior">${discover?'Metadata only · access rules unchanged':session.policy_action==='auto_allow'?'Auto-allow observed sources · see learned policy application reports':'Observe and recommend · access changes require review'}</p>${initialLearningApprovalHTML(session)}${scope}<div class="learning-evidence-actions"><button class="text-button" data-action="recommendation-open" data-id="${h(session.id)}" data-purpose="${discover?'traffic':''}" data-server-id="${h(discover&&serverId?serverId:'')}">${discover?'View traffic observations':'Review observed access'}</button><button class="text-button" data-action="recommendation-export" data-id="${h(session.id)}" data-server-id="${h(serverId || '')}">Export ${serverId?'endpoint ':''}CSV</button></div><div class="learning-progress"><span style="width:${percent.toFixed(1)}%"></span></div><div class="learning-bottom"><span>${assigned?`${Math.ceil(Math.max(0,end-Date.now())/60000)}m remaining`:`Ended ${timestamp(session.stopped_at || session.ended_at || session.expires_at)}`}</span>${assigned&&canWrite()?`<button class="text-button" data-action="stop-learning" data-id="${h(session.id)}">Stop learning</button>`:'<span>History retained</span>'}</div></article>`;
 }
+function trafficLearningHistoryHTML(){
+  const purpose=state.learningHistoryPurpose || '',page=trafficLearningHistoryPage(purpose);
+  const scopeIds=new Set(filteredServers().map(server=>server.id));
+  const sessions=page.items.slice(0,trafficLearningHistoryLimit).filter(session=>session.server_ids?.some(id=>scopeIds.has(id)));
+  return `<div class="field"><label for="traffic-history-purpose">Session type</label><select id="traffic-history-purpose"><option value="">All collection sessions</option><option value="traffic" ${purpose==='traffic'?'selected':''}>Traffic discovery only</option></select></div>
+    <p class="help-text">Latest ${trafficLearningHistoryLimit} sessions, live and ended. Endpoint filters apply to this list.</p>
+    ${page.error?`<p class="form-error" role="alert">${h(page.error)}</p><button class="text-button" type="button" data-action="traffic-learning-refresh">Retry</button>`:''}
+    ${sessions.length?`<div class="learning-grid">${sessions.map(session=>learningSessionCardHTML(session)).join('')}</div>`:page.loading||page.unloaded&&!page.error?'<p class="help-text">Loading sessions…</p>':page.error?'':'<p class="help-text">No matching sessions in recent history.</p>'}`;
+}
 function learningHTML(){
-  const traffic=state.view==='traffic',purpose=traffic?state.learningHistoryPurpose || '':'',page=learningSessionPage(undefined,purpose),scopeIds=new Set(filteredServers().map(server=>server.id)),loaded=page.remote?page.items:page.items.slice(0,state.learningSessionLimit || 6),sessions=loaded.filter(session=>session.server_ids?.some(id=>scopeIds.has(id))),active=sessions.filter(session=>['active','learning'].includes(session.status)&&num(date(session.starts_at)?.getTime())<=Date.now()&&num(date(session.expires_at)?.getTime())>Date.now());
-  return `<div class="section-line"><h2>${state.view==='traffic'?'Collection sessions':'Learning sessions'}<span>${active.length} open assignments on loaded page${page.remote?` · ${num(page.active_total)} active globally`:''}</span></h2><button class="button quiet" data-action="${state.view==='traffic'?'discover-traffic':'learn'}" ${!canWrite()?'disabled':''}>${state.view==='traffic'?'Discover traffic':'New session'} ${icon('plus')}</button></div>${traffic?`<div class="field"><label for="traffic-history-purpose">Collection history</label><select id="traffic-history-purpose"><option value="">All collection sessions</option><option value="traffic" ${purpose==='traffic'?'selected':''}>Traffic discovery only</option></select></div>`:''}${learningSessionPaginationHTML(page,undefined,purpose)}${page.remote?'<p class="help-text">Endpoint filters apply to this loaded session page. Browse history pages for other matching sessions; these cards do not represent the full filtered history.</p>':''}${sessions.length?`<div class="learning-grid">${sessions.map(session=>learningSessionCardHTML(session)).join('')}</div>`:emptyHTML(page.total?'No matching sessions on this loaded page':'No learning sessions in this scope',page.total?'Browse another session page or broaden endpoint filters.':'Start a temporary session or broaden your endpoint filters.','learning',page.total?'':traffic?'Discover traffic':'Start learning',page.total?'':traffic?'discover-traffic':'learn')}${!page.remote&&page.items.length>(state.learningSessionLimit || 6)?'<button class="button secondary small learning-more-sessions" data-action="learning-more-sessions">Show more sessions</button>':''}`;
+  const open=state.trafficLearningSessionsOpen===true;
+  return `<div class="section-line"><button id="traffic-learning-sessions-toggle" type="button" class="button secondary small" data-action="traffic-learning-sessions" aria-expanded="${open}" aria-controls="traffic-learning-sessions">${icon('learning')} Learning sessions</button></div>
+    <section id="traffic-learning-sessions" aria-label="Learning sessions" ${open?'':'hidden'}>${open?trafficLearningHistoryHTML():''}</section>`;
 }
 function serverLearningSessionsHTML(server){
   const page=learningSessionPage(server.id),items=page.remote?page.items:page.items.slice(0,6);
@@ -223,6 +253,18 @@ async function showLearningHostScope(sessionId,offset,serverId){
 }
 async function learningHistoryAction(button){
   const action=button.dataset.action,serverId=button.dataset.serverId || undefined;
+  if(action==='traffic-learning-sessions'){
+    if(state.view!=='traffic')return true;
+    const open=state.trafficLearningSessionsOpen=!state.trafficLearningSessionsOpen;
+    render();
+    $('#traffic-learning-sessions-toggle')?.focus();
+    if(open)await loadTrafficLearningHistory({quiet:true});
+    return true;
+  }
+  if(action==='traffic-learning-refresh'){
+    if(state.view==='traffic'&&state.trafficLearningSessionsOpen)await loadTrafficLearningHistory();
+    return true;
+  }
   if(action==='learning-session-page'){await loadLearningSessionPage(serverId,Number(button.dataset.offset),button.dataset.purpose || '');return true;}
   if(action==='learning-host-scope'){await showLearningHostScope(button.dataset.id,undefined,serverId);return true;}
   if(action==='learning-host-page'){await showLearningHostScope(button.dataset.id,Number(button.dataset.offset),serverId);return true;}

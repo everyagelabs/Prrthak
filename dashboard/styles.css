@@ -166,8 +166,8 @@ td,.mono,.host-name,.policy-service strong,.alert-title,.activity-item h3,.detai
 .sign-in-card .button:focus-visible { outline-color: #aa2941; }
 .sign-in-card .button.primary { background: #bb1631; border-color: #bb1631; }
 .sign-in-card .button.primary:hover { background: #951027; }
-.sign-in-card .microsoft-signin { color: #433948; }
-.sign-in-card .microsoft-mark { width: 18px; height: 18px; }
+.sign-in-card .sso-signin { color: #433948; }
+.sign-in-card .sso-signin svg { width: 18px; height: 18px; }
 .sign-in-card .auth-divider { margin: 0; color: #6e6370; font-size: 12px; }
 .sign-in-card .form-error, .sign-in-card .inline-notice { margin: 0; overflow-wrap: anywhere; font-size: 13px; color: #79293b; }
 .sign-in-support { margin: auto 0 0; padding-top: 16px; border-top: 1px solid #ede4e9; color: #665b69; font-size: 12px; }
@@ -204,3 +204,21 @@ td,.mono,.host-name,.policy-service strong,.alert-title,.activity-item h3,.detai
 .notification-event-filters details summary{cursor:pointer;margin:12px 0 6px;color:var(--muted)}
 .notification-event-choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:2px 12px}
 .notification-event-choices .host-check{border:0;padding:6px 0;color:var(--ink)}
+
+.traffic-tools{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 14px}
+.traffic-tools-filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-left:auto}
+.traffic-coverage{flex:1 1 240px;color:#676773;font-size:11px;line-height:1.6}
+.traffic-coverage summary{width:fit-content;cursor:pointer;padding:7px 0}
+.traffic-coverage summary strong{margin-left:5px;color:#4c6d58}
+.traffic-coverage.limited summary strong{color:#8a561b}
+.traffic-coverage-details{margin:4px 0;padding:10px 13px;border:1px solid #e6e6ec;border-radius:8px;background:#fff;overflow-wrap:anywhere}
+.traffic-coverage-details p{margin:0 0 8px}
+.traffic-coverage-details p:last-child{margin-bottom:0}
+.traffic-coverage-details>div{margin:8px 0}
+.traffic-layout .card-header{gap:8px;flex-wrap:wrap}
+.traffic-charts-scope{margin:-5px 0 7px;text-align:right;font-size:10px;color:#797984}
+.traffic-monitor-coverage{margin:0 0 12px;color:#676773;font-size:11px}
+.traffic-monitor-coverage summary{width:fit-content;cursor:pointer}
+.advanced-network-controls{margin:18px 0 0}
+.advanced-network-controls>summary{width:fit-content;cursor:pointer;font-weight:600;padding:10px 0}
+.advanced-network-controls>summary span{font-size:.85em;font-weight:400;color:var(--muted);margin-inline-start:6px}

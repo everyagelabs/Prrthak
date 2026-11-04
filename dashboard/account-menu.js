@@ -18,9 +18,46 @@ function renderAccountMenu(){
 }
 function closeAccountMenu(restoreFocus=false){state.accountMenuOpen=false;$('#account-menu-panel').hidden=true;$('#account-menu-toggle').setAttribute('aria-expanded','false');if(restoreFocus)$('#account-menu-toggle').focus();}
 function openAccountMenu(last=false){if(!state.authType)return;state.accountMenuOpen=true;renderAccountMenu();const items=accountMenuItems();(last?items.at(-1):items[0])?.focus();}
+function accountCanEditProfile(){
+  return state.authType==='session'&&canManageUsers()&&accessProtected(state.user);
+}
+function showAccountProfileEdit(){
+  if(!accountCanEditProfile())return;
+  closeAccountMenu();
+  const user=state.user;
+  showModal('Edit profile',`<form id="account-profile-form"><div class="modal-body">${errorSlot}<dl class="detail-grid"><div><dt>Username</dt><dd>${h(user.username)}</dd></div></dl><div class="field"><label for="account-profile-name">Display name</label><input id="account-profile-name" name="display_name" maxlength="200" value="${h(user.display_name || '')}" autofocus></div><div class="field"><label for="account-profile-email">Email (display only)</label><input id="account-profile-email" name="email" type="email" maxlength="254" value="${h(user.email || '')}"></div></div>${modalFooter('Save profile')}</form>`);
+  state.accountDialogOpen=true;
+}
+async function accountProfileSubmit(event){
+  event.preventDefault();
+  if(!accountCanEditProfile())return;
+  const form=event.target,request=accessRequest(form);
+  if(!request)return;
+  const submit=$('button[type="submit"]',form);
+  submit.disabled=true;
+  try{
+    const values=new FormData(form),userId=state.user.id;
+    const profile=await api('/access/users/'+encodeURIComponent(userId),{method:'PATCH',body:{
+      display_name:String(values.get('display_name') || '').trim(),
+      email:String(values.get('email') || '').trim()
+    }});
+    if(!accessRequestCurrent(request))return;
+    if(profile.id!==userId)throw new Error('The controller returned a different account.');
+    const fields={display_name:profile.display_name,email:profile.email};
+    state.user={...state.user,...fields};
+    state.accessUsers=state.accessUsers.map(user=>user.id===userId?{...user,...fields}:user);
+    closeModal();
+    if(state.view==='access')render();
+    toast('Profile saved.');
+  }catch(error){
+    if(accessRequestCurrent(request))formError(error);
+  }finally{
+    if(accessRequestCurrent(request)){state.accessBusy=false;submit.disabled=false;}
+  }
+}
 function showAccountProfile(){
   if(!state.authType)return;closeAccountMenu();const user=state.user || {},entra=state.authType==='session'&&accessProvider()==='entra',local=state.authType==='session'&&accessProvider()==='local',saml=state.authType==='session'&&accessProvider()==='saml';
-  showModal('My profile',`<div class="modal-body account-profile">${state.authType==='demo'?'<div class="inline-notice">Synthetic demo identity. No Microsoft directory account or authenticated sign-out is claimed.</div>':local?accessProtected(user)?'<div class="inline-notice">Built-in admin · Password changes only. This account cannot be deleted, disabled, renamed or assigned another role. Use Change password below to update its password.</div>':'<div class="inline-notice">Your local account uses a Prṛthak password. Use Change password below to update it. Super Admins manage workspace roles and account access.</div>':saml?'<div class="inline-notice">Your organisation manages your SAML sign-in and password. Super Admins manage your Prṛthak workspace role.</div>':entra?'<div class="inline-notice">Your Entra-managed identity is read-only here. Approved Super Admins manage workspace access in Users & access.</div>':'<div class="inline-notice warning">A shared role token is not an individual Entra identity. Disconnecting removes this tab’s token; it does not revoke that token on the controller.</div>'}<dl class="detail-grid"><div><dt>Display name</dt><dd>${h(accountName())}</dd></div><div><dt>Workspace role</dt><dd>${h(accessRoleLabel(state.role))}${state.authType==='demo'?' · Demo':''}</dd></div><div><dt>Identity provider</dt><dd>${h(accountProvider())}</dd></div>${local?`<div><dt>Username</dt><dd>${h(user.username||'')}</dd></div>`:''}${saml?`<div><dt>SAML subject</dt><dd>${h(user.subject||'')}</dd></div>`:''}${user.email?`<div><dt>Email</dt><dd>${h(user.email)}</dd></div>`:''}${entra&&user.object_id?`<div><dt>Entra object ID</dt><dd>${h(user.object_id)}</dd></div>`:''}${entra&&user.tenant_id?`<div><dt>Tenant</dt><dd>${h(user.tenant_id)}</dd></div>`:''}</dl><p class="help-text">Display preferences affect this browser only. They do not change your identity, permissions, server configuration or security policy.</p></div><div class="modal-footer"><button class="button secondary" data-action="close-modal">Close</button>${local?'<button class="button primary" data-action="account-password">Change password</button>':''}</div>`,'YOUR WORKSPACE IDENTITY');state.accountDialogOpen=true;
+  showModal('My profile',`<div class="modal-body account-profile">${state.authType==='demo'?'<div class="inline-notice">Synthetic demo identity. No Microsoft directory account or authenticated sign-out is claimed.</div>':local?accessProtected(user)?'<div class="inline-notice">Built-in admin. The username and Super Admin role are fixed. You can update your display name, email or password.</div>':'<div class="inline-notice">Your local account uses a Prṛthak password. Use Change password below to update it. Super Admins manage workspace roles and account access.</div>':saml?'<div class="inline-notice">Your organisation manages your SAML sign-in and password. Super Admins manage your Prṛthak workspace role.</div>':entra?'<div class="inline-notice">Your Entra-managed identity is read-only here. Approved Super Admins manage workspace access in Users & access.</div>':'<div class="inline-notice warning">A shared role token is not an individual Entra identity. Disconnecting removes this tab’s token; it does not revoke that token on the controller.</div>'}<dl class="detail-grid"><div><dt>Display name</dt><dd>${h(accountName())}</dd></div><div><dt>Workspace role</dt><dd>${h(accessRoleLabel(state.role))}${state.authType==='demo'?' · Demo':''}</dd></div><div><dt>Identity provider</dt><dd>${h(accountProvider())}</dd></div>${local?`<div><dt>Username</dt><dd>${h(user.username||'')}</dd></div>`:''}${saml?`<div><dt>SAML subject</dt><dd>${h(user.subject||'')}</dd></div>`:''}${user.email?`<div><dt>Email</dt><dd>${h(user.email)}</dd></div>`:''}${entra&&user.object_id?`<div><dt>Entra object ID</dt><dd>${h(user.object_id)}</dd></div>`:''}${entra&&user.tenant_id?`<div><dt>Tenant</dt><dd>${h(user.tenant_id)}</dd></div>`:''}</dl><p class="help-text">Display preferences affect this browser only. They do not change your identity, permissions, server configuration or security policy.</p></div><div class="modal-footer"><button class="button secondary" data-action="close-modal">Close</button>${accountCanEditProfile()?'<button class="button secondary" data-action="account-profile-edit">Edit profile</button>':''}${local?'<button class="button primary" data-action="account-password">Change password</button>':''}</div>`,'YOUR WORKSPACE IDENTITY');state.accountDialogOpen=true;
 }
 function showAccountPreferences(){
   closeAccountMenu();showModal('Display preferences',`<form id="account-preferences-form"><div class="modal-body">${errorSlot}<p class="help-text">Saved on this browser. No account details, credentials or permissions are stored with these preferences.</p><label class="account-preference"><input type="checkbox" name="compact_tables" ${accountPreferences.compact_tables?'checked':''}><span><strong>Compact tables</strong><small>Use less vertical space in inventory and review tables.</small></span></label><label class="account-preference"><input type="checkbox" name="reduce_motion" ${accountPreferences.reduce_motion?'checked':''}><span><strong>Reduce motion</strong><small>Stop decorative motion and transitions, including topology pulses.</small></span></label><p class="help-text">Your device’s reduced-motion setting continues to apply.</p></div><div class="modal-footer"><button type="button" class="button secondary" data-action="close-modal">Cancel</button><button type="button" class="button secondary" data-action="account-preferences-reset">Restore defaults</button><button class="button primary" type="submit">Save preferences</button></div></form>`,'BROWSER DISPLAY ONLY');state.accountDialogOpen=true;
@@ -31,7 +68,7 @@ async function accountAction(button){
   const action=button.dataset.action;if(action==='account-toggle'){if(state.accountMenuOpen)closeAccountMenu(true);else openAccountMenu();return;}
   if(action==='account-preferences-reset'){const saved=accountSavePreferences({compact_tables:false,reduce_motion:false});showAccountPreferences();toast(saved?'Default display preferences restored.':'Defaults applied for this page. Browser storage is unavailable.');return;}
   if(action==='account-password'){if(state.authType==='session'&&accessProvider()==='local'){closeAccountMenu();return showLocalPasswordChange();}return;}
-  if(action==='account-profile')return showAccountProfile();if(action==='account-preferences')return showAccountPreferences();
+  if(action==='account-profile')return showAccountProfile();if(action==='account-profile-edit')return showAccountProfileEdit();if(action==='account-preferences')return showAccountPreferences();
   if(action==='account-users'){if(!canManageUsers())return;closeAccountMenu();navigate('access');return;}
   if(action==='account-signout'){if(!state.authType||state.authType==='demo')return;closeAccountMenu();return dashboardLogout();}
 }

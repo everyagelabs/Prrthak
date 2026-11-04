@@ -19,7 +19,7 @@ from .runtime_integrity import DOMAIN
 RELEASE_DIR = Path("/run/prthak-agent-releases")
 PUBLIC_TRUST = Path("/opt/prthak-integrity/public-trust.json")
 ARCHITECTURES = ("amd64", "arm64")
-VERSIONS = tuple(dict.fromkeys((__version__, "0.18.7", "0.18.6", "0.18.5", "0.18.4", "0.18.3", "0.18.2", "0.18.1", "0.18.0")))
+VERSIONS = tuple(dict.fromkeys((__version__, "0.18.8", "0.18.7", "0.18.6", "0.18.5", "0.18.4", "0.18.3", "0.18.2", "0.18.1", "0.18.0")))
 ARCHIVE_LIMIT = 16 * 1024 * 1024
 METADATA_LIMIT = 16 * 1024
 

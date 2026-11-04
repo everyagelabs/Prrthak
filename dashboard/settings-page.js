@@ -48,11 +48,11 @@ async function platformDemoSubmit(event) {
   try {const plan=state.platformDemoReview,phrase=String(new FormData(form).get('confirmation_phrase') || '');if(!platformDemoReviewReady(plan,phrase))throw new Error('Use a fresh, unblocked review and type its exact confirmation phrase.');const result=await api('/platform/demo/clear',{method:'POST',body:{preview_id:plan.id,confirmation_nonce:plan.confirmation_nonce,confirmation_phrase:phrase}});state.platformDemoReview=null;state.platformLastCleanup=result;closeModal();await load();await loadPlatformSettings();toast('Reviewed demo data cleared after its automatic backup.');}
   catch(error){formError(error);if(error.status===409)state.platformDemoReview=null;}finally{button.disabled=!platformDemoReviewReady(state.platformDemoReview,String(new FormData(form).get('confirmation_phrase') || ''));}
 }
-async function loadPlatformBackups(){
+async function loadPlatformBackups(redraw=true){
   if(!canManagePlatform()||state.platformBackupsLoading)return;state.platformBackupsLoading=true;
   try{const result=await api('/platform/backups');state.platformBackups=result.items || [];state.platformBackupsLoaded=true;state.platformBackupsError='';}
   catch(error){state.platformBackupsError=error.message;state.platformBackupsLoaded=false;}
-  finally{state.platformBackupsLoading=false;if(state.view==='settings'&&!platformHasDraft()&&!$('#modal').open)render();}
+  finally{state.platformBackupsLoading=false;if(redraw&&state.view==='settings'&&!platformHasDraft()&&!$('#modal').open)render();}
 }
 function platformBackupDetailsHTML(result={}) {
   const record=result.backup || result,manifest=result.manifest || result,files=manifest.files || manifest.members || [];
@@ -62,13 +62,22 @@ async function platformDownloadBackup(id) {
   if(!canManagePlatform())return;const headers={Accept:'application/octet-stream'};if(state.token&&state.authConfig?.mode==='tokens')headers.Authorization='Bearer '+state.token;const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),20000);
   try{const response=await fetch(`/api/v1/platform/backups/${encodeURIComponent(id)}/download`,{credentials:'same-origin',headers,signal:controller.signal});if(!response.ok){const error=await response.json().catch(()=>({}));throw new Error(error.error || `Backup download failed (${response.status})`);}const blob=await response.blob(),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;const disposition=response.headers?.get?.('Content-Disposition') || '',filename=disposition.match(/filename="?([^";]+)"?/i)?.[1];link.download=filename?filename.replace(/^.*[\\/]/,''):`prthak-backup-${String(id).replace(/[^A-Za-z0-9_-]/g,'')}.zip`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Database backup downloaded.');}catch(error){formError(error);}finally{clearTimeout(timeout);}
 }
+function platformRestoreOpen(){
+  return state.platformRestoreOpen===true||state.platformTab==='recovery';
+}
+function platformBackupAndRestoreHTML(){
+  const open=platformRestoreOpen();
+  return `${platformBackupScheduleHTML()}${platformBackupsHTML()}
+    <div class="platform-form-actions"><button id="platform-restore-toggle" class="button secondary small" type="button" data-action="platform-restore-toggle" aria-expanded="${open}" aria-controls="platform-restore-options">Restore a backup</button></div>
+    <div id="platform-restore-options" ${open?'':'hidden'}>${open?platformRecoveryHTML():''}</div>`;
+}
 function settingsHTML(){
   const tab=canManagePlatform()?platformUI.tab(state.platformTab):'overview',tabs=platformUI.tabs.filter(([key])=>canManagePlatform()||key==='overview');
-  return `<nav class="platform-tabs" aria-label="Platform settings sections">${tabs.map(([key,label])=>`<button type="button" data-action="platform-tab" data-tab="${key}" class="${tab===key?'active':''}" aria-pressed="${tab===key}">${label}</button>`).join('')}</nav>${state.platformError?`<div class="inline-notice warning" role="alert">${h(state.platformError)}</div>`:''}${state.platformLoading&&!state.platformInfo?'<div class="platform-loading"><div class="spinner"></div><span>Loading platform health…</span></div>':''}${tab==='overview'?platformSetupBannerHTML():''}${({setup:platformSetupHTML,overview:platformApplianceOverviewHTML,cluster:platformApplianceClusterHTML,storage:platformApplianceStorageHTML,services:platformApplianceServicesHTML,updates:platformUpdatesHTML,'agent-upgrades':platformAgentUpgradesHTML,certificates:platformCertificatesHTML,agents:platformAgentSettingsHTML,notifications:platformNotificationsHTML,siem:()=>platformSIEMHTML(),signing:()=>platformSigningHTML(),recovery:platformRecoveryHTML,backups:()=>platformBackupScheduleHTML()+platformBackupsHTML(),demo:platformDemoHTML,database:platformDatabaseHTML,controllers:platformControllersHTML}[tab])()}`;
+  return `<nav class="platform-tabs" aria-label="Platform settings sections">${tabs.map(([key,label])=>`<button type="button" data-action="platform-tab" data-tab="${key}" class="${tab===key?'active':''}" aria-pressed="${tab===key}">${label}</button>`).join('')}</nav>${state.platformError?`<div class="inline-notice warning" role="alert">${h(state.platformError)}</div>`:''}${state.platformLoading&&!state.platformInfo?'<div class="platform-loading"><div class="spinner"></div><span>Loading platform health…</span></div>':''}${tab==='overview'?platformSetupBannerHTML():''}${({setup:platformSetupHTML,overview:platformApplianceOverviewHTML,cluster:platformApplianceClusterHTML,services:platformApplianceServicesHTML,updates:platformUpdatesHTML,'agent-upgrades':platformAgentUpgradesHTML,certificates:platformCertificatesHTML,agents:platformAgentSettingsHTML,notifications:platformNotificationsHTML,siem:()=>platformSIEMHTML(),backups:platformBackupAndRestoreHTML,demo:platformDemoHTML,database:platformDatabaseHTML,controllers:platformControllersHTML}[tab])()}`;
 }
 async function loadPlatformSettings(){
   if(state.platformLoading)return;state.platformLoading=true;const autoSetup=canManagePlatform()&&state.authConfig?.mode==='tokens'&&state.platformTab==null&&!state.platformSetupAutoChecked;if(autoSetup)state.platformSetupAutoChecked=true;
-  try{const results=await Promise.allSettled([api('/platform/status'),...(canManagePlatform()?[loadPlatformAppliance(),...((state.platformTab==='setup'||autoSetup)?[loadPlatformSetup(false)]:[]),...(state.platformTab==='notifications'?[loadPlatformNotifications(false)]:[]),...(state.platformTab==='siem'?[loadPlatformSIEM(false)]:[]),...(state.platformTab==='signing'?[loadPlatformSigning(false)]:[]),...(state.platformTab==='recovery'?[loadPlatformRecovery(false)]:[]),...(state.platformTab==='services'?[loadPlatformApplicationPort(false)]:[]),...(state.platformTab==='updates'?[loadPlatformUpdates(false)]:[]),...(state.platformTab==='agent-upgrades'?[loadPlatformAgentUpgrades(false)]:[])]:[])]);if(results[0].status!=='fulfilled')throw results[0].reason;state.platformInfo=results[0].value;state.platformError='';if(autoSetup&&platformSetupCanConfigure()&&platformSetup().revision===0&&platformSetup().entra_configured!==true&&state.platformTab==null&&!platformHasDraft())state.platformTab='setup';}
+  try{const results=await Promise.allSettled([api('/platform/status'),...(canManagePlatform()?[loadPlatformAppliance(),...((platformUI.tab(state.platformTab)==='setup'||autoSetup)?[loadPlatformSetup(false)]:[]),...(state.platformTab==='notifications'?[loadPlatformNotifications(false)]:[]),...(state.platformTab==='siem'?[loadPlatformSIEM(false)]:[]),...(platformUI.tab(state.platformTab)==='setup'&&platformSetupSigningOpen()?[loadPlatformSigning(false)]:[]),...(platformUI.tab(state.platformTab)==='backups'?[loadPlatformBackups(false),loadPlatformBackupSchedule(false),...(platformRestoreOpen()?[loadPlatformRecovery(false)]:[])]:[]),...(state.platformTab==='services'?[loadPlatformApplicationPort(false)]:[]),...(state.platformTab==='updates'?[loadPlatformUpdates(false)]:[]),...(state.platformTab==='agent-upgrades'?[loadPlatformAgentUpgrades(false)]:[])]:[])]);if(results[0].status!=='fulfilled')throw results[0].reason;state.platformInfo=results[0].value;state.platformError='';if(autoSetup&&platformSetupCanConfigure()&&platformSetup().revision===0&&platformSetup().entra_configured!==true&&state.platformTab==null&&!platformHasDraft())state.platformTab='setup';}
   catch(error){state.platformError='Platform health is unavailable: '+error.message;}
   finally{state.platformLoading=false;if(state.view==='settings'&&canManagePlatform())platformResumeJobs();if(state.view==='settings'&&!platformHasDraft()&&!$('#modal').open&&!document.activeElement?.matches('input,select,textarea'))render();}
 }
@@ -85,14 +94,28 @@ async function platformAction(button){
   if(action?.startsWith('platform-endpoint-')||action?.startsWith('platform-internal-')||action==='platform-policy-trust-download')return platformEndpointCertificateAction(button);
   if(action?.startsWith('platform-agents-')||action?.startsWith('platform-agent-rule-'))return platformAgentSettingsAction(button);
   if(action==='platform-certificate-refresh')return loadPlatformCertificates();
-  if(action==='platform-certificate-edit-identity')return platformOpenCertificateGeneration();
-  if(action==='platform-certificate-regenerate')return platformOpenCertificateGeneration({preview:true});
   if(action?.startsWith('platform-appliance-')||action==='platform-backup-schedule-refresh')return platformApplianceAction(button);
   if(action?.startsWith('platform-ha-')||action==='platform-job-refresh'||action==='platform-controller-mode')return platformHAAction(button);
   if(action==='platform-start-create'||action==='platform-start-join'){if(!canManagePlatform())return;state.platformTab=action==='platform-start-create'?'database':'controllers';state.platformControllerMode='join';render();return;}
-  if(action==='platform-tab'){platformClearDraft();state.platformTab=canManagePlatform()?platformUI.tab(tab):'overview';render();if(state.platformTab==='setup')loadPlatformSetup();if(state.platformTab==='backups'){loadPlatformBackups();loadPlatformBackupSchedule();}if(state.platformTab==='certificates')loadPlatformCertificates();if(state.platformTab==='agents')loadPlatformAgentSettings();if(state.platformTab==='notifications')loadPlatformNotifications();if(state.platformTab==='siem')loadPlatformSIEM();if(state.platformTab==='signing')loadPlatformSigning();if(state.platformTab==='recovery')loadPlatformRecovery(true,true);if(state.platformTab==='services')loadPlatformApplicationPort();if(state.platformTab==='updates')loadPlatformUpdates();if(state.platformTab==='agent-upgrades')loadPlatformAgentUpgrades();return;}
+  if(action==='platform-tab'){platformClearDraft();state.platformTab=canManagePlatform()?platformUI.tab(tab):'overview';state.platformRestoreOpen=state.platformTab==='backups'&&tab==='recovery';state.platformSetupSigningOpen=state.platformTab==='setup'&&tab==='signing';render();if(state.platformTab==='setup'){loadPlatformSetup();if(platformSetupSigningOpen())loadPlatformSigning();}if(state.platformTab==='backups'){loadPlatformBackups();loadPlatformBackupSchedule();if(platformRestoreOpen())loadPlatformRecovery();}if(state.platformTab==='certificates')loadPlatformCertificates();if(state.platformTab==='agents')loadPlatformAgentSettings();if(state.platformTab==='notifications')loadPlatformNotifications();if(state.platformTab==='siem')loadPlatformSIEM();if(state.platformTab==='services')loadPlatformApplicationPort();if(state.platformTab==='updates')loadPlatformUpdates();if(state.platformTab==='agent-upgrades')loadPlatformAgentUpgrades();return;}
+  if(action==='platform-operation-history'){
+    if(!canManagePlatform())return;
+    await platformAction({dataset:{action:'platform-tab',tab:'setup'}});
+    $('#platform-deployment-operations')?.scrollIntoView?.({block:'start'});
+    return;
+  }
   if(action==='platform-refresh')return loadPlatformSettings();
   if(!canManagePlatform())return;
+  if(action==='platform-restore-toggle'&&platformUI.tab(state.platformTab)==='backups'){
+    const open=!platformRestoreOpen();
+    state.platformTab='backups';
+    state.platformRestoreOpen=open;
+    render();
+    $('#platform-restore-toggle')?.focus();
+    if(open)await loadPlatformRecovery();
+    else platformRecoverySchedule();
+    return;
+  }
   if(action==='platform-backups-refresh')return loadPlatformBackups();
   if(action==='platform-backup-download')return platformDownloadBackup(button.dataset.id);
   if(action==='platform-backup-create'){button.disabled=true;state.platformBackupCreating=true;try{await api('/platform/backups',{method:'POST',body:{}});await loadPlatformBackups();toast('Database backup created. Inspect and validate it before relying on it.');}catch(error){formError(error);}finally{state.platformBackupCreating=false;button.disabled=false;if(state.view==='settings'&&!platformHasDraft()&&!$('#modal').open)render();}return;}

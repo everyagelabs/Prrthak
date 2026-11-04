@@ -8,7 +8,7 @@ import uuid
 
 from .auth import (AuthConflict, AuthDenied, AuthUnavailable, EntraAuth, EntraConfig,
                    ROLES, SESSION_COOKIE, STATE_COOKIE, _email, _set_cookie, _text)
-from .local_auth import (LocalAuth, _password, clear_attempts, hash_password, local_fingerprint,
+from .local_auth import (BUILTIN_ADMIN_DISPLAY_NAME, LocalAuth, _password, clear_attempts, hash_password, local_fingerprint,
                          public_user, revoke_sessions, write_fence)
 from .store import digest, now, parse_time, stamp
 
@@ -273,7 +273,13 @@ class Authentication:
             if user is None:
                 raise KeyError(identifier)
             if identifier == self.local.protected_identifier(db):
-                raise AuthConflict("The built-in admin account is protected; only its password can be changed")
+                if set(edited) - {"display_name", "email"}:
+                    raise AuthConflict("The built-in admin account is protected; only its display name and email can be edited here")
+                if identifier != principal["user"]["id"] or user.get("provider") != "local":
+                    raise AuthDenied("Sign in as the built-in admin to edit its profile")
+                if "display_name" in edited:
+                    edited["display_name"] = edited["display_name"] or BUILTIN_ADMIN_DISPLAY_NAME
+                    edited["display_name_customized"] = True
             before = public_user(user)
             after = {**user, **edited}
             changed = after["role"] != user["role"] or after["enabled"] != user["enabled"]

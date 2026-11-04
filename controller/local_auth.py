@@ -27,6 +27,7 @@ CHANGE_SESSION_SECONDS = 10 * 60
 PASSWORD_MIN = 12
 PASSWORD_MAX = 256
 USERNAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}")
+BUILTIN_ADMIN_DISPLAY_NAME = "Admin"
 SCRYPT_ALGORITHM = "scrypt-n16384-r8-p5-v1"
 _KDF_SLOTS = threading.BoundedSemaphore(4)
 LOGIN_ERROR = "Invalid username or password, or sign-in is temporarily unavailable"
@@ -54,6 +55,11 @@ def public_user(value):
     if result["provider"] == "local":
         result.update(username=value["username"], password_change_required=bool(value.get("password_change_required")),
                       protected_account=value.get("protected_account") is True)
+        if result["protected_account"] and (
+            not result["display_name"] or
+            (result["display_name"] == "Initial Super Admin" and value.get("display_name_customized") is not True)
+        ):
+            result["display_name"] = BUILTIN_ADMIN_DISPLAY_NAME
     elif result["provider"] == "saml":
         result["subject"] = value.get("subject", "")
     return result
@@ -164,7 +170,7 @@ class LocalAuth:
                          "fingerprint": _sha("prthak-local-password-v1\n" + realm),
                          "bootstrap_done": True, "seeded": bool(empty and bootstrap), "created_at": stamp()}
                 if empty and bootstrap:
-                    user = self._new_user({"username": "admin", "role": "super_admin", "display_name": "Initial Super Admin"},
+                    user = self._new_user({"username": "admin", "role": "super_admin", "display_name": BUILTIN_ADMIN_DISPLAY_NAME},
                                           realm, initial_hash)
                     value["bootstrap_user_id"] = user["id"]
                     user["protected_account"] = True
