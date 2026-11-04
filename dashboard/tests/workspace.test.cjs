@@ -16,6 +16,7 @@ async function workspace(view='overview',options={}) {
  const config={mode,configured:mode==='entra',login_url:mode==='entra'?'/api/v1/auth/login':null,...options.config};
  function element(selector){if(!elements.has(selector))elements.set(selector,{id:selector.startsWith('#')?selector.slice(1):'',attributes:{},innerHTML:'',textContent:'',hidden:false,open:false,disabled:false,value:'',dataset:{},style:{},classList:{values:new Set(),add(...names){names.forEach(name=>this.values.add(name));},remove(...names){names.forEach(name=>this.values.delete(name));},toggle(name,force){const enabled=force===undefined?!this.values.has(name):force;if(enabled)this.values.add(name);else this.values.delete(name);return enabled;},contains(name){return this.values.has(name);}},querySelector:element,querySelectorAll:()=>[],eventListeners:{},addEventListener(type,handler){(this.eventListeners[type] ||= []).push(handler);},removeEventListener(){},setAttribute(name,value){this.attributes[name]=String(value);},getAttribute(name){return this.attributes[name] ?? null;},append(){},remove(){},replaceChildren(){this.innerHTML='';},focus(){document.activeElement=this;},matches:()=>false,showModal(){this.open=true;},close(){this.open=false;},setSelectionRange(){},click(){}});return elements.get(selector);}
  element('#workspace-shell').hidden=true;
+ element('#sign-in-page').hidden=true;
  const document={body:element('body'),createElement:tag=>element('created:'+tag),querySelector:element,querySelectorAll:()=>[],getElementById:id=>element('#'+id),activeElement:null,hidden:false,addEventListener:(type,handler)=>{(listeners[type] ||= []).push(handler)}};
  function setRoute(url) {
   const next = new URL(url, 'https://controller.test');
@@ -1036,11 +1037,16 @@ test('deployment history lives only in Setup and shows a safe visible blocker be
 });
 test('unused local HA services have no controls while stopped services on a voter remain visible as faults',async()=>{
  const haServices=[{id:'database',name:'PostgreSQL 16 / Patroni'},{id:'etcd',name:'etcd quorum'}];
- const localServices=enabled=>[applianceState.services[0],...haServices.map(service=>({...service,state:'stopped',enabled,can_restart:true,can_stop:true}))];
+ const localServices=enabled=>[applianceState.services[0],{id:'router',name:'TLS router',state:'running',enabled:true},...haServices.map(service=>({...service,state:'stopped',enabled,can_restart:true,can_stop:true}))];
  const standalone=await applianceWorkspace({'/api/v1/platform/appliance':{...applianceState,manager_available:true,services:localServices(false)}});
  let html=standalone.element('#view-content').innerHTML;
+ const [,localHealth,clusterHealth]=html.match(/<section aria-labelledby="appliance-standalone-health">([\s\S]*?)<\/section>\s*<section aria-labelledby="appliance-cluster-health">([\s\S]*?)<\/section>/);
+ assert.match(localHealth,/Standalone Health[\s\S]*<dt>Controller<\/dt>[\s\S]*<dt>TLS router<\/dt>[\s\S]*Appliance node manager/);
+ assert.doesNotMatch(localHealth,/PostgreSQL|etcd quorum/);
+ assert.match(clusterHealth,/Cluster Health[\s\S]*PostgreSQL 16 \/ Patroni[\s\S]*etcd quorum/);
+ assert.doesNotMatch(clusterHealth,/TLS router|Appliance node manager/);
+ assert.match(html,/<p class="appliance-health-note help-text">This standalone controller stores its data in SQLite\. Cluster health applies only to cluster deployments\.<\/p>/);
  assert.equal((html.match(/Not required on this node/g)||[]).length,2);
- assert.match(html,/standalone controller stores its data in SQLite/);
  assert.match(html,/Required on HA database voters for shared database storage and failover/);
  assert.match(html,/Required on HA database voters for quorum and database leader election/);
  await standalone.click('platform-tab',{tab:'services'});
@@ -1812,6 +1818,43 @@ test('Users & access offers generic SAML setup without a legacy provider on a lo
  const picker=env.element('#modal-content').innerHTML.match(/<select id="access-provider"[\s\S]*?<\/select>/)[0];
  assert.deepEqual([...picker.matchAll(/<option value="([^"]+)"/g)].map(([,value])=>value),['local','saml']);
 });
+test('authenticated reload holds the requested route on a neutral screen until the first data arrives',async()=>{
+ const index=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
+ assert.match(index,/<main id="sign-in-page"[^>]* hidden>/);
+ assert.match(index,/<h1 id="sign-in-title">Sign in to Prṛthak<\/h1>/);
+ assert.match(index,/<main id="workspace-connection"[^>]*>[\s\S]*?Checking your session…/);
+ let config,auth,overview;
+ const configReply=new Promise(resolve=>config=resolve),authReply=new Promise(resolve=>auth=resolve),overviewReply=new Promise(resolve=>overview=resolve);
+ const env=await workspace('locations',{mode:'local',responses:{'/api/v1/auth/config':()=>configReply,'/api/v1/auth':()=>authReply,'/api/v1/overview':()=>overviewReply}});
+ function assertChecking(){
+   assert.equal(env.element('#workspace-connection').hidden,false);
+   assert.equal(env.element('#sign-in-page').hidden,true);
+   assert.equal(env.element('#workspace-shell').hidden,true);
+   assert.equal(env.context.location.pathname,'/locations');
+ }
+ assertChecking();
+ config({mode:'local',local_enabled:true});await new Promise(setImmediate);assertChecking();
+ auth(localPerson('admin'));await new Promise(setImmediate);assertChecking();
+ overview(fixture);await new Promise(setImmediate);
+ assert.equal(env.requests.filter(({url})=>url==='/api/v1/auth').length,1);
+ assert.equal(env.element('#workspace-connection').hidden,true);
+ assert.equal(env.element('#sign-in-page').hidden,true);
+ assert.equal(env.element('#workspace-shell').hidden,false);
+ assert.equal(env.context.location.pathname,'/locations');
+});
+test('initial connection failures stay on the requested route and retry without showing sign-in',async()=>{
+ const env=await workspace('servers',{mode:'local',config:{local_enabled:true},identity:localPerson('admin'),responses:{'/api/v1/auth':{responseStatus:503,data:{error:'Controller starting'}}}});
+ assert.equal(env.context.location.pathname,'/servers');
+ assert.equal(env.element('#sign-in-page').hidden,true);
+ assert.equal(env.element('#workspace-shell').hidden,true);
+ assert.match(env.element('#workspace-connection-status').innerHTML,/Controller starting.*Retry connection/);
+ delete env.context.apiResponses['/api/v1/auth'];
+ await env.click('refresh');
+ assert.equal(env.context.location.pathname,'/servers');
+ assert.equal(env.element('#workspace-connection').hidden,true);
+ assert.equal(env.element('#sign-in-page').hidden,true);
+ assert.equal(env.element('#workspace-shell').hidden,false);
+});
 test('signed-out deep links show only sign-in and return to the requested page after authentication',async()=>{
  const identity=localPerson('admin',false);
  const env=await workspace('firewall',{mode:'local',authStatus:401,config:{local_enabled:true},responses:{'POST /api/v1/auth/local':identity}});
@@ -1819,6 +1862,7 @@ test('signed-out deep links show only sign-in and return to the requested page a
  assert.equal(env.context.location.search,'?next=firewall');
  assert.equal(env.element('#workspace-shell').hidden,true);
  assert.equal(env.element('#sign-in-page').hidden,false);
+ assert.equal(env.element('#workspace-connection').hidden,true);
  assert.equal(env.requests.some(row=>row.url==='/api/v1/overview'),false);
  env.context.apiResponses['GET /api/v1/auth']=identity;
  await env.submit('local-login-form',{username:'operator',password:'test-only'});

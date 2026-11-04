@@ -99,6 +99,10 @@ function restoreWorkspaceView() {
     state.view = view;
     return showLocalPasswordChange(true);
   }
+  if (!$('#workspace-connection').hidden) {
+    state.view = view;
+    return;
+  }
   if (!state.authType) return showLogin();
   if (!state.data) {
     state.view = view;
@@ -428,11 +432,15 @@ function refreshWorkspaceView() {
   }
 }
 
-async function load({quiet=false}={}){
+async function load({quiet=false,sessionChecked=false}={}){
   if(state.passwordChangeRequired){if(!$('#modal').open||$('#modal-title').textContent!=='Change your password')showLocalPasswordChange(true);return;}
   if(state.polling)return;state.polling=true;
-  try{if(state.authType&&state.authType!=='demo')applyDashboardIdentity(await api('/auth'));if(state.passwordChangeRequired){showLocalPasswordChange(true);return;}const result=await api('/overview');if(state.passwordChangeRequired){showLocalPasswordChange(true);return;}state.data={...result,servers:result.servers||[],groups:result.groups||[],service_groups:result.service_groups||[],policies:result.policies||[],locations:result.locations||[],learning_policies:result.learning_policies||[],learning_sessions:result.learning_sessions||[],alerts:result.alerts||[],flows:result.flows||[]};learningReceiveOverview(result);defaultDenyInvalidateReview();policyCatalogueReceiveOverview(result);alertsReceiveOverview(result);L.setCatalog(state.data.locations);F.setGroups(state.data.groups);sourceBanksReceiveOverview();refreshPolicyDeployments({quiet:true});if($('#modal').open&&$('#modal-title').textContent==='Server groups'){const scroll=$('#modal').scrollTop;showGroups();$('#modal').scrollTop=scroll;}if(state.window!==3600&&!(state.view==='traffic'&&trafficCatalogueEnabled())){const seconds=state.window,identity=workspaceCSVIdentity();const traffic=await api(`/flows?window=${seconds}`);if(state.window===seconds&&state.data&&identity===workspaceCSVIdentity())state.data.flows=traffic.items||[];}state.lastSync=new Date();openWorkspaceAfterSignIn();$('#global-error').hidden=true;$$('.connection-dot').forEach(dot=>dot.classList.remove('offline'));if(!platformHasDraft() && !$('#modal').open && !document.activeElement?.matches('input,select,textarea') && !$$('.filter-menu[open]').length)render();else renderChrome();refreshWorkspaceView();}
-  catch(error){if(error.status===401){clearDashboardIdentity();state.data=null;closeDrawer();if(state.platformRecoveryReconnect)state.authError='Database recovery may have restarted the controller and invalidated this session. Sign in and reopen Recovery to verify the durable outcome.';else if(state.platformRuntimePending)state.authError='Controller authentication changed during activation or joining. Sign in with the existing cluster credentials, then refresh Platform settings.';$('#view-content').innerHTML=emptyHTML('Sign in required',state.platformRuntimePending?'Sign in with approved existing-cluster credentials to check the deployment operation.':'Your session has ended. Sign in again to view the workspace.','access');showLogin();}else{if($('#workspace-shell').hidden){showSignInPage(`<p class="form-error">${h(error.message)}</p><button type="button" class="button secondary" data-action="refresh">Retry loading workspace</button>`);return;}$('#global-error').hidden=false;$('#global-error').textContent=`Controller unavailable: ${error.message}. Existing server policies remain in place. Retrying automatically.`;$$('.connection-dot').forEach(dot=>dot.classList.add('offline'));$('#connection-label').textContent='Controller unavailable';if(!state.data)$('#view-content').innerHTML=emptyHTML('Could not load the workspace','Check the controller connection and try again.','info','Retry connection','refresh');if(!quiet)toast(error.message,true);}}
+  try{
+    if(!sessionChecked&&state.authType&&state.authType!=='demo')applyDashboardIdentity(await api('/auth'));
+    if(state.passwordChangeRequired){showLocalPasswordChange(true);return;}
+    const result=await api('/overview');if(state.passwordChangeRequired){showLocalPasswordChange(true);return;}state.data={...result,servers:result.servers||[],groups:result.groups||[],service_groups:result.service_groups||[],policies:result.policies||[],locations:result.locations||[],learning_policies:result.learning_policies||[],learning_sessions:result.learning_sessions||[],alerts:result.alerts||[],flows:result.flows||[]};learningReceiveOverview(result);defaultDenyInvalidateReview();policyCatalogueReceiveOverview(result);alertsReceiveOverview(result);L.setCatalog(state.data.locations);F.setGroups(state.data.groups);sourceBanksReceiveOverview();refreshPolicyDeployments({quiet:true});if($('#modal').open&&$('#modal-title').textContent==='Server groups'){const scroll=$('#modal').scrollTop;showGroups();$('#modal').scrollTop=scroll;}if(state.window!==3600&&!(state.view==='traffic'&&trafficCatalogueEnabled())){const seconds=state.window,identity=workspaceCSVIdentity();const traffic=await api(`/flows?window=${seconds}`);if(state.window===seconds&&state.data&&identity===workspaceCSVIdentity())state.data.flows=traffic.items||[];}state.lastSync=new Date();openWorkspaceAfterSignIn();$('#global-error').hidden=true;$$('.connection-dot').forEach(dot=>dot.classList.remove('offline'));if(!platformHasDraft() && !$('#modal').open && !document.activeElement?.matches('input,select,textarea') && !$$('.filter-menu[open]').length)render();else renderChrome();refreshWorkspaceView();
+  }
+  catch(error){if(error.status===401){clearDashboardIdentity();state.data=null;closeDrawer();if(state.platformRecoveryReconnect)state.authError='Database recovery may have restarted the controller and invalidated this session. Sign in and reopen Recovery to verify the durable outcome.';else if(state.platformRuntimePending)state.authError='Controller authentication changed during activation or joining. Sign in with the existing cluster credentials, then refresh Platform settings.';$('#view-content').innerHTML=emptyHTML('Sign in required',state.platformRuntimePending?'Sign in with approved existing-cluster credentials to check the deployment operation.':'Your session has ended. Sign in again to view the workspace.','access');showLogin();}else{if($('#workspace-shell').hidden){showWorkspaceConnection(error);return;}$('#global-error').hidden=false;$('#global-error').textContent=`Controller unavailable: ${error.message}. Existing server policies remain in place. Retrying automatically.`;$$('.connection-dot').forEach(dot=>dot.classList.add('offline'));$('#connection-label').textContent='Controller unavailable';if(!state.data)$('#view-content').innerHTML=emptyHTML('Could not load the workspace','Check the controller connection and try again.','info','Retry connection','refresh');if(!quiet)toast(error.message,true);}}
   finally{state.polling=false;}
 }
 
@@ -610,7 +618,7 @@ async function handleAction(event){
   if(action==='create-policy')return showPolicy();
   if(action==='edit-policy')return showPolicy(id);
   if(action==='close-modal')return closeModal();
-  if(action==='refresh')return load();
+  if(action==='refresh')return state.authType?load():init();
   if(action==='refresh-activity')return loadActivity();
   if(action==='add-rule')return $('#policy-rules').insertAdjacentHTML('beforeend',ruleHTML());
   if(action==='remove-rule'){if($$('.rule-row').length===1)return toast('A policy needs at least one service.',true);return button.closest('.rule-row').remove();}
@@ -659,8 +667,41 @@ window.addEventListener('popstate',restoreWorkspaceView);
 window.addEventListener('hashchange',migrateLegacyHash);
 window.addEventListener('beforeunload',persistScope);
 window.addEventListener('pagehide',persistScope);
-window.addEventListener('pageshow',event=>{if(event.persisted){const restored=restoreScope();Object.assign(state,restored);state.view=signInReturnView();setWorkspaceVisible(false);if(state.authType)load({quiet:true});else showLogin();}});
-async function init(){if(migrateLegacyHash())return;state.view=signInReturnView();try{state.authConfig=await api('/auth/config');if(!['tokens','entra','demo','local','hybrid','saml'].includes(state.authConfig.mode))throw new Error('Controller returned an invalid authentication configuration.');if(state.authConfig.mode!=='tokens'){state.token='';sessionStorage.removeItem('segment-token');}applyDashboardIdentity(await api('/auth'));if(state.passwordChangeRequired)showLocalPasswordChange(true);else await load();if(state.view==='activity'&&!state.passwordChangeRequired)await loadActivity();}catch(error){state.authError=error.status===401&&state.authConfig?'':error.message;showLogin();}setInterval(()=>{if(!document.hidden&&state.authType&&location.pathname!=='/login')load({quiet:true});},15000);}
+window.addEventListener('pageshow',event=>{
+  if(!event.persisted)return;
+  Object.assign(state,restoreScope());
+  state.view=signInReturnView();
+  if(!state.authType)return init();
+  if(state.passwordChangeRequired)return;
+  if($('#modal').open)closeModal();
+  showWorkspaceConnection();
+  return load({quiet:true});
+});
+async function init(){
+  if(state.initializing||migrateLegacyHash())return;
+  state.initializing=true;
+  state.view=signInReturnView();
+  state.authConfig=null;
+  showWorkspaceConnection();
+  try{
+    const config=await api('/auth/config');
+    if(!['tokens','entra','demo','local','hybrid','saml'].includes(config?.mode))throw new Error('Controller returned an invalid authentication configuration.');
+    state.authConfig=config;
+    if(config.mode!=='tokens'){state.token='';sessionStorage.removeItem('segment-token');}
+    applyDashboardIdentity(await api('/auth'));
+    if(!state.authType)return showLogin();
+    if(state.passwordChangeRequired)return showLocalPasswordChange(true);
+    await load({sessionChecked:true});
+    if(state.view==='activity'&&state.data&&!state.passwordChangeRequired)await loadActivity();
+  }catch(error){
+    if(error.status===401&&state.authConfig){
+      clearDashboardIdentity();
+      state.authError='';
+      showLogin();
+    }else showWorkspaceConnection(error);
+  }finally{state.initializing=false;}
+}
 init();
+setInterval(()=>{if(!document.hidden&&state.authType&&location.pathname!=='/login')load({quiet:true});},15000);
 
 document.addEventListener('click',event=>{if(!event.target.closest('.filter-menu'))$$('.filter-menu[open]').forEach(menu=>menu.open=false);});

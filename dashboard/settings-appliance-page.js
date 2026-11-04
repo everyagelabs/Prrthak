@@ -1,5 +1,10 @@
 'use strict';
 
+const applianceClusterServicePurposes = new Map([
+  ['database', 'shared database storage and failover'],
+  ['etcd', 'quorum and database leader election']
+]);
+
 function appliance(){return state.platformAppliance || {};}
 function controllerDisplayNameSettings() {
   return state.platformInfo?.runtime?.controller_id ? state.platformInfo.runtime : state.data?.meta || {};
@@ -64,6 +69,26 @@ function applianceRoutingHTML(){
     ${pools.length?`<div class="appliance-route-pools">${pools.map(pool=>`<article><strong>${h(pool.site)}-local pool</strong><span>${h(pool.url?platformUI.connectionLabel(pool.url):'Pool address not reported')}</span>${platformHealthBadge(pool.health)}${pool.role?`<small>${h(humanize(pool.role))}</small>`:''}</article>`).join('')}</div>`:'<p class="help-text">No site routing pools have been reported.</p>'}
   </section>`;
 }
+function applianceServiceHealthHTML(info){
+  const services=info.services || [];
+  if(!services.length&&info.installed!==true)return '';
+  const local=services.filter(service=>!applianceClusterServicePurposes.has(service.id));
+  const cluster=services.filter(service=>applianceClusterServicePurposes.has(service.id));
+  const status=service=>`<div><dt>${h(service.name || service.id)}</dt><dd>${applianceServiceStatusHTML(service,false)}</dd></div>`;
+  const manager=info.installed===true?`<div><dt>Appliance node manager</dt><dd>${applianceManagerBadge(info)}</dd></div>`:'';
+  const context=cluster.some(applianceServiceUnused)?applianceServiceDeploymentContext():'';
+  return `<section class="card platform-panel"><h2>Appliance service health</h2>
+    <div class="appliance-health-grid">
+      <section aria-labelledby="appliance-standalone-health"><h3 id="appliance-standalone-health">Standalone Health</h3>
+        ${local.length||manager?`<dl class="detail-grid">${local.map(status).join('')}${manager}</dl>`:'<p class="help-text">Local service status has not been reported.</p>'}
+      </section>
+      <section aria-labelledby="appliance-cluster-health"><h3 id="appliance-cluster-health">Cluster Health</h3>
+        ${cluster.length?`<dl class="detail-grid">${cluster.map(status).join('')}</dl>`:'<p class="help-text">Cluster service status has not been reported.</p>'}
+      </section>
+    </div>
+    <p class="appliance-health-note help-text">${context?h(context)+' ':''}Cluster health applies only to cluster deployments.</p>
+  </section>`;
+}
 function platformApplianceOverviewHTML(){
   const info=appliance(),identity=info.identity || {},platformCluster=state.platformInfo?.cluster || {};
   const cluster=info.cluster || {},nodes=cluster.nodes || platformCluster.nodes || [],runtime=state.platformInfo?.runtime || {};
@@ -73,7 +98,6 @@ function platformApplianceOverviewHTML(){
   const clusterState=cluster.configured===true?(cluster.name || 'Connected'):cluster.settings_saved===true?'Settings saved':cluster.configured===false?'Not connected':'Not reported';
   const nodeDetails=[identity.site || runtime.site || platformCluster.site,identity.ip,node?.role?humanize(node.role):''].filter(Boolean);
   const blockers=(info.blockers || []).filter(reason=>typeof reason==='string'&&reason);
-  const services=info.services || [];
   return `${state.platformApplianceError?`<div class="inline-notice warning">${h(state.platformApplianceError)}</div>`:''}
     <div class="platform-overview-cards">
       <article class="card platform-metric"><span>This controller</span><strong>${h(display.controller_display_name || controllerId || 'Not reported')}</strong><p>${nodeDetails.map(h).join(' · ') || 'Site and role not reported'}</p></article>
@@ -85,7 +109,7 @@ function platformApplianceOverviewHTML(){
       <div class="table-scroll"><table><thead><tr><th>Controller</th><th>Site</th><th>Reported health</th><th>Last heartbeat</th></tr></thead>
       <tbody>${nodes.map(node=>`<tr><td><strong>${h(node.id || node.name)}</strong></td><td>${h(node.site || 'Not reported')}</td><td>${platformHealthBadge(node.health ?? node.ready ?? node.status ?? node.state)}</td><td>${h(timestamp(node.last_seen))}</td></tr>`).join('') || '<tr><td colspan="4">No controller health has been reported.</td></tr>'}</tbody></table></div>
     </section>
-    ${services.length||info.installed===true?`<section class="card platform-panel"><h2>Appliance service health</h2><dl class="detail-grid">${services.map(service=>`<div><dt>${h(service.name || service.id)}</dt><dd>${applianceServiceStatusHTML(service)}</dd></div>`).join('')}${info.installed===true?`<div><dt>Appliance node manager</dt><dd>${applianceManagerBadge(info)}</dd></div>`:''}</dl></section>`:''}
+    ${applianceServiceHealthHTML(info)}
     ${!canManagePlatform()?'<div class="inline-notice">Your role can view platform health. Super Admins manage platform settings.</div>':''}`;
 }
 function platformApplianceClusterHTML(){
@@ -96,9 +120,15 @@ function platformApplianceStorageHTML(){
   const info=appliance();return `${applianceDisabledNotice()}<section class="card platform-panel"><div class="platform-panel-heading"><span class="platform-feature-icon">${icon('services')}</span><div><h2>Storage location</h2><p>Change the appliance data path through a reviewed migration.</p></div></div><dl class="detail-grid"><div><dt>Current data path</dt><dd><code>${h(info.data_root || 'Not reported')}</code></dd></div></dl><form id="platform-appliance-storage-form"><div id="platform-appliance-storage-error" class="form-error" role="alert" hidden></div><div class="field"><label for="appliance-data-root">New data mount path</label><input id="appliance-data-root" name="data_root" value="" required placeholder="/srv/prthak-data"><small>Choose an absolute path on a mounted volume. The review reports migration checks, service interruption and any blockers before changes start.</small></div><button class="button secondary" type="submit" ${!applianceOperational()?'disabled':''}>Review storage migration</button></form></section>`;
 }
 function applianceServiceUnused(service){
-  return service.enabled===false&&['database','etcd'].includes(service.id);
+  return service.enabled===false&&applianceClusterServicePurposes.has(service.id);
 }
-function applianceServiceStatusHTML(service){
+function applianceServiceDeploymentContext(){
+  const runtime=state.platformInfo?.runtime || {};
+  if(runtime.ha===false&&runtime.storage==='sqlite')return 'This standalone controller stores its data in SQLite.';
+  if(runtime.ha===true&&runtime.storage==='postgresql')return 'This management controller connects to the shared database.';
+  return '';
+}
+function applianceServiceStatusHTML(service,includeDeploymentContext=true){
   const unused=applianceServiceUnused(service);
   const running=['active','running'].includes(service.state);
   const stopped=['stopped','exited'].includes(service.state);
@@ -107,14 +137,11 @@ function applianceServiceStatusHTML(service){
   const unexpected=(unused&&running)||(service.enabled===true&&stopped);
   const failed=unexpected||['failed','dead'].includes(service.state);
   const status=badge(label,failed?'danger':running?'':unreported&&service.enabled===true?'warning':'neutral');
-  const purpose={database:'shared database storage and failover',etcd:'quorum and database leader election'}[service.id];
+  const purpose=applianceClusterServicePurposes.get(service.id);
   if(!purpose||(running&&!unused))return status;
-  const runtime=state.platformInfo?.runtime || {};
-  let context='';
-  if(unused&&runtime.ha===false&&runtime.storage==='sqlite')context='This standalone controller stores its data in SQLite. ';
-  if(unused&&runtime.ha===true&&runtime.storage==='postgresql')context='This management controller connects to the shared database. ';
+  const context=unused&&includeDeploymentContext?applianceServiceDeploymentContext():'';
   const requirement=service.enabled===true?'this HA database voter':'HA database voters';
-  return `${status}<small class="help-text">${h(`${context}Required on ${requirement} for ${purpose}.`)}</small>`;
+  return `${status}<small class="help-text">${context?h(context)+' ':''}${h(`Required on ${requirement} for ${purpose}.`)}</small>`;
 }
 function applianceManagerBadge(info){
   return info.manager_available===true?badge('Reachable'):info.manager_available===false?badge('Unreachable','danger'):badge('Not reported','neutral');

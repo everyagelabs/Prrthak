@@ -67,7 +67,13 @@
 </head>
 <body>
   <a class="skip-link" id="workspace-skip" href="#main" hidden>Skip to content</a>
-  <main id="sign-in-page" class="sign-in-page" aria-labelledby="sign-in-title">
+  <main id="workspace-connection" class="workspace-connection" aria-label="Prṛthak connection status">
+    <div id="workspace-connection-status" class="workspace-connection-status" role="status">
+      <span class="spinner" aria-hidden="true"></span>
+      <p>Checking your session…</p>
+    </div>
+  </main>
+  <main id="sign-in-page" class="sign-in-page" aria-labelledby="sign-in-title" hidden>
     <div class="sign-in-layout">
       <section class="sign-in-overview" aria-label="Prṛthak Microsegmentation">
         <span class="sign-in-product-label"><span aria-hidden="true"></span> Microsegmentation &amp; Visibility</span>
@@ -94,15 +100,9 @@
       <section class="sign-in-card">
         <img class="sign-in-logo" src="/assets/prthak-wordmark.svg" width="146" height="48" alt="Prṛthak · पृथक्">
         <div class="sign-in-card-heading">
-          <span class="sign-in-eyebrow">Workspace access</span>
-          <h1 id="sign-in-title">Sign in to your workspace</h1>
+          <h1 id="sign-in-title">Sign in to Prṛthak</h1>
         </div>
-        <div id="sign-in-content" aria-live="polite">
-          <div class="sign-in-loading" role="status">
-            <span class="spinner" aria-hidden="true"></span>
-            <span>Preparing sign-in options…</span>
-          </div>
-        </div>
+        <div id="sign-in-content" aria-live="polite"></div>
         <p class="sign-in-support">Need access? Contact your Prṛthak administrator.</p>
       </section>
     </div>

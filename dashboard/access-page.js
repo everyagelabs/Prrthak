@@ -55,10 +55,17 @@ function signInReturnView(){
   const next=new URLSearchParams(location.search).get('next');
   return next==='network-control'?'policies':R.pages.includes(next)?next:'overview';
 }
-function setWorkspaceVisible(visible){
-  $('#workspace-shell').hidden=!visible;
-  $('#workspace-skip').hidden=!visible;
-  $('#sign-in-page').hidden=visible;
+function setWorkspaceScreen(screen){
+  $('#workspace-shell').hidden=screen!=='workspace';
+  $('#workspace-skip').hidden=screen!=='workspace';
+  $('#sign-in-page').hidden=screen!=='sign-in';
+  $('#workspace-connection').hidden=screen!=='connection';
+}
+function showWorkspaceConnection(error){
+  $('#workspace-connection-status').innerHTML=error
+    ? `<p class="form-error">${h(error.message)}</p><button type="button" class="button secondary" data-action="refresh">Retry connection</button>`
+    : '<span class="spinner" aria-hidden="true"></span><p>Checking your session…</p>';
+  setWorkspaceScreen('connection');
 }
 function openWorkspaceAfterSignIn(){
   if(!$('#workspace-shell').hidden&&location.pathname!=='/login')return;
@@ -67,11 +74,11 @@ function openWorkspaceAfterSignIn(){
     history.replaceState(null,'',R.advancedPolicies(location.pathname,location.search)?R.advancedPoliciesHref:R.href(state.view));
   }
   $('#sign-in-content').replaceChildren();
-  setWorkspaceVisible(true);
+  setWorkspaceScreen('workspace');
 }
 function showSignInPage(content){
   const next=signInReturnView();
-  setWorkspaceVisible(false);
+  setWorkspaceScreen('sign-in');
   if($('#modal').open)closeModal();
   else accessDialogChanged();
   if(location.pathname!=='/login'){
@@ -111,7 +118,7 @@ function showDashboardLogin(){
 }
 function showLocalPasswordChange(required=state.passwordChangeRequired){
   if(state.authType!=='session'||accessProvider()!=='local')return;
-  if(required){state.data=null;setWorkspaceVisible(false);$('#sign-in-content').replaceChildren();closeDrawer();$('#view-content').innerHTML=emptyHTML('Change your password','Set your personal password before opening the workspace.','access');}
+  if(required){state.data=null;setWorkspaceScreen('password-change');$('#sign-in-content').replaceChildren();closeDrawer();$('#view-content').innerHTML=emptyHTML('Change your password','Set your personal password before opening the workspace.','access');}
   showModal('Change your password',`<form id="local-password-form" method="post" action="/api/v1/auth/password" data-required="${required?'true':'false'}"><div class="modal-body">${errorSlot}<div class="inline-notice ${required?'warning':''}">${required?'Your temporary password must be changed before you can use Prṛthak.':'Change the password for your local account.'} Other active sessions will be signed out.</div><p class="help-text">Account: <strong>${h(state.user?.username||state.user?.display_name||'Local user')}</strong>. Use 12–256 characters. Passwords are case-sensitive.</p><div class="field"><label for="local-current-password">Current password</label><input id="local-current-password" name="current_password" type="password" autocomplete="current-password" maxlength="1024" required autofocus></div><div class="field"><label for="local-new-password">New password</label><input id="local-new-password" name="new_password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required></div><div class="field"><label for="local-confirm-password">Confirm new password</label><input id="local-confirm-password" name="confirm_password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required></div></div><div class="modal-footer">${required?'<button class="button secondary" type="button" data-action="auth-signout">Sign out</button>':'<button class="button secondary" type="button" data-action="close-modal">Cancel</button>'}<button class="button primary" type="submit">Change password</button></div></form>`,'LOCAL ACCOUNT SECURITY');
 }
 async function localAuthSubmit(event){

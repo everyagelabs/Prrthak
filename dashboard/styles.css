@@ -88,8 +88,17 @@ td,.mono,.host-name,.policy-service strong,.alert-title,.activity-item h3,.detai
 
 .policy-card .policy-footer{align-items:flex-start;gap:10px;flex-wrap:wrap}.policy-card .policy-actions{flex-wrap:wrap}
 
-/* Sign-in is the only visible screen until the workspace session is checked. */
-#workspace-shell[hidden],#workspace-skip[hidden],.sign-in-page[hidden]{display:none}
+/* The neutral connection screen remains visible until the session is resolved. */
+#workspace-shell[hidden],#workspace-skip[hidden],.sign-in-page[hidden],.workspace-connection[hidden]{display:none}
+.workspace-connection {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+}
+.workspace-connection-status { display: grid; justify-items: center; gap: 12px; color: #605664; }
+.workspace-connection-status p, .workspace-connection-status .spinner { margin: 0; }
 .sign-in-page {
   min-height: 100vh;
   max-width: none;
@@ -153,7 +162,6 @@ td,.mono,.host-name,.policy-service strong,.alert-title,.activity-item h3,.detai
 }
 .sign-in-card { min-width: 0; display: flex; flex-direction: column; padding: clamp(30px, 4vw, 54px); }
 .sign-in-logo { display: block; width: 146px; height: auto; margin-bottom: 30px; }
-.sign-in-eyebrow { color: #a4213b; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .sign-in-card h1 { margin: 8px 0 9px; color: #25212b; font-size: clamp(25px, 3vw, 36px); line-height: 1.12; letter-spacing: -.05em; }
 .sign-in-content-panel { display: grid; gap: 18px; padding: 12px 0 26px; }
 .sign-in-description { margin: 0; color: #605664; font-size: 14px; line-height: 1.6; }
@@ -171,8 +179,6 @@ td,.mono,.host-name,.policy-service strong,.alert-title,.activity-item h3,.detai
 .sign-in-card .auth-divider { margin: 0; color: #6e6370; font-size: 12px; }
 .sign-in-card .form-error, .sign-in-card .inline-notice { margin: 0; overflow-wrap: anywhere; font-size: 13px; color: #79293b; }
 .sign-in-support { margin: auto 0 0; padding-top: 16px; border-top: 1px solid #ede4e9; color: #665b69; font-size: 12px; }
-.sign-in-loading { min-height: 268px; display: flex; align-items: flex-start; gap: 9px; padding-top: 14px; color: #605664; font-size: 14px; }
-.sign-in-loading .spinner { flex: 0 0 auto; width: 17px; height: 17px; margin: 3px 0 0; border-width: 2px; }
 @media (max-width: 760px) {
   .sign-in-layout { max-width: 500px; grid-template-columns: minmax(0, 1fr); border-radius: 18px; }
   .sign-in-overview { padding: 22px 26px; }
@@ -186,7 +192,7 @@ td,.mono,.host-name,.policy-service strong,.alert-title,.activity-item h3,.detai
   .sign-in-content-panel { gap: 14px; padding-bottom: 20px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sign-in-loading .spinner { animation: none; }
+  .workspace-connection-status .spinner { animation: none; }
 }
 #agent-installation-form .modal-footer{flex-wrap:wrap}
 
@@ -222,3 +228,10 @@ td,.mono,.host-name,.policy-service strong,.alert-title,.activity-item h3,.detai
 .advanced-network-controls{margin:18px 0 0}
 .advanced-network-controls>summary{width:fit-content;cursor:pointer;font-weight:600;padding:10px 0}
 .advanced-network-controls>summary span{font-size:.85em;font-weight:400;color:var(--muted);margin-inline-start:6px}
+.appliance-health-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:16px}
+.appliance-health-grid>section{min-width:0;padding:16px;border:1px solid #e7e7ee;border-radius:8px;background:#fafafb}
+.appliance-health-grid h3{margin:0;color:#53535f;font-size:13px}
+.appliance-health-grid .detail-grid{grid-template-columns:minmax(0,1fr);gap:14px;margin:14px 0 0}
+.appliance-health-grid .detail-grid dd small{display:block;margin-top:4px}
+.appliance-health-note{margin:14px 0 0;padding-top:12px;border-top:1px solid #ededf2}
+@media(max-width:760px){.appliance-health-grid{grid-template-columns:minmax(0,1fr)}}
