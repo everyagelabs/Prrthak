@@ -64,8 +64,15 @@
   <script src="/app.js" defer></script>
 </head>
 <body>
-  <a class="skip-link" href="#main">Skip to content</a>
-  <div class="app-shell">
+  <a class="skip-link" id="workspace-skip" href="#main" hidden>Skip to content</a>
+  <main id="sign-in-page" class="sign-in-page" aria-labelledby="sign-in-title">
+    <section class="sign-in-card">
+      <img class="sign-in-logo" src="/assets/prthak-wordmark.svg" alt="Prṛthak · पृथक्">
+      <h1 id="sign-in-title">Sign in to Prṛthak</h1>
+      <div id="sign-in-content" aria-live="polite"><p>Checking sign-in options…</p></div>
+    </section>
+  </main>
+  <div class="app-shell" id="workspace-shell" hidden>
     <aside class="sidebar" aria-label="Primary navigation">
       <a class="brand" href="/overview" aria-label="Prṛthak · पृथक् overview"><img class="brand-logo-full" src="/assets/prthak-wordmark.svg" alt="Prṛthak · पृथक्"><img class="brand-logo-compact" src="/assets/prthak-monogram.svg" alt="" aria-hidden="true"></a>
       <div class="workspace"><span class="workspace-icon" lang="hi">पृ</span><span>Prṛthak workspace<small>Precise access. Protected servers.</small></span><span class="workspace-chevron">⌄</span></div>

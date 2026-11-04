@@ -16,6 +16,7 @@ import secrets
 from .appliance import NodeClient, ManagerUnavailable
 from .auth import EntraAuth, EntraConfig, AuthDenied, _set_cookie, STATE_COOKIE, TOKEN_PATTERN
 from .firewall import WorkflowConflict
+from .management_health import PROBE_FIELDS, probe_configuration
 from .platform import _private_json, _read_json
 from .store import digest, now, parse_time, stamp
 
@@ -144,16 +145,17 @@ def status(manager, principal, client=None):
             pass
     return {"installed": True, "reviews": reviews, "capabilities": {"configuration": not blockers},
             "revision": state["expected_revision"], "configuration_digest": state["digest"],
-            "environment": {key: value for key, value in _effective_environment(manager, state).items() if key in (*AUTH_PUBLIC, *RUNTIME)},
+            "environment": {key: value for key, value in _effective_environment(manager, state).items() if key in (*AUTH_PUBLIC, *RUNTIME, *PROBE_FIELDS)},
             "convergence_required": _convergence_needed(manager, state), "transition": __import__("controller.provider_lifecycle", fromlist=["get"]).get(manager),
             "entra_configured": bool(manager.app.auth.config.enabled or state.get("entra_configured")), "setup_pending": _public(latest) if latest else None,
             "blockers": blockers}
 
 
 def _environment(value, current):
-    if not isinstance(value, dict) or set(value) - set((*AUTH_PUBLIC, *RUNTIME)):
+    if not isinstance(value, dict) or set(value) - set((*AUTH_PUBLIC, *RUNTIME, *PROBE_FIELDS)):
         raise ValueError("Provide only supported controller setup fields")
     result = {key: str(current.get(key, "")) for key in (*AUTH_PUBLIC, *RUNTIME)}
+    result.update({key: current.get(key, "") for key in PROBE_FIELDS if key in current})
     for key, value in value.items():
         if not isinstance(value, str) or len(value) > 2048 or "\x00" in value or "\n" in value or "\r" in value:
             raise ValueError("Controller settings must be bounded single-line strings")
@@ -164,6 +166,7 @@ def _environment(value, current):
         if not result[key].isdigit() or not low <= int(result[key]) <= high:
             raise ValueError(f"{key} must be empty for automatic defaults or between {low} and {high}")
         result[key] = str(int(result[key]))
+    result.update(probe_configuration(result))
     return result
 
 

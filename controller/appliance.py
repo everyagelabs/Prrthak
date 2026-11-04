@@ -75,6 +75,9 @@ class NodeClient:
     def submit(self, request):
         return self.request("POST", "/v1/jobs", request)
 
+    def management_probe(self, request):
+        return self.request("POST", "/v1/management-probe", request)
+
     def job(self, identifier):
         if not isinstance(identifier, str) or not re.fullmatch(r"[a-f0-9]{32}", identifier):
             raise ValueError("Invalid node-manager operation identity")

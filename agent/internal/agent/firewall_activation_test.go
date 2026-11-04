@@ -23,6 +23,9 @@ type activationFake struct {
 }
 
 func (f *activationFake) Run(ctx context.Context, name string, args ...string) (string, error) {
+	if name == "firewall-offline-cmd" && len(args) == 1 && args[0] == "--get-default-zone" {
+		return f.defaultZone, nil
+	}
 	if name == "systemctl" {
 		op := args[0]
 		unit := args[len(args)-1]
@@ -405,6 +408,27 @@ func TestFirewallActivationTopologyChangeAfterStartRollsBack(t *testing.T) {
 		t.Fatal("changed host topology accepted", err, receipt)
 	}
 }
+
+func TestFirewallActivationUsesNativeDefaultOnlyForUnconfiguredExistingStart(t *testing.T) {
+	a, f, baseline, protection := activationFixture(t, "activate_existing")
+	a.Config.Zone = ""
+	f.defaultZone = "public"
+	zone, err := inactiveActivationZone(context.Background(), f, a.Config.Zone, true)
+	if err != nil || zone != "public" {
+		t.Fatal("valid permanent default was not assessed", zone, err)
+	}
+	for _, configured := range []string{"", "trusted"} {
+		if _, err := inactiveActivationZone(context.Background(), f, configured, false); err == nil {
+			t.Fatal("an explicit configuration was required", configured)
+		}
+	}
+	f.activeZones = "trusted\n  interfaces: eth0\n"
+	_, err = a.processFirewallActivation(context.Background(), activationPolicy(t, a, "activate_existing", baseline, protection))
+	if err == nil || !strings.Contains(err.Error(), "reviewed permanent default zone") || f.active || f.enabled {
+		t.Fatal("live zone differing from the reviewed default was not rolled back", err)
+	}
+}
+
 func TestFirewallActivationExpiredConfigOrDifferentProofCannotGrantMaintenance(t *testing.T) {
 	for _, kind := range []string{"expired", "config", "scope", "other-server", "two-person"} {
 		t.Run(kind, func(t *testing.T) {

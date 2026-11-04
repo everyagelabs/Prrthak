@@ -82,10 +82,11 @@ def validate_initial_environment(environment):
     # The bundled read-only controller package is rooted at /app.
     if Path('/app/controller').is_dir():sys.path.insert(0,'/app')
     from controller.auth import EntraConfig
+    from controller.management_health import PROBE_FIELDS, probe_configuration
     public=('SEG_ENTRA_TENANT_ID','SEG_ENTRA_CLIENT_ID','SEG_ENTRA_REDIRECT_URI','SEG_BOOTSTRAP_SUPER_ADMIN_OID')
     http=('SEG_HTTP_WORKERS','SEG_HTTP_THREADS')
     pool=('SEG_DB_POOL_META_MAX','SEG_DB_POOL_TRAFFIC_MAX','SEG_DB_POOL_WAIT_SECONDS','SEG_CONTROL_PORT','SEG_DISCOVERY_PORT')
-    if not isinstance(environment,dict) or set(environment)-set((*public,*http,*pool,'SEG_ENTRA_CLIENT_SECRET')) or any(not isinstance(value,str) for value in environment.values()):raise ValueError('Fixed initial environment validation requires an exact string mapping')
+    if not isinstance(environment,dict) or set(environment)-set((*public,*http,*pool,*PROBE_FIELDS,'SEG_ENTRA_CLIENT_SECRET')) or any(not isinstance(value,str) for value in environment.values()):raise ValueError('Fixed initial environment validation requires an exact string mapping')
     config=EntraConfig.from_env(environment);result={}
     if config.enabled:
         result.update(SEG_ENTRA_TENANT_ID=config.tenant_id,SEG_ENTRA_CLIENT_ID=config.client_id,SEG_ENTRA_REDIRECT_URI=config.redirect_uri,SEG_ENTRA_CLIENT_SECRET_FILE='/run/prthak-bootstrap/entra-client-secret')
@@ -95,6 +96,7 @@ def validate_initial_environment(environment):
             number=int(environment[key])
             if not low<=number<=high:raise ValueError('HTTP/database pool configuration exceeds supported bounds')
             result[key]=str(number)
+    result.update(probe_configuration(environment))
     return {'validated':True,'entra_enabled':config.enabled,'environment':result}
 
 
@@ -104,7 +106,8 @@ def controller_environment(settings):
            'PRTHAK_APPLIANCE_DATA_ROOT','PRTHAK_APPLIANCE_MANAGER_SOCKET','PRTHAK_APPLIANCE_MANAGER_TOKEN_FILE',
            'PRTHAK_CLUSTER_PASSWORD_FILE','PRTHAK_EXISTING_NODE_IP','PRTHAK_GUI_PROVIDER_MANAGED','PRTHAK_PROVIDER_EPOCH'}
     public={'SEG_ENTRA_TENANT_ID','SEG_ENTRA_CLIENT_ID','SEG_ENTRA_REDIRECT_URI','SEG_BOOTSTRAP_SUPER_ADMIN_OID',
-            'SEG_HTTP_WORKERS','SEG_HTTP_THREADS','SEG_DB_POOL_META_MAX','SEG_DB_POOL_TRAFFIC_MAX','SEG_DB_POOL_WAIT_SECONDS','SEG_CONTROL_PORT','SEG_DISCOVERY_PORT'}
+            'SEG_HTTP_WORKERS','SEG_HTTP_THREADS','SEG_DB_POOL_META_MAX','SEG_DB_POOL_TRAFFIC_MAX','SEG_DB_POOL_WAIT_SECONDS','SEG_CONTROL_PORT','SEG_DISCOVERY_PORT',
+            'SEG_MANAGEMENT_PROBE_SOURCE_IP','SEG_MANAGEMENT_PROBE_TARGET_CIDRS'}
     environment=settings.get('environment')
     if not isinstance(environment,dict) or set(environment)-fixed-public-{'SEG_ENTRA_CLIENT_SECRET_FILE'} or any(not isinstance(value,str) or '\x00' in value for value in environment.values()):
         raise ValueError('Controller bootstrap environment contains an unsupported value')

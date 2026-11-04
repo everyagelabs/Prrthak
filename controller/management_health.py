@@ -20,10 +20,34 @@ class ManagementHealthUnavailable(RuntimeError):
     pass
 
 
+PROBE_SOURCE = "SEG_MANAGEMENT_PROBE_SOURCE_IP"
+PROBE_TARGETS = "SEG_MANAGEMENT_PROBE_TARGET_CIDRS"
+PROBE_FIELDS = (PROBE_SOURCE, PROBE_TARGETS)
+
+
+def probe_configuration(environment):
+    """Validate the pair of reviewed, literal host SSH probe settings."""
+    from .network_addresses import address, network
+    source = environment.get(PROBE_SOURCE, "")
+    raw = environment.get(PROBE_TARGETS, "")
+    if not source and not raw:
+        return {}
+    try:
+        ip = address(source)
+        if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified or ip.is_reserved:
+            raise ValueError()
+        cidrs = [network(item.strip()) for item in raw.split(",")]
+        if not 1 <= len(cidrs) <= 32 or any(value.version != ip.version or value.prefixlen == 0 for value in cidrs):
+            raise ValueError()
+    except (ValueError, AttributeError):
+        raise ValueError("Provide a native unicast SSH probe source IP and up to 32 scoped target CIDRs of the same family") from None
+    return {PROBE_SOURCE: str(ip), PROBE_TARGETS: ",".join(sorted({str(value) for value in cidrs}))}
+
+
 class ManagementHealth:
-    def __init__(self, source_ip=None, target_cidrs=None, timeout=2.0):
-        self.source_ip = source_ip if source_ip is not None else os.environ.get("SEG_MANAGEMENT_PROBE_SOURCE_IP", "")
-        configured = target_cidrs if target_cidrs is not None else os.environ.get("SEG_MANAGEMENT_PROBE_TARGET_CIDRS", "").split(",")
+    def __init__(self, source_ip=None, target_cidrs=None, timeout=2.0, host_probe=None):
+        self.source_ip = source_ip if source_ip is not None else os.environ.get(PROBE_SOURCE, "")
+        configured = target_cidrs if target_cidrs is not None else os.environ.get(PROBE_TARGETS, "").split(",")
         self.target_cidrs = [ipaddress.ip_network(value.strip(), strict=False) for value in configured if value.strip()]
         if self.source_ip:
             self.source_ip = str(ipaddress.ip_address(self.source_ip))
@@ -31,10 +55,17 @@ class ManagementHealth:
             raise ValueError("Management probe target CIDRs must be explicitly scoped; /0 is forbidden")
         self.timeout = min(3.0, max(0.1, timeout))
         self.slots = threading.BoundedSemaphore(8)
+        self.host_probe = host_probe
+        if host_probe is None and os.environ.get("PRTHAK_APPLIANCE") == "1":
+            from .appliance import NodeClient
+            self.host_probe = NodeClient().management_probe
+
+    def check_configuration(self, approved):
+        self._targets(approved)
 
     def _targets(self, approved):
         if not self.source_ip or not self.target_cidrs:
-            raise ManagementHealthUnavailable("Configure an approved management probe source IP and target CIDRs before enforcement")
+            raise ManagementHealthUnavailable("Configure the controller host SSH probe source IP and target CIDRs in Platform settings → Setup")
         source = ipaddress.ip_address(self.source_ip)
         allowed_sources = [ipaddress.ip_network(value, strict=False) for value in approved["management_sources"]]
         if not any(source in network for network in allowed_sources):
@@ -101,11 +132,22 @@ class ManagementHealth:
             raise ManagementHealthUnavailable("Management probe capacity is busy; pending policy must remain uncommitted")
         try:
             deadline = time.monotonic() + 8
-            checks = []
-            for port in ports:
-                if time.monotonic() >= deadline:
-                    raise ManagementHealthUnavailable("Management health check deadline exceeded")
-                checks.append(self._ssh(target, port, deadline))
+            if self.host_probe is not None:
+                from .appliance import ManagerUnavailable
+                try:
+                    result = self.host_probe({"source_ip": self.source_ip, "target_ip": target, "ports": ports})
+                except (ManagerUnavailable, KeyError) as error:
+                    message = str(error) if isinstance(error, ManagerUnavailable) else "Upgrade the appliance host manager to enable SSH probes"
+                    raise ManagementHealthUnavailable(message) from None
+                checks = [{"target_ip": target, "port": port, "source_ip": self.source_ip, "ssh_banner_verified": True} for port in ports]
+                if not isinstance(result, dict) or result.get("ssh_checks") != checks:
+                    raise ManagementHealthUnavailable("The appliance host did not return exact SSH probe evidence")
+            else:
+                checks = []
+                for port in ports:
+                    if time.monotonic() >= deadline:
+                        raise ManagementHealthUnavailable("Management health check deadline exceeded")
+                    checks.append(self._ssh(target, port, deadline))
             # A policy/tag/IP/config change during network I/O revokes the proof.
             current = verify()
             context_fields=("approval_id", "intent", "approval_proof", "host_default_deny_ack", "host_default_deny_revision", "host_default_deny_configuration_digest") if approved.get("host_default_deny_ack") else ()

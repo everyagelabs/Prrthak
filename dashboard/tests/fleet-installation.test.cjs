@@ -36,8 +36,8 @@ function fixture({mode='entra',role='admin',profiles=[],total=profiles.length,re
 test('fleet setup is the default with one architecture-specific agent and no hostname or host-count requirement',async()=>{
  const f=fixture();await f.show();const html=f.element('#modal-content').innerHTML;
  assert.match(html,/value="fleet" selected/);assert.match(html,/any number of servers/);assert.match(html,/No hostname list, CSV or per-server download/);assert.match(html,/same binary is used on RHEL and Ubuntu/);assert.doesNotMatch(html,/id="agent-install-hostname"|name="(?:max_hosts|server_count|hostnames)"/);
- assert.match(html,/prthak-agent-0\.10\.0-linux-amd64\.tar\.gz/);assert.match(f.c.agentInstallationArchive('arm64'),/0\.10\.0-linux-arm64/);
- f.c.state.data.meta.version='<script>wrong</script>';assert.equal(f.c.agentInstallationArchive('amd64'),'prthak-agent-0.18.0-linux-amd64.tar.gz');
+ assert.match(html,/releases\/download\/v0\.18\.1-pilot\.1\/prthak-agent-0\.18\.1-linux-amd64\.tar\.gz/);assert.match(f.c.agentInstallationArchive('arm64'),/0\.18\.1-linux-arm64/);
+ f.c.state.data.meta.version='<script>wrong</script>';assert.equal(f.c.agentInstallationArchive('amd64'),'prthak-agent-0.18.1-linux-amd64.tar.gz');
  assert.match(html,/enrollment key grants no dashboard or firewall-policy authority/);
 });
 test('automatic OS detection keeps one installer command while CPU selection changes only the archive',async()=>{
@@ -46,7 +46,7 @@ test('automatic OS detection keeps one installer command while CPU selection cha
  assert.doesNotMatch(f.element('#modal-content').innerHTML,/<select[^>]*name="family"/);
  for(const architecture of ['amd64','arm64']){
   f.element('#agent-install-architecture').value=architecture;f.c.agentInstallationChange({target:{id:'agent-install-architecture',value:architecture}});
-  assert.equal(f.element('#agent-install-command').textContent,command);assert.equal(f.element('#agent-install-archive').textContent,'prthak-agent-0.10.0-linux-'+architecture+'.tar.gz');
+  assert.equal(f.element('#agent-install-command').textContent,command);assert.equal(f.element('#agent-install-archive').textContent,'prthak-agent-0.18.1-linux-'+architecture+'.tar.gz');
   await f.submit({architecture});const request=f.requests.filter(row=>row.options.method==='POST').at(-1);assert.equal(request.options.body.family,'auto');assert.equal(request.options.body.architecture,architecture);assert.equal(f.errors.length,0);
  }
 });

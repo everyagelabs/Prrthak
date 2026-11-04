@@ -202,6 +202,27 @@ class ApplianceManagerTests(unittest.TestCase):
         self.assertEqual(compose['services']['database']['profiles'],['database'])
         self.assertTrue(all('/var/run/docker.sock' not in json.dumps(value) for value in compose['services'].values()))
         self.assertEqual(compose['services']['controller']['user'],'10001:10001')
+
+    def test_host_ssh_probe_enforces_local_scope_and_proves_the_actual_bound_source(self):
+        source_key, target_key = appliance.PROBE_PUBLIC
+        appliance.atomic(self.root/'config/controller/settings.json', {'environment': {
+            source_key: '10.90.0.5', target_key: '10.40.0.0/24'}})
+        request = {'source_ip': '10.90.0.5', 'target_ip': '10.40.0.21', 'ports': [2022]}
+        with patch.object(appliance.socket, 'socket') as factory:
+            for changes in ({'source_ip': '172.18.0.2'}, {'target_ip': '10.41.0.21'}, {'target_ip': '169.254.169.254'}, {'ports': [2022, 2022]}):
+                with self.subTest(changes=changes), self.assertRaises(appliance.Blocked):
+                    self.manager.management_probe({**request, **changes})
+            factory.assert_not_called()
+            connection = factory.return_value.__enter__.return_value
+            connection.getsockname.return_value = ('10.90.0.5', 40123)
+            connection.recv.side_effect = [b'SSH-2.0-OpenSSH_9\r\n']
+            self.assertEqual(self.manager.management_probe(request), {'ssh_checks': [
+                {'source_ip': '10.90.0.5', 'target_ip': '10.40.0.21', 'port': 2022, 'ssh_banner_verified': True}]})
+            connection.bind.assert_called_once_with(('10.90.0.5', 0))
+            connection.connect.assert_called_once_with(('10.40.0.21', 2022))
+            connection.recv.side_effect = [b'HTTP/1.1 200 OK\r\n', b'']
+            with self.assertRaisesRegex(appliance.Blocked, 'SSH protocol banner'):
+                self.manager.management_probe(request)
     def test_fresh_runtime_marker_survives_restart_and_etcd_uses_recorded_immutable_image(self):
         settings=appliance.load(self.root/'config/installed.json')
         self.assertEqual(settings['database_runtime'],appliance.DATABASE_RUNTIME)

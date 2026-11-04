@@ -18,7 +18,8 @@ Detect RHEL 9 or Ubuntu 26.04, install required Python/Docker/Compose packages,
 then open the printed HTTPS URL to finish configuration in the GUI.
 Use a fresh dedicated Linux systemd VM and an independently verified release.
 The installer never removes another container stack or opens host firewall ports.
---offline uses the local RPM and image payload of the RHEL 9 x86_64 release.
+The RHEL 9 x86_64 offline bundle automatically uses its local RPMs and images.
+--offline remains available to explicitly require that bundle.
 
 Compatibility: --gui-setup, --data-root PATH, --env-file FILE,
                --validate-only, --no-start.
@@ -57,6 +58,18 @@ done
 [ -z "$expect_value" ] || fail "Missing value for $expect_value."
 [ "$gui:$env_file" != 1:1 ] || fail 'Choose GUI setup or an existing environment file, not both.'
 [ "$offline:$prepare" != 1:0 ] || fail 'Offline setup must use the automatic GUI installer.'
+
+# Pick offline mode before any command can contact a package repository. The
+# marker is the first archive entry so a partial extraction also stays offline.
+if [ "$prepare" -eq 1 ] && [ "$offline" -eq 0 ]; then
+  for marker in "$release_root/OFFLINE-CONTROLLER" "$release_root/offline"; do
+    if [ -e "$marker" ] || [ -L "$marker" ]; then
+      offline=1
+      set -- "$@" --offline
+      break
+    fi
+  done
+fi
 
 # Check every existing ancestor before executing privileged release/interpreter
 # bytes. Symlinked system interpreters are resolved, then their target and both

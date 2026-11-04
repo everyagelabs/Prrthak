@@ -129,18 +129,23 @@ function learnedPolicyStatus(policy) {
   const labels={preview:['Preview only · endpoint enforcement disabled','neutral'],generated:['Generated · pending agent','neutral'],pending:['Pending agent','warning'],applied:['Applied · agent verified',''],blocked:['Blocked','warning'],rolled_back:['Rolled back','warning'],error:['Failed','danger'],removed:['Removed','neutral']};
   return stale?['New revision pending agent','warning']:labels[policy.status] || ['Application not reported','neutral'];
 }
-function learnedPolicyCardHTML(policy,editable=true) {
-  const [label,tone]=learnedPolicyStatus(policy),serverIds=policy.server_ids || (policy.server_id?[policy.server_id]:[]);
-  return `<article class="card policy-card learned-policy-card"><div class="policy-top"><div><h3 class="policy-name">${h(policy.name)}</h3><p class="help-text">${policy.origin==='auto'?'Automatically learned':'Reviewed observed access'} · r${num(policy.revision)} · ${policy.auto_updates?(num(date(policy.authority_expires_at)?.getTime())>Date.now()?'Learning additions enabled':'Automatic additions ended'):'Fixed reviewed sources'}</p></div>${badge(label,tone)}</div><p class="learned-policy-target">${h(policy.hostname || serverIds.map(serverName).join(', ') || 'Target not reported')}</p>${recommendationServicesHTML(policy.summary_only?(policy.services || []).map(service=>({...service,sources_omitted:true})):policy.services,12)}${(policy.services || []).length>12?`<p class="help-text">Showing 12 of ${format(policy.services.length)} services. Inspect exact details for complete sources.</p>`:''}${policy.error?`<p class="form-error">${h(policy.error)}</p>`:''}${policy.auto_updates&&policy.authority_expires_at?`<p class="help-text">Automatic additions authorized until ${h(timestamp(policy.authority_expires_at))}. Existing allowances remain after collection ends.</p>`:''}<div class="policy-footer"><button class="text-button" data-action="policy-catalogue-detail" data-kind="learned" data-id="${h(policy.id)}">Exact details</button><button class="text-button" data-action="recommendation-open" data-id="${h(policy.session_id)}">Review session evidence</button>${editable&&canWrite()&&!policy.removal_pending&&!policy.removed?`<div class="policy-actions"><button class="text-button" data-action="learned-policy-edit" data-id="${h(policy.id)}">Edit sources</button><button class="text-button danger-text" data-action="learned-policy-remove-review" data-id="${h(policy.id)}">Remove</button></div>`:''}</div></article>`;
-}
 function learnedPoliciesHTML() {
   const page=policyCataloguePage('learned'),policies=page.remote?page.items:page.items.filter(policy=>{
-    if(policy.status==='removed')return false;const serviceMatches=!state.filters.ports?.length||(policy.services || []).some(service=>F.matchesPorts(service.port,service.protocol,state.filters.ports));if(!serviceMatches)return false;
+    if(policy.status==='removed')return false;
+    if(state.filters.ports?.length&&!(policy.services || []).some(service=>F.matchesPorts(service.port,service.protocol,state.filters.ports)))return false;
     const ids=policy.server_ids || (policy.server_id?[policy.server_id]:[]),targets=state.data.servers.filter(server=>ids.includes(server.id));
-    const scoped=F.count({...state.filters,ports:[]})>0||state.flowServer!=='all';if(scoped&&!targets.some(server=>(state.flowServer==='all'||server.id===state.flowServer)&&F.matchServer(server,state.filters,{ignorePorts:true})))return false;
+    const scoped=F.count({...state.filters,ports:[]})>0||state.flowServer!=='all';
+    if(scoped&&!targets.some(server=>(state.flowServer==='all'||server.id===state.flowServer)&&F.matchServer(server,state.filters,{ignorePorts:true})))return false;
     return !state.search||JSON.stringify([policy.name,policy.hostname,policy.services,targets]).toLowerCase().includes(state.search.toLowerCase());
   });
-  return `<section class="learned-policies-section"><div class="section-line"><h2>Learned allow policies<span>${policies.length} ${page.remote?'on loaded page':'in scope'}</span></h2></div><div class="inline-notice">Observed source IPs are allowed only on their exact selected services. These additive policies have independent endpoint application reports. Generated intent and a queued update do not establish that firewall rules were applied.</div>${policyCataloguePaginationHTML('learned')}${policies.length?`<div class="policy-grid">${policies.map(policy=>learnedPolicyCardHTML(policy)).join('')}</div>`:page.loading?'<p class="help-text">Loading the matching learned policy page…</p>':page.error?'':`<p class="help-text learned-policy-empty">${page.remote?'No learned allow policies on this matching catalogue page.':'No learned allow policies in this scope.'} Browse history pages or review observed access from a learning session.</p>`}</section>${learningApprovalsHTML()}`;
+  const entries=policies.map(policy=>{
+    const [status,tone]=learnedPolicyStatus(policy);
+    const services=(policy.services || []).filter(service=>F.matchesPorts(service.port,service.protocol,state.filters.ports || []));
+    return {policy,services,status,tone};
+  });
+  return `<section class="learned-policies-section"><div class="section-line"><h2>Learned allow policies<span>${entries.length} ${page.remote?'on loaded page':'in scope'}</span></h2></div>
+    ${policyTableHTML(entries,'learned',page.loading?'Loading learned policies…':page.error?'Learned policies could not be loaded.':'No learned allow policies in this scope.')}
+    ${policyCataloguePaginationHTML('learned')}</section>`;
 }
 function learnedPolicyById(id) { return policyExactCurrent('learned',id); }
 function renderLearnedPolicyEditor(policy) {

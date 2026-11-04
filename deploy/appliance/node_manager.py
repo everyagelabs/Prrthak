@@ -52,12 +52,14 @@ ENV_KEYS = {'DATA_ROOT', 'NODE_ID', 'SITE', 'NODE_IP', 'CONTROLLER_ORIGIN', 'CON
     'CLUSTER_PASSWORD', 'SUPER_ADMIN_TOKEN', 'WATCHDOG_APPROVED', 'WATCHDOG_DEVICE',
     'SEG_ENTRA_TENANT_ID','SEG_ENTRA_CLIENT_ID','SEG_ENTRA_REDIRECT_URI','SEG_BOOTSTRAP_SUPER_ADMIN_OID',
     'SEG_ENTRA_CLIENT_SECRET','SEG_ENTRA_CLIENT_SECRET_FILE','SEG_HTTP_WORKERS','SEG_HTTP_THREADS',
-    'SEG_DB_POOL_META_MAX','SEG_DB_POOL_TRAFFIC_MAX','SEG_DB_POOL_WAIT_SECONDS','SEG_CONTROL_PORT','SEG_DISCOVERY_PORT'}
+    'SEG_DB_POOL_META_MAX','SEG_DB_POOL_TRAFFIC_MAX','SEG_DB_POOL_WAIT_SECONDS','SEG_CONTROL_PORT','SEG_DISCOVERY_PORT',
+    'SEG_MANAGEMENT_PROBE_SOURCE_IP','SEG_MANAGEMENT_PROBE_TARGET_CIDRS'}
 AUTH_PUBLIC=('SEG_ENTRA_TENANT_ID','SEG_ENTRA_CLIENT_ID','SEG_ENTRA_REDIRECT_URI','SEG_BOOTSTRAP_SUPER_ADMIN_OID')
 HTTP_PUBLIC=('SEG_HTTP_WORKERS','SEG_HTTP_THREADS')
 POOL_PUBLIC=('SEG_DB_POOL_META_MAX','SEG_DB_POOL_TRAFFIC_MAX','SEG_DB_POOL_WAIT_SECONDS')
 CHANNEL_PUBLIC=('SEG_CONTROL_PORT','SEG_DISCOVERY_PORT')
-RUNTIME_PUBLIC=HTTP_PUBLIC+POOL_PUBLIC+CHANNEL_PUBLIC
+PROBE_PUBLIC=('SEG_MANAGEMENT_PROBE_SOURCE_IP','SEG_MANAGEMENT_PROBE_TARGET_CIDRS')
+RUNTIME_PUBLIC=HTTP_PUBLIC+POOL_PUBLIC+CHANNEL_PUBLIC+PROBE_PUBLIC
 RUNTIME_BOUNDS=(('SEG_HTTP_WORKERS',1,16),('SEG_HTTP_THREADS',2,128),
     ('SEG_DB_POOL_META_MAX',1,64),('SEG_DB_POOL_TRAFFIC_MAX',1,16),('SEG_DB_POOL_WAIT_SECONDS',1,15),
     ('SEG_CONTROL_PORT',1,65535),('SEG_DISCOVERY_PORT',1,65535))
@@ -629,6 +631,7 @@ class Manager:
         if self.pointer.exists():
             if self.pointer.is_symlink() or not self.pointer.is_file() or self.pointer.read_text().strip()!=str(self.root):raise Blocked('Use only the atomically committed active DATA_ROOT pointer')
         self.lock=threading.RLock();self.worker=None
+        self.management_probe_slots=threading.BoundedSemaphore(8)
         self.installed=load(self.root/'config/installed.json')
         if not self.installed:raise Blocked('Appliance has not been installed at this DATA_ROOT')
         if (self.root/'manager/retired.json').exists():raise Blocked('This DATA_ROOT is retired; use the atomically committed active pointer')
@@ -794,6 +797,10 @@ class Manager:
             'router':{**common,'image':settings.get('images',{}).get('router',ROUTER_IMAGE),'user':'10003:10003','command':['haproxy','-W','-db','-f','/config/haproxy.cfg'],'ports':[settings['bind_ip']+':'+str(settings['controller_port'])+':8787',settings['bind_ip']+':'+str(channels['control'])+':8788',settings['bind_ip']+':'+str(channels['discovery'])+':8789',settings['bind_ip']+':'+str(settings['database_router_port'])+':5433'],'volumes':[bind(root/'config/router','/config',True)],'read_only':True},
             'etcd':{**common,'image':settings.get('images',{}).get('etcd',ETCD_IMAGE),'user':'10002:10002','profiles':['database'],'command':['/usr/local/bin/etcd','--config-file=/config/etcd.json'],'ports':[settings['bind_ip']+':2379:2379',settings['bind_ip']+':2380:2380'],'volumes':[bind(root/'etcd','/etcd-data'),bind(root/'config/etcd','/config',True)],'read_only':True},
             'database':{**common,'image':settings.get('images',{}).get('database',DATABASE_IMAGE),'user':'999:999','profiles':['database'],'ports':[settings['bind_ip']+':5432:5432',settings['bind_ip']+':8008:8008'],'volumes':[bind(root/'database','/var/lib/postgresql/data'),bind(root/'config/database','/config',True)],'devices':['/dev/watchdog0:/dev/watchdog0:rwm'],'stop_grace_period':'90s','read_only':True}}}
+        agent_releases = root/'runtime/agent-releases'
+        if agent_releases.exists() or agent_releases.is_symlink():
+            protected_release_directory(agent_releases)
+            compose['services']['controller']['volumes'].append(bind(agent_releases, '/run/prthak-agent-releases', True))
         atomic(root/'runtime/compose.json',compose)
     def _watchdog(self):
         value=self.manifest() or {}; approved=value.get('watchdog',{}).get('approved') is True
@@ -1727,6 +1734,67 @@ class Manager:
                 if 'database' in previous:self._watchdog();self._quorum()
                 self.engine.compose(['up','-d','--no-deps',*previous])
             raise
+    def management_probe(self, body):
+        if not isinstance(body, dict) or set(body) != {'source_ip', 'target_ip', 'ports'}:
+            raise Blocked('Provide an exact native SSH probe source, destination and port set')
+        if any(not isinstance(body[key], str) or len(body[key]) > 128 for key in ('source_ip', 'target_ip')):
+            raise Blocked('The SSH probe requires literal source and destination addresses')
+        ports = body['ports']
+        if (not isinstance(ports, list) or not 1 <= len(ports) <= 8
+                or any(type(port) is not int or not 1 <= port <= 65535 for port in ports)
+                or ports != sorted(set(ports))):
+            raise Blocked('The SSH probe port set must contain one to eight exact ports')
+        settings_path = self.root/'config/controller/settings.json'
+        environment = load(settings_path, {}).get('environment', {})
+        scope = tuple(environment.get(key, '') for key in PROBE_PUBLIC)
+        try:
+            source, target = [ipaddress.ip_address(body[key]) for key in ('source_ip', 'target_ip')]
+            if any(getattr(item, 'scope_id', None) is not None or getattr(item, 'ipv4_mapped', None) is not None
+                   or item.is_loopback or item.is_link_local or item.is_multicast or item.is_unspecified or item.is_reserved
+                   for item in (source, target)):
+                raise ValueError()
+            targets = [ipaddress.ip_network(value) for value in scope[1].split(',')]
+            if (str(source) != scope[0] or source.version != target.version or not 1 <= len(targets) <= 32
+                    or any(net.prefixlen == 0 or net.version != source.version for net in targets)
+                    or not any(target in net for net in targets)):
+                raise ValueError()
+        except (ValueError, TypeError, AttributeError):
+            raise Blocked('The SSH probe is outside this host’s reviewed source or destination scope') from None
+        if not self.management_probe_slots.acquire(blocking=False):
+            raise Blocked('The host SSH probe is busy; retry the reviewed operation')
+        try:
+            family = socket.AF_INET if source.version == 4 else socket.AF_INET6
+            deadline = time.monotonic() + 8
+            checks = []
+            for port in ports:
+                if time.monotonic() >= deadline:
+                    raise Blocked('The host SSH probe deadline expired')
+                with socket.socket(family, socket.SOCK_STREAM) as connection:
+                    connection.settimeout(min(2, max(0.01, deadline - time.monotonic())))
+                    connection.bind((str(source), 0))
+                    connection.connect((str(target), port))
+                    banner = b''
+                    while len(banner) < 1024 and time.monotonic() < deadline:
+                        connection.settimeout(min(2, max(0.01, deadline - time.monotonic())))
+                        data = connection.recv(min(256, 1024 - len(banner)))
+                        if not data:
+                            break
+                        banner += data
+                        if any(line.rstrip(b'\r').startswith((b'SSH-2.0-', b'SSH-1.99-')) for line in banner.split(b'\n')[:-1]):
+                            checks.append({'target_ip': str(target), 'port': port, 'source_ip': connection.getsockname()[0],
+                                           'ssh_banner_verified': True})
+                            break
+                if len(checks) == 0 or checks[-1]['port'] != port:
+                    raise Blocked('The endpoint did not return a fresh SSH protocol banner')
+            current = load(settings_path, {}).get('environment', {})
+            if tuple(current.get(key, '') for key in PROBE_PUBLIC) != scope:
+                raise Blocked('The reviewed host SSH probe scope changed during the check')
+            return {'ssh_checks': checks}
+        except OSError:
+            raise Blocked('SSH is unreachable from the configured controller host source IP; check its address and route') from None
+        finally:
+            self.management_probe_slots.release()
+
     def submit(self,body):
         if not isinstance(body,dict):raise Blocked('A manager job must be a JSON object')
         request_id=body.get('request_id')
@@ -1816,8 +1884,12 @@ def serve(manager,run_dir='/run/prthak-appliance',ready=None,*,_test_peer_uid=No
             if not self.authorized():return self.send(403,{'error':'Manager authentication required'})
             try:
                 size=int(self.headers.get('Content-Length','0'))
-                if self.headers.get('Transfer-Encoding') or self.path!='/v1/jobs' or not 0<size<=2097152 or self.headers.get('Content-Type','').split(';')[0]!='application/json':raise Blocked('Bounded JSON manager job required')
-                self.send(202,manager.submit(json.loads(self.rfile.read(size))))
+                if self.headers.get('Transfer-Encoding') or self.headers.get('Content-Type','').split(';')[0]!='application/json':raise Blocked('Bounded JSON manager request required')
+                if self.path=='/v1/management-probe' and 0<size<=4096:
+                    self.send(200,manager.management_probe(json.loads(self.rfile.read(size))))
+                elif self.path=='/v1/jobs' and 0<size<=2097152:
+                    self.send(202,manager.submit(json.loads(self.rfile.read(size))))
+                else:raise Blocked('Bounded JSON manager request required')
             except (Blocked,ValueError,TypeError) as error:self.send(409,{'error':str(error)})
     server=UnixServer(str(path),Handler);os.chown(path,0,10001);path.chmod(0o660);os.chmod(run_dir,0o750);os.chown(run_dir,0,10001)
     server.manager_stop=threading.Event()
@@ -1894,6 +1966,45 @@ def offline_appliance_images(engine, directory):
     return images
 
 
+def protected_release_directory(path):
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+        raise Blocked('The agent release directory must be root-owned, protected and free of symlinks')
+
+
+def stage_offline_agent_releases(release, data_root):
+    source = release/'offline/agents'
+    if not source.exists() and not source.is_symlink():
+        return
+    protected_release_directory(source.parent)
+    protected_release_directory(source)
+    version = re.search(r'^__version__ = "([0-9]+\.[0-9]+\.[0-9]+)"$',
+                        (release/'controller/__init__.py').read_text(), re.MULTILINE)
+    if not version:
+        raise Blocked('Cannot identify the matching offline agent release version')
+    files = {}
+    for arch in ('amd64', 'arm64'):
+        archive = 'prthak-agent-' + version[1] + '-linux-' + arch + '.tar.gz'
+        for name, maximum in ((archive, 32 * 1024**2), (archive+'.signature.json', 16384)):
+            descriptor = os.open(source/name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with os.fdopen(descriptor, 'rb') as stream:
+                info = os.fstat(stream.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022
+                        or not 0 < info.st_size <= maximum):
+                    raise Blocked('The offline agent release contains an unsafe file')
+                files[name] = stream.read(maximum + 1)
+                if len(files[name]) != info.st_size:
+                    raise Blocked('An offline agent release file changed during staging')
+    runtime = data_root/'runtime'
+    private_dir(runtime)
+    destination = runtime/'agent-releases'
+    destination.mkdir(mode=0o755, exist_ok=True)
+    protected_release_directory(destination)
+    destination.chmod(0o755)
+    for name, data in files.items():
+        atomic(destination/name, data, 0o644)
+
+
 def install(args):
     values,local,root=installer_configuration(args)
     if args.validate_only:
@@ -1917,6 +2028,7 @@ def install(args):
     release=Path(args.release_root).resolve()
     if getattr(args, 'offline', False):
         images = offline_appliance_images(engine, release/'offline')
+        stage_offline_agent_releases(release, root)
     else:
         images = build_appliance_images(engine, release, root/'runtime/build')
     engine.controller_image = images['controller']

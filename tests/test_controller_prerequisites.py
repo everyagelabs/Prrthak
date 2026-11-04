@@ -156,6 +156,14 @@ class ControllerPrerequisiteTests(unittest.TestCase):
         self.assertNotIn('gpg', self.names())
         self.assertFalse((self.root/'etc/yum.repos.d/prthak-docker-ce.repo').exists())
 
+    def test_incomplete_offline_bundle_stops_before_dependency_changes(self):
+        offline = self.root/'offline'
+        (offline/'keys').mkdir(parents=True)
+        (offline/'keys/docker.asc').write_bytes(b'offline fixture')
+        with self.assertRaisesRegex(bootstrap.Blocked, 'offline controller payload is incomplete'):
+            self.installer.prepare(offline)
+        self.assertEqual(self.host.calls, [])
+
     def test_healthy_existing_runtime_has_no_package_repo_or_service_mutation(self):
         self.healthy()
         self.installer.prepare(); self.host.calls.clear(); self.installer.prepare()

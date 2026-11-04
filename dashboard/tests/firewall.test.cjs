@@ -82,18 +82,18 @@ test('five thousand server rows render in200row pages while retaining full filte
 
 function asyncFirewallEnvironment(inputValue=''){
  const env=uiEnvironment(),input={id:'service-filter-input',value:inputValue,selectionStart:2,selectionEnd:5},results={innerHTML:'old result'},count={textContent:''},timers=new Map();let sequence=0;
- env.context.state.view='firewall';env.context.state.firewallData={scoped_query:true,common_rules:[],servers:[],changes:[]};
+ env.context.state.view='policies';env.context.state.firewallData={view:'access',scoped_query:true,common_rules:[],servers:[],changes:[]};
  env.context.state.firewallScopeKey=env.context.firewallScopeKey();
- env.context.document={activeElement:input};
- env.context.$=selector=>selector==='#modal'?{open:false}:selector==='#firewall-results'?results:selector==='#filter-result-count'?count:selector==='#service-filter-input'?input:null;
- env.context.emptyHTML=title=>title;
+ env.context.document={activeElement:input,addEventListener(){}};
+ env.context.$=selector=>selector==='#modal'?{open:false}:selector==='#discovered-policy-results'?results:selector==='#filter-result-count'?count:selector==='#service-filter-input'?input:null;
+ vm.runInContext(fs.readFileSync(require.resolve('../policy-catalogue-page.js'),'utf8'),env.context);
  env.context.render=()=>assert.fail('Async results must not rebuild the filter DOM');
  env.context.setTimeout=fn=>{const id=++sequence;timers.set(id,fn);return id;};
  env.context.clearTimeout=id=>timers.delete(id);
  return {...env,input,results,count,timers,flushQuery(){assert.equal(timers.size,1);const [id,fn]=[...timers][0];timers.delete(id);fn();}};
 }
 function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};}
-function billing8443Page(){return {scoped_query:true,common_rules:[{...common,value:'8443/tcp',server_ids:['billing-1','billing-2'],host_count:2}],servers:[{server_id:'billing-1',snapshot:{summary_only:true}},{server_id:'billing-2',snapshot:{summary_only:true}}],changes:[],pagination:{has_more:false},summary:{matching_endpoint_count:2}};}
+function billing8443Page(){return {view:'access',scoped_query:true,common_rules:[{...common,value:'8443/tcp',destination_port:'8443/tcp',decision:'allow',source:'Any source',destination:'Endpoint',zone_usage:'active',server_ids:['billing-1','billing-2'],host_count:2}],servers:[{server_id:'billing-1',snapshot:{summary_only:true}},{server_id:'billing-2',snapshot:{summary_only:true}}],changes:[],pagination:{has_more:false},summary:{matching_endpoint_count:2}};}
 
 test('billing plus8443 async results update despite a focused empty or partially typed port input',async()=>{
  for(const draft of ['', '9443/tcp']){
@@ -101,7 +101,7 @@ test('billing plus8443 async results update despite a focused empty or partially
   env.context.api=async(path,options)=>{env.calls.push({path,options});return reply.promise;};
   const pending=env.context.refreshFirewallData();reply.resolve(billing8443Page());await pending;
   assert.deepEqual(Array.from(env.calls[0].options.body.server_ids),['billing-1','billing-2']);assert.deepEqual(Array.from(env.calls[0].options.body.ports),['8443/tcp']);
-  assert.match(env.results.innerHTML,/8443\/tcp/);assert.match(env.results.innerHTML,/2 matching/);assert.equal(env.count.textContent,'1 common rules in selected scope');
+  assert.match(env.results.innerHTML,/8443\/tcp/);assert.match(env.results.innerHTML,/2 endpoints/);assert.equal(env.calls[0].options.body.view,'access');
   assert.equal(env.context.document.activeElement,env.input);assert.equal(env.input.value,draft);assert.equal(env.input.selectionStart,2);assert.equal(env.input.selectionEnd,5);
  }
 });

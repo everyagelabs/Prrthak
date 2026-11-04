@@ -12,6 +12,7 @@ from unittest.mock import patch
 from controller import firewall_activation as activation, notifications
 from controller.app import App, handler_for
 from controller.firewall import WorkflowConflict
+from controller.management_health import ManagementHealth
 from controller.platform import PlatformManager
 from controller.store import now, stamp
 from controller.tests import test_approvals as fixture
@@ -80,6 +81,28 @@ class FirewallActivationTests(unittest.TestCase):
         self.assertFalse(self.store.get("servers", "target")["protection"]["ready"])
         self.receipt()
         self.assertNotIn("firewall_activation", self.store.assignment("target")[0])
+
+    def test_waiting_assessment_is_reused_and_reports_only_the_actual_blocker(self):
+        plan = activation.preview(self.store, self.scope(), self.maker["actor"], self.maker)
+        self.assertEqual(plan["targets"][0]["blockers"], ["Request a fresh assessment for this operation"])
+        requested = self.assess()["items"][0]["id"]
+        self.assertEqual(self.assess()["items"][0]["id"], requested)
+        plan = activation.preview(self.store, self.scope(), self.maker["actor"], self.maker)
+        self.assertEqual(plan["targets"][0]["blockers"], ["Waiting for the agent to finish this assessment"])
+        self.receipt("blocked", assessment=None, error="pin restricted SSH management source IPs or CIDRs")
+        plan = activation.preview(self.store, self.scope(), self.maker["actor"], self.maker)
+        self.assertEqual(plan["targets"][0]["blockers"], ["pin restricted SSH management source IPs or CIDRs"])
+
+    def test_preview_checks_current_witness_scope_and_canonical_interface_addresses(self):
+        self.assess()
+        host = self.store.get("servers", "target")
+        self.receipt(assessment={"firewalld_active": False, "firewalld_enabled": "disabled", "ufw_active": False,
+                                "ufw_enabled": "absent", "version": "2.3.1", "backend": "nftables", "zone": "public",
+                                "ips": host["ips"] * 2, "ssh_ports": [2022], "management_sources": ["10.90.0.0/24"],
+                                "discovered_ports": [], "translated_rules": [], "can_apply": True, "blockers": [], "notes": []})
+        preview = lambda health: activation.preview(self.store, self.scope(), self.maker["actor"], self.maker, management_health=health)
+        self.assertIn("Platform settings", preview(ManagementHealth("", []))["targets"][0]["blockers"][0])
+        self.assertTrue(preview(ManagementHealth("10.90.0.5", ["10.70.0.0/24"]))["can_apply"])
 
     def test_all_four_operations_require_fresh_review_phrase_and_manual_ack_same_admin(self):
         for operation in sorted(activation.OPERATIONS):

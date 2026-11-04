@@ -12,6 +12,7 @@ import uuid
 
 from . import approvals
 from .firewall import WorkflowConflict
+from .management_health import ManagementHealthUnavailable
 from .network_addresses import address, network
 from .source_banks import _identity, _fresh, _transaction
 from .store import digest, now, parse_time, stamp
@@ -91,6 +92,12 @@ def assess(store, value, actor, principal):
             selected.append(server)
         result = []
         for server in selected:
+            previous = server.get(JOB) or {}
+            if (previous.get("operation") == "assess" and previous.get("target_operation") == value["operation"]
+                    and previous.get("status") == "assigned" and previous.get("context") == _context(server)
+                    and parse_time(previous["expires_at"]) > now()):
+                result.append(_public(previous))
+                continue
             job = _new_job(server, "assess", value["operation"], actor)
             server[JOB] = job
             store._put(db, "servers", server)
@@ -99,27 +106,43 @@ def assess(store, value, actor, principal):
         return {"items": result, "count": len(result), "read_only_host_assessment": True}
 
 
-def _assessed(server, operation):
+def _assessed(server, operation, management_health=None):
     job, receipt = server.get(JOB) or {}, server.get(RECEIPT) or {}
     issues = _blockers(server)
-    if job.get("operation") != "assess" or job.get("target_operation") != operation or receipt.get("id") != job.get("id") or receipt.get("plan_digest") != job.get("plan_digest"):
-        issues.append("Request and receive an assessment for this exact operation first")
-    if receipt.get("status") != "assessed" or not _fresh(receipt.get("checked_at")):
-        issues.append("A successful native assessment within 180 seconds is required")
-    if job.get("context") != _context(server) or receipt.get("configuration_digest") != _context(server)["configuration_digest"]:
-        issues.append("Endpoint addresses, policy or configuration changed; assess again")
+    if job.get("operation") != "assess" or job.get("target_operation") != operation:
+        return {}, issues + ["Request a fresh assessment for this operation"]
+    context = _context(server)
+    if job.get("context") != context:
+        return {}, issues + ["Endpoint addresses, policy or configuration changed; request a fresh assessment"]
+    if receipt.get("id") != job.get("id") or receipt.get("plan_digest") != job.get("plan_digest"):
+        reason = ("Waiting for the agent to finish this assessment" if parse_time(job["expires_at"]) > now()
+                  else "The assessment request expired; request a fresh assessment")
+        return {}, issues + [reason]
+    if receipt.get("configuration_digest") != context["configuration_digest"]:
+        return receipt, issues + ["Endpoint configuration changed; request a fresh assessment"]
+    if not _fresh(receipt.get("checked_at")):
+        return receipt, issues + ["The native assessment expired; request a fresh assessment"]
     facts = receipt.get("assessment") or {}
     issues.extend(facts.get("blockers") or [])
+    if receipt.get("status") != "assessed":
+        if receipt.get("error") or not facts.get("blockers"):
+            issues.append(receipt.get("error") or "The agent could not complete the native assessment")
+        return receipt, sorted(set(issues))
     if facts.get("can_apply") is not True or not HEX.fullmatch(receipt.get("baseline_digest", "")) or not HEX.fullmatch(receipt.get("protection_digest", "")):
         issues.append("The native assessment does not prove this operation is supported and ready")
-    if sorted(facts.get("ips", [])) != _context(server)["ips"]:
+    if sorted({str(address(ip)) for ip in facts.get("ips", [])}) != context["ips"]:
         issues.append("Native assessed interface addresses differ from the current authenticated report")
     if not facts.get("ssh_ports") or not facts.get("management_sources"):
         issues.append("Actual SSH listeners and restricted management sources are required")
+    if not issues and management_health is not None:
+        try:
+            management_health.check_configuration(facts)
+        except ManagementHealthUnavailable as error:
+            issues.append(str(error))
     return receipt, sorted(set(issues))
 
 
-def preview(store, value, actor, principal):
+def preview(store, value, actor, principal, *, management_health=None):
     with store.lock, store.meta() as db:
         _transaction(db)
         _identity(store, db, actor, principal)
@@ -129,7 +152,7 @@ def preview(store, value, actor, principal):
             server = store._get(db, "servers", identifier)
             if not server:
                 raise ValueError("A selected endpoint no longer exists")
-            receipt, issues = _assessed(server, value["operation"])
+            receipt, issues = _assessed(server, value["operation"], management_health)
             targets.append({"server_id": identifier, "hostname": server["hostname"], "assessment": copy.deepcopy(receipt.get("assessment")), "baseline_digest": receipt.get("baseline_digest", ""), "blockers": issues})
             blockers.extend(server["hostname"] + ": " + issue for issue in issues)
             bindings[identifier] = {"context": _context(server), "receipt": receipt}
@@ -142,7 +165,7 @@ def preview(store, value, actor, principal):
         return {key: copy.deepcopy(plan[key]) for key in ("id", "operation", "created_by", "created_at", "expires_at", "targets", "can_apply", "blockers", "challenge", "status", "digest", "confirmation_nonce")}
 
 
-def confirm(store, identifier, value, actor, principal):
+def confirm(store, identifier, value, actor, principal, *, management_health=None):
     if not isinstance(value, dict) or set(value) != {"digest", "confirmation_nonce", "confirmation_phrase", "acknowledge_downtime"} or value["acknowledge_downtime"] is not True or value["confirmation_phrase"] != CHALLENGE:
         raise ValueError("Type APPLY FIREWALL MAINTENANCE and manually acknowledge potential service downtime")
     with store.lock, store.meta() as db:
@@ -157,7 +180,7 @@ def confirm(store, identifier, value, actor, principal):
             server = store._get(db, "servers", server_id)
             if not server:
                 raise WorkflowConflict("A reviewed endpoint was removed", {})
-            receipt, issues = _assessed(server, plan["operation"])
+            receipt, issues = _assessed(server, plan["operation"], management_health)
             if issues or binding != {"context": _context(server), "receipt": receipt}:
                 raise WorkflowConflict("Native assessment changed; review again", {"server_id": server_id, "blockers": issues})
             job = _new_job(server, plan["operation"], plan["operation"], actor, receipt)
@@ -268,7 +291,7 @@ def verify(store, server_id, value):
         if not active or active["operation"] == "assess" or _blockers(server) or any(value.get(key) != active.get(key) for key in ("id", "plan_digest", "baseline_digest", "protection_digest", "configuration_digest")):
             raise PermissionError("Exact firewall maintenance authority expired or changed")
         facts = server[JOB]["assessment"]
-        if sorted(facts["ips"]) != sorted(server["ips"]):
+        if sorted({str(address(ip)) for ip in facts["ips"]}) != sorted(server["ips"]):
             raise PermissionError("Assessed interface addresses changed")
         if not server[JOB].get("admitted_at"):
             server[JOB]["admitted_at"] = stamp()

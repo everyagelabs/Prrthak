@@ -320,6 +320,12 @@ func (a *Agent) applyFirewallActivation(ctx context.Context, policy *Policy, req
 		if text, err := a.Commands.Run(ctx, "firewall-cmd", "--state"); err != nil || strings.TrimSpace(text) != "running" {
 			return rollback(errors.New("firewalld startup read-back failed"))
 		}
+		if operation == "activate_existing" && a.Config.Zone == "" {
+			zone, _, err := a.managedTopology(ctx)
+			if err != nil || zone != baseline.Assessment.Zone {
+				return rollback(errors.New("the active zone did not match the reviewed permanent default zone"))
+			}
+		}
 	} else {
 		if operation == "prepare_egress" {
 			journal.FirewallActivation.CreatedPolicy = true

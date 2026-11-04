@@ -71,6 +71,15 @@ class GUISetupManagerTests(unittest.TestCase):
             body=self.request({key:'' for key in (*n.AUTH_PUBLIC,*n.RUNTIME_PUBLIC)},secret)
             self.assertEqual(n.controller_configuration_binding(body),binding(body))
 
+    def test_reviewed_runtime_persists_exact_host_ssh_probe_scope(self):
+        from controller.management_health import PROBE_SOURCE, PROBE_TARGETS
+        values = {PROBE_SOURCE: '10.90.0.5', PROBE_TARGETS: '10.40.0.0/24'}
+        body = self.request(values)
+        result = self.manager.controller_configuration(body)
+        self.assertTrue(result['applied'])
+        environment = self.manager.controller_configuration_status()['environment']
+        self.assertEqual({key: environment[key] for key in values}, values)
+
     def test_initial_provider_requires_exact_candidate_proof_before_any_write(self):
         secret='private-test-candidate-secret'
         body=self.request({**self.auth,'SEG_HTTP_WORKERS':'2'},secret)

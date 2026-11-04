@@ -127,6 +127,18 @@ func activationDigest(baseline firewallActivationBaseline) string {
 	return shaText(string(raw))
 }
 
+func inactiveActivationZone(ctx context.Context, commands CommandRunner, configured string, useDefault bool) (string, error) {
+	text, err := commands.Run(ctx, "firewall-offline-cmd", "--get-default-zone")
+	zone := strings.TrimSpace(text)
+	if err != nil || !activationZoneName.MatchString(zone) {
+		return "", errors.New("the permanent default zone could not be verified")
+	}
+	if configured != zone && !(configured == "" && useDefault) {
+		return "", errors.New("the configured agent zone must match the permanent default zone")
+	}
+	return zone, nil
+}
+
 func (a *Agent) firewallActivationBaseline(ctx context.Context, operation string) (firewallActivationBaseline, Protection, error) {
 	if a.firewallActivation != nil && a.firewallActivation.Baseline != nil {
 		return a.firewallActivation.Baseline()
@@ -213,17 +225,32 @@ func (a *Agent) firewallActivationBaseline(ctx context.Context, operation string
 		return block(errors.New("fresh bounded service/interface discovery is required"))
 	}
 	protection := a.managedProtectionFromReport(fresh)
-	if len(protection.ManagementSources) == 0 || len(protection.SSHPorts) == 0 || len(protection.SSHPorts) > 8 || protection.Zone == "" {
-		return block(errors.New("configure restricted management sources, actual SSH listeners and an explicit zone through the signed GUI endpoint setup"))
+	facts.IPs = append([]string{}, fresh.IPs...)
+	sort.Strings(facts.IPs)
+	if len(protection.SSHPorts) <= 8 {
+		facts.SSHPorts = append([]int{}, protection.SSHPorts...)
+	}
+	facts.ManagementSources = append([]string{}, protection.ManagementSources...)
+	facts.Zone = protection.Zone
+	if len(protection.ManagementSources) == 0 {
+		return block(errors.New("pin restricted SSH management source IPs or CIDRs in the signed endpoint configuration"))
+	}
+	if len(protection.SSHPorts) == 0 || len(protection.SSHPorts) > 8 {
+		return block(errors.New("verify one to eight actual SSH listeners on the endpoint and review protected SSH ports in its signed configuration"))
+	}
+	if !facts.FirewalldActive {
+		zone, err := inactiveActivationZone(ctx, a.Commands, a.Config.Zone, operation == "activate_existing")
+		if err != nil {
+			return block(err)
+		}
+		protection.Zone, facts.Zone = zone, zone
+		protection.Digest = protectionDigest(protection)
+	} else if protection.Zone == "" {
+		return block(errors.New("configure the active firewalld zone in the signed endpoint configuration"))
 	}
 	if err := policySigningReadiness(a.Config); err != nil {
 		return block(err)
 	}
-	facts.IPs = append([]string{}, fresh.IPs...)
-	sort.Strings(facts.IPs)
-	facts.SSHPorts = append([]int{}, protection.SSHPorts...)
-	facts.ManagementSources = append([]string{}, protection.ManagementSources...)
-	facts.Zone = protection.Zone
 	seen := map[string]bool{}
 	for _, listener := range fresh.Listeners {
 		key := strconv.Itoa(listener.Port) + "/" + listener.Protocol
@@ -249,10 +276,6 @@ func (a *Agent) firewallActivationBaseline(ctx context.Context, operation string
 			return block(err)
 		}
 	} else {
-		zone, err := a.Commands.Run(ctx, "firewall-offline-cmd", "--get-default-zone")
-		if err != nil || strings.TrimSpace(zone) != a.Config.Zone {
-			return block(errors.New("the explicit agent zone must match the assessed permanent default zone"))
-		}
 		zones, err := a.Commands.Run(ctx, "firewall-offline-cmd", "--list-all-zones")
 		if err != nil {
 			return block(errors.New("complete permanent zones cannot be inspected"))
@@ -261,10 +284,17 @@ func (a *Agent) firewallActivationBaseline(ctx context.Context, operation string
 		if err != nil {
 			return block(err)
 		}
+		matches := 0
 		for _, zone := range parsed {
 			if len(zone.Fields["interfaces"]) > 0 || len(zone.Fields["sources"]) > 0 {
 				return block(errors.New("permanent interface/source bindings require manual migration review"))
 			}
+			if zone.Name == facts.Zone {
+				matches++
+			}
+		}
+		if matches != 1 {
+			return block(errors.New("the permanent default zone was not found exactly once in the assessed configuration"))
 		}
 		facts.Notes = append(facts.Notes, "Starting firewalld applies its assessed permanent configuration; discovered business services may be blocked. SSH/controller health does not prove every application dependency.")
 	}

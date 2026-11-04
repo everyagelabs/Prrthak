@@ -2,7 +2,7 @@ import copy
 import unittest
 from unittest.mock import Mock, patch
 
-from controller.management_health import ManagementHealth, ManagementHealthUnavailable
+from controller.management_health import ManagementHealth, ManagementHealthUnavailable, PROBE_SOURCE, PROBE_TARGETS, probe_configuration
 
 
 class ManagementHealthTests(unittest.TestCase):
@@ -31,6 +31,27 @@ class ManagementHealthTests(unittest.TestCase):
     def test_no_probe_configuration_fails_closed(self):
         with self.assertRaises(ManagementHealthUnavailable):
             ManagementHealth("", []).check(self.store, "node-a", self.payload)
+
+    def test_appliance_witness_requires_exact_authenticated_host_evidence(self):
+        evidence = [{"target_ip": "10.40.0.21", "source_ip": "10.90.0.5", "port": port,
+                     "ssh_banner_verified": True} for port in [2022, 2222]]
+        host_probe = Mock(return_value={"ssh_checks": evidence})
+        health = ManagementHealth("10.90.0.5", ["10.40.0.0/24"], host_probe=host_probe)
+        with patch.object(health, "_ssh") as container_probe:
+            self.assertEqual(health.check(self.store, "node-a", self.payload)["ssh_checks"], evidence)
+            host_probe.assert_called_once_with({"source_ip": "10.90.0.5", "target_ip": "10.40.0.21", "ports": [2022, 2222]})
+            container_probe.assert_not_called()
+            evidence[0]["source_ip"] = "172.20.0.2"
+            with self.assertRaises(ManagementHealthUnavailable):
+                health.check(self.store, "node-a", self.payload)
+
+    def test_reviewed_probe_configuration_is_paired_literal_and_bounded(self):
+        config = {PROBE_SOURCE: "10.90.0.5", PROBE_TARGETS: "10.40.0.0/24, 10.40.0.0/24"}
+        self.assertEqual(probe_configuration(config), {**config, PROBE_TARGETS: "10.40.0.0/24"})
+        for changes in ({PROBE_SOURCE: "localhost"}, {PROBE_SOURCE: "127.0.0.1"}, {PROBE_TARGETS: ""},
+                        {PROBE_TARGETS: "0.0.0.0/0"}, {PROBE_TARGETS: "2001:db8::/32"}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                probe_configuration({**config, **changes})
 
     def test_probe_source_must_be_in_pinned_management_cidrs(self):
         self.approved["management_sources"] = ["10.91.0.0/24"]

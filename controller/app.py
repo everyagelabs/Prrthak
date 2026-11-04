@@ -345,7 +345,7 @@ def handler_for(app):
                                                        "csrf_token", "password_change_required")}
 
         def serve_static(self, path):
-            requested = "index.html" if path in ("/", "/index.html", "/overview", "/servers", "/policies", "/traffic", "/risk", "/alerts", "/activity", "/firewall", "/locations", "/access", "/services", "/network-control", "/settings") else unquote(path).lstrip("/")
+            requested = "index.html" if path in ("/", "/index.html", "/login", "/overview", "/servers", "/policies", "/traffic", "/risk", "/alerts", "/activity", "/firewall", "/locations", "/access", "/services", "/network-control", "/settings") else unquote(path).lstrip("/")
             target = (app.dashboard / requested).resolve()
             if not target.is_relative_to(app.dashboard) or not target.is_file() or target.suffix not in (".html", ".js", ".css", ".svg", ".ico", ".png", ".woff2", ".webmanifest"):
                 self.response(404, {"error": "Not found"})
@@ -392,11 +392,12 @@ def handler_for(app):
                 return
             if path == "/api/v1/auth/config" and method == "GET":
                 from .auth_providers import refresh
+                from .agent_release_downloads import available as agent_release_downloads
                 refresh(app)
                 status = app.auth.status()
                 from .channels import public_status
                 mode = status["mode"] if getattr(app.auth, "local", None) else "entra" if app.auth.enabled or not any(app.tokens.values()) else "tokens"
-                self.response(200, {**status, "agent_channels": public_status(app), "mode": "demo" if app.demo else mode, "roles": ["read_only", "admin", "super_admin"]})
+                self.response(200, {**status, "agent_channels": public_status(app), "agent_downloads": agent_release_downloads(), "mode": "demo" if app.demo else mode, "roles": ["read_only", "admin", "super_admin"]})
                 return
             if path == "/api/v1/auth/local" and method == "POST":
                 if app.demo or not isinstance(self.connection, ssl.SSLSocket):
@@ -943,11 +944,12 @@ def handler_for(app):
                 from . import firewall_activation
                 if parts[1:] == ["query"] and method == "POST":
                     self.response(200, firewall_activation.listing(app.store, self.body()))
-                elif parts[1:] in (["assess"], ["preview"]) and method == "POST":
-                    action = firewall_activation.assess if parts[1] == "assess" else firewall_activation.preview
-                    self.response(201, action(app.store, self.body(), actor, principal))
+                elif parts[1:] == ["assess"] and method == "POST":
+                    self.response(201, firewall_activation.assess(app.store, self.body(), actor, principal))
+                elif parts[1:] == ["preview"] and method == "POST":
+                    self.response(201, firewall_activation.preview(app.store, self.body(), actor, principal, management_health=app.management_health))
                 elif len(parts) == 3 and parts[2] == "confirm" and method == "POST":
-                    self.response(200, firewall_activation.confirm(app.store, parts[1], self.body(), actor, principal))
+                    self.response(200, firewall_activation.confirm(app.store, parts[1], self.body(), actor, principal, management_health=app.management_health))
                 else:
                     self.response(405, {"error": "Firewall maintenance method not allowed"})
             elif parts == ["firewall"] and method == "GET":
@@ -1322,6 +1324,21 @@ def handler_for(app):
                 if app.demo or not isinstance(self.connection, ssl.SSLSocket):
                     raise PermissionError("Source-bank maintenance needs an installed HTTPS controller and an authenticated Admin")
                 self.response(200, confirm(app.store, parts[1], self.body(), actor, principal))
+            elif len(parts) == 4 and parts[:2] == ["agent-installation", "releases"] and method == "GET":
+                from .agent_release_downloads import open_download
+                try:
+                    with open_download(parts[2], parts[3]) as (filename, size, source):
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/octet-stream")
+                        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+                        self.send_header("Content-Length", str(size))
+                        self.send_header("Cache-Control", "no-store")
+                        self.security_headers()
+                        self.end_headers()
+                        while chunk := source.read(65536):
+                            self.wfile.write(chunk)
+                except FileNotFoundError:
+                    self.response(404, {"error": "This signed agent download is not available on this controller"})
             elif parts[:2] == ["agent-installation", "configuration"]:
                 if role not in ("admin", "super_admin") or not isinstance(self.connection, ssl.SSLSocket):
                     raise PermissionError("Endpoint configuration requires Admin access over HTTPS")

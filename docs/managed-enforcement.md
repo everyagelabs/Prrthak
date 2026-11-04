@@ -24,7 +24,9 @@ Small bundles use at most **64 canonical rich rules per endpoint**. Agent 0.6 ad
 
 ## Controller and SSH health
 
-Every controller that can serve an enforcement health request must have a route from an explicitly approved management source:
+On an installed appliance, open **Platform settings → Setup → SSH health checks**. Review and activate a source IP assigned to the controller host and the scoped endpoint management CIDRs. The authenticated host manager binds the probe to that source outside the controller's container. Configure each appliance controller that can serve a health check. Include its source IP in the endpoint's signed protected management sources.
+
+A standalone controller can use these environment settings:
 
 ```sh
 SEG_MANAGEMENT_PROBE_SOURCE_IP=10.90.0.5

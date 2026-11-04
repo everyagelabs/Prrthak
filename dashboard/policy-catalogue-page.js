@@ -37,7 +37,111 @@ function policyCatalogueRedraw(){
 function policyCataloguePaginationHTML(kind){
   const page=policyCataloguePage(kind),definition=policyCatalogueDefinition(kind);if(!page.remote)return '';
   const count=page.items.length,first=count?page.offset+1:0,last=count?page.offset+count:0;
-  return `<div class="recommendation-pagination"><span>${page.total===null?(page.error?'Matching total unavailable for ':'Loading matching ')+definition.label:`Loaded ${format(count)} · ${first}–${last} of ${format(page.total)} matching ${definition.label}`}${page.loading?' · Loading…':''}</span><div><button class="button secondary small" data-action="policy-catalogue-page" data-kind="${kind}" data-offset="${page.history?.at(-1) ?? 0}" ${!page.offset||page.loading?'disabled':''}>Previous</button><button class="button secondary small" data-action="policy-catalogue-page" data-kind="${kind}" data-offset="${page.next_offset ?? page.offset+page.limit}" ${!page.has_more||page.loading?'disabled':''}>Next</button><button class="text-button" data-action="policy-catalogue-page" data-kind="${kind}" data-offset="${page.offset}" ${page.loading?'disabled':''}>Refresh</button></div></div>${page.error?`<p class="form-error">${h(page.error)}</p>`:''}<p class="help-text">Combined application, DC, group, port and search filters select the full catalogue before pagination. Cards show only the loaded page; source addresses load from exact policy details.</p>`;
+  return `<div class="recommendation-pagination"><span>${page.total===null?(page.error?'Matching total unavailable for ':'Loading matching ')+definition.label:`Loaded ${format(count)} · ${first}–${last} of ${format(page.total)} matching ${definition.label}`}${page.loading?' · Loading…':''}</span><div><button class="button secondary small" data-action="policy-catalogue-page" data-kind="${kind}" data-offset="${page.history?.at(-1) ?? 0}" ${!page.offset||page.loading?'disabled':''}>Previous</button><button class="button secondary small" data-action="policy-catalogue-page" data-kind="${kind}" data-offset="${page.next_offset ?? page.offset+page.limit}" ${!page.has_more||page.loading?'disabled':''}>Next</button><button class="text-button" data-action="policy-catalogue-page" data-kind="${kind}" data-offset="${page.offset}" ${page.loading?'disabled':''}>Refresh</button></div></div>${page.error?`<p class="form-error">${h(page.error)}</p>`:''}<p class="help-text">Filters select the full catalogue before pagination.</p>`;
+}
+
+function policyGroupNames(ids){
+  return (ids || []).map(id=>(state.data.groups || []).find(group=>group.id===id)?.name || id).join(', ');
+}
+
+function policyDestination(policy,kind){
+  if(kind==='learned'){
+    const ids=policy.server_ids || (policy.server_id?[policy.server_id]:[]);
+    return policy.hostname || ids.map(serverName).join(', ') || 'Endpoint not reported';
+  }
+  if(policy.group_ids?.length)return policyGroupNames(policy.group_ids);
+  if(Object.keys(policy.selector || {}).length)return selectorDescription(policy.selector);
+  return 'All endpoints';
+}
+
+function policySourceHTML(service,exact=false){
+  const sources=service.sources || [], parts=[];
+  if(service.sources_omitted){
+    parts.push(`<span>${format(service.source_count)} literal source CIDRs</span>`);
+  }else if(sources.length){
+    parts.push(`<span>${h(sources.slice(0,3).join(', '))}</span>`);
+    if(sources.length>3)parts.push(exact?`<details><summary>All ${format(sources.length)} source addresses</summary><pre class="detail-json">${h(sources.join('\n'))}</pre></details>`:`<small>+${format(sources.length-3)} in details</small>`);
+  }
+  if(Object.keys(service.source_selector || {}).length)parts.push(`<small>Source tags / location: ${h(selectorDescription(service.source_selector))}</small>`);
+  if(service.source_group_ids?.length)parts.push(`<small>Source server groups: ${h(policyGroupNames(service.source_group_ids))}</small>`);
+  return parts.join('') || '<span class="help-text">No sources specified</span>';
+}
+
+function policyPortHTML(service){
+  const direct=F.servicePorts({port:service.port,protocol:service.protocol});
+  const ports=(direct.length?direct:F.servicePorts(service)).map(port=>`${port.port}/${port.protocol}`);
+  const group=service.service_group_snapshot;
+  return `<strong>${h(ports.join(', ') || '—')}</strong>${group?`<small>${h(group.name)} · r${num(group.revision)}</small>`:''}`;
+}
+
+function policyTableHTML(entries,kind,empty){
+  return `<section class="card table-card"><div class="table-scroll"><table class="managed-table">
+    <thead><tr><th>Policy</th><th>Source</th><th>Destination</th><th>Destination port</th><th>Action</th><th>Status</th><th></th></tr></thead>
+    ${entries.length?entries.map(({policy,services,targets,status,tone})=>{
+      const visible=services.slice(0,12), count=visible.length || 1;
+      const name=policy.name || 'Saved policy', destination=policyDestination(policy,kind);
+      const details=`<button class="text-button" data-action="policy-catalogue-detail" data-kind="${kind}" data-id="${h(policy.id)}">Details</button>`;
+      return `<tbody>${(visible.length?visible:[null]).map((service,index)=>`<tr>
+        ${index===0?`<td rowspan="${count}"><strong>${h(name)}</strong>${kind==='learned'?`<small>${policy.origin==='auto'?'Automatically learned':'Reviewed observed access'}</small>`:''}</td>`:''}
+        <td>${service?policySourceHTML(policy.summary_only?{...service,sources_omitted:true}:service):'—'}</td>
+        ${index===0?`<td rowspan="${count}">${h(destination)}${targets===undefined?'':`<small>${format(targets)} matching endpoint${targets===1?'':'s'}</small>`}</td>`:''}
+        <td>${service?policyPortHTML(service):'—'}</td><td>${service?'Allow':'—'}</td>
+        ${index===0?`<td rowspan="${count}">${badge(status,tone)}${policy.error?`<small class="danger-text">${h(policy.error)}</small>`:''}</td>
+          <td rowspan="${count}">${details}${services.length>visible.length?`<small>+${format(services.length-visible.length)} services</small>`:''}</td>`:''}
+      </tr>`).join('')}</tbody>`;
+    }).join(''):`<tbody><tr><td colspan="7">${h(empty)}</td></tr></tbody>`}
+  </table></div></section>`;
+}
+
+function managedPoliciesHTML(){
+  const page=policyCataloguePage('managed'),policies=filteredPolicies();
+  const entries=policies.map(policy=>{
+    const {services,targets}=F.policyScope(policy,state.data.servers,state.data.groups || [],state.filters,state.search,state.flowServer);
+    return {policy,services,targets:targets.length,status:policy.mode==='enforce'?'Enforcement requested':'Monitor',tone:policy.mode==='enforce'?'warning':'neutral'};
+  });
+  return `<section><div class="section-line"><h2>Managed policies<span>${format(entries.length)} ${page.remote?'managed policies on loaded page':'managed policies in scope'}</span></h2></div>
+    ${policyTableHTML(entries,'managed',page.loading?'Loading managed policies…':page.error?'Managed policies could not be loaded.':'No managed policies match this scope.')}
+    ${policyCataloguePaginationHTML('managed')}</section>`;
+}
+
+const discoveredZoneUsageLabels={
+  active:'Bound to interface or source',default:'Default zone',unbound:'No active binding',
+  unknown:'Zone use unknown',host:'Host-wide',mixed:'Varies by endpoint'
+};
+
+function discoveredPolicyResultsHTML(){
+  const current=state.firewallScopeKey===firewallScopeKey();
+  const ready=current&&state.firewallData?.view==='access';
+  const rows=ready?firewallRules():[],paging=ready?state.firewallData.pagination:null;
+  const showUnused=state.policyShowUnusedZones===true,loading=state.firewallLoading;
+  const status=state.firewallError?'Discovered policies could not be loaded.':loading||!current?'Loading discovered policies…':ready?'No discovered access policies match this scope.':'The controller needs a compatible access policy view.';
+  const rowHTML=rows.map(rule=>{
+    const counts=Object.entries(rule.zone_usage_counts || {}).filter(([key,count])=>discoveredZoneUsageLabels[key]&&count>0);
+    const ids=rule.matching_server_ids || [];
+    const endpoints=rule.matching_host_count ?? rule.host_count ?? ids.length;
+    const destination=rule.destination==='Endpoint'&&ids.length
+      ?ids.slice(0,2).map(serverName).join(', ')+(endpoints>2?` +${format(endpoints-2)}`:'')
+      :rule.destination;
+    const usage=discoveredZoneUsageLabels[rule.zone_usage] || discoveredZoneUsageLabels.unknown;
+    return `<tr><td>${h(rule.source)}</td><td>${h(destination)}<small>${format(endpoints)} endpoint${endpoints===1?'':'s'}</small></td>
+      <td><strong>${h(rule.destination_port)}</strong></td><td>${h(rule.zone || '—')}</td>
+      <td>${badge(rule.decision==='allow'?'Allow':'Deny',rule.decision==='allow'?'healthy':'danger')}${rule.kind==='target'?'<small>Zone fallback</small>':''}</td>
+      <td>${h(usage)}${rule.zone_usage==='mixed'?`<small>${counts.map(([key,count])=>`${format(count)} ${h(discoveredZoneUsageLabels[key])}`).join(' · ')}</small>`:''}</td>
+      <td><button class="text-button" data-action="firewall-hosts" data-key="${h(rule.rule_key)}">Details</button></td></tr>`;
+  }).join('');
+  return `<section><div class="section-line"><h2>Discovered policies<span>Reported by endpoint firewalls</span></h2><div class="inline-actions">
+      <button class="button secondary small" type="button" data-action="policy-catalogue-zones" aria-pressed="${showUnused}">${showUnused?'Hide zones without active bindings':'Show zones without active bindings'}</button>
+      <button class="button secondary small" type="button" data-action="firewall-refresh" ${loading?'disabled':''}>Refresh</button></div></div>
+    <p class="help-text">Zone use comes from reported bindings. It describes firewall configuration and scope.</p>
+    ${state.firewallError?`<p class="form-error" role="alert">${h(state.firewallError)}</p>`:''}
+    <section class="card table-card"><div class="table-scroll"><table class="managed-table">
+      <thead><tr><th>Source</th><th>Destination</th><th>Destination port</th><th>Zone</th><th>Action</th><th>Zone use</th><th></th></tr></thead>
+      <tbody>${rowHTML || `<tr><td colspan="7">${status}</td></tr>`}</tbody></table></div>
+      ${paging?`<div class="table-footer"><span>${format(rows.length)} on this page</span><div>
+        <button class="button secondary small" data-action="firewall-page" data-direction="previous" ${!state.firewallCursorHistory?.length||loading?'disabled':''}>Previous</button>
+        <button class="button secondary small" data-action="firewall-page" data-direction="next" ${!paging.next_cursor||loading?'disabled':''}>Next</button>
+      </div></div>`:''}
+    </section></section>`;
 }
 function policyCatalogueNavigation(kind,id){const definition=policyCatalogueDefinition(kind),page=(state.policyCatalogues?.[kind]?.items || []).find(policy=>policy.id===id),overview=(state.data?.[definition.field] || []).find(policy=>policy.id===id);return !page?overview:overview&&num(overview.revision)>num(page.revision)?overview:page;}
 function policyExactValue(kind,value,id){
@@ -54,8 +158,34 @@ async function policyExactFetch(kind,id,token){
   policyExactValue(kind,value,id);const navigation=policyCatalogueNavigation(kind,id);if(navigation&&num(navigation.revision)>value.revision)throw new Error('This policy changed while its details loaded. Reload the current revision before editing or reviewing it.');return policyExactRemember(kind,value);
 }
 function policyDetailFailure(token,error){if(!policyDetailAlive(token))return;showModal('Exact policy unavailable',`<div class="modal-body"><p class="form-error">${h(error.message)}</p><p class="help-text">No editable or approvable allowlist was inferred from the catalogue summary.</p></div><div class="modal-footer"><button class="button secondary" data-action="close-modal">Close</button></div>`,'DETAIL LOAD FAILED');}
-async function showPolicyCatalogueDetail(kind,id){const token=policyDetailBegin('Loading exact policy');try{const policy=await policyExactFetch(kind,id,token);if(!policy)return;showModal(policy.name || 'Exact policy',`<div class="modal-body"><p class="help-text">Exact saved intent · revision ${num(policy.revision)}. This view does not authorize or prove endpoint enforcement.</p><pre class="detail-json">${h(JSON.stringify(policy,null,2))}</pre></div><div class="modal-footer"><button class="button secondary" data-action="close-modal">Close</button></div>`,'EXACT SAVED POLICY');}catch(error){policyDetailFailure(token,error);}}
-async function policyCatalogueAction(button){const {action,kind,id}=button.dataset;if(action?.startsWith('policy-catalogue-impact'))return policyImpactAction(button);if(action==='policy-catalogue-page')return loadPolicyCatalogue(kind,Number(button.dataset.offset));if(action==='policy-catalogue-detail')return showPolicyCatalogueDetail(kind,id);}
+function policyDetailActionsHTML(kind,policy){
+  const id=h(policy.id);
+  if(kind==='learned')return `${policy.session_id?`<button class="button secondary small" data-action="recommendation-open" data-id="${h(policy.session_id)}">Session evidence</button>`:''}${canWrite()&&!policy.removal_pending&&!policy.removed?`<button class="button secondary small" data-action="learned-policy-edit" data-id="${id}">Edit sources</button><button class="button secondary small danger-text" data-action="learned-policy-remove-review" data-id="${id}">Remove</button>`:''}`;
+  return `<button class="button secondary small" data-action="policy-catalogue-impact" data-id="${id}">Preview impact</button><button class="button secondary small" data-action="managed-policy-history" data-id="${id}">History</button>${canWrite()?`<button class="button secondary small" data-action="edit-policy" data-id="${id}">Edit policy</button><button class="button secondary small danger-text" data-action="delete-policy" data-id="${id}">Delete</button>`:''}`;
+}
+
+async function showPolicyCatalogueDetail(kind,id){
+  const token=policyDetailBegin('Loading exact policy');
+  try{
+    const policy=await policyExactFetch(kind,id,token);if(!policy)return;
+    const destination=policyDestination(policy,kind);
+    const services=policy.services.map(service=>`<tr><td>${policySourceHTML(service,true)}</td><td>${h(destination)}</td><td>${policyPortHTML(service)}</td><td>Allow</td></tr>`).join('');
+    showModal(policy.name || 'Policy details',`<div class="modal-body"><p class="help-text">Exact saved intent · revision ${num(policy.revision)}</p><div class="table-scroll"><table class="managed-table"><thead><tr><th>Source</th><th>Destination</th><th>Destination port</th><th>Action</th></tr></thead><tbody>${services || '<tr><td colspan="4">No service entries.</td></tr>'}</tbody></table></div></div><div class="modal-footer"><button class="button secondary" data-action="close-modal">Close</button>${policyDetailActionsHTML(kind,policy)}</div>`,'SAVED POLICY');
+  }catch(error){policyDetailFailure(token,error);}
+}
+
+async function policyCatalogueAction(button){
+  const {action,kind,id}=button.dataset;
+  if(action?.startsWith('policy-catalogue-impact'))return policyImpactAction(button);
+  if(action==='policy-catalogue-page')return loadPolicyCatalogue(kind,Number(button.dataset.offset));
+  if(action==='policy-catalogue-detail')return showPolicyCatalogueDetail(kind,id);
+  if(action==='policy-catalogue-zones'){
+    state.policyShowUnusedZones=!state.policyShowUnusedZones;
+    const results=$('#discovered-policy-results');
+    if(results)results.innerHTML=discoveredPolicyResultsHTML();
+    return refreshFirewallData();
+  }
+}
 async function showPolicy(id){
   if(!canWrite())return;
   if(!id){state.policyDetailRequest=null;renderPolicyEditor({name:'',selector:{},group_ids:[],mode:'monitor',services:[{port:80,protocol:'tcp',sources:[],source_selector:{}}]});return;}

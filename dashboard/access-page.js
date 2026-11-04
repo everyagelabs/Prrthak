@@ -47,6 +47,36 @@ function applyDashboardIdentity(auth,{passwordChanged=false}={}){
   if(previousDeploymentIdentity!==null&&previousDeploymentIdentity!==policyDeploymentsIdentity())clearPolicyDeployments();
   if(!canManageUsers()){state.accessUsers=[];state.accessLoaded=false;state.accessError='';}
 }
+function signInReturnView(){
+  if(location.pathname!=='/login')return R.viewFromPath(location.pathname);
+  const next=new URLSearchParams(location.search).get('next');
+  return R.pages.includes(next)?next:'overview';
+}
+function setWorkspaceVisible(visible){
+  $('#workspace-shell').hidden=!visible;
+  $('#workspace-skip').hidden=!visible;
+  $('#sign-in-page').hidden=visible;
+}
+function openWorkspaceAfterSignIn(){
+  if(!$('#workspace-shell').hidden&&location.pathname!=='/login')return;
+  if(location.pathname==='/login'){
+    state.view=signInReturnView();
+    history.replaceState(null,'',R.href(state.view));
+  }
+  $('#sign-in-content').replaceChildren();
+  setWorkspaceVisible(true);
+}
+function showSignInPage(content){
+  const next=signInReturnView();
+  setWorkspaceVisible(false);
+  if($('#modal').open)closeModal();
+  else accessDialogChanged();
+  if(location.pathname!=='/login'){
+    history.replaceState(null,'',next==='overview'?'/login':'/login?next='+encodeURIComponent(next));
+  }
+  $('#sign-in-content').innerHTML=content;
+  $('#sign-in-content').querySelector('[autofocus]')?.focus();
+}
 function showDashboardLogin(){
   if(state.passwordChangeRequired)return showLocalPasswordChange(true);
   if(!accessSupportsLocal())return showLegacyDashboardLogin();
@@ -55,11 +85,11 @@ function showDashboardLogin(){
   const entraEnabled=entra.enabled===true||entra.configured===true||accessOffered(config,'entra')||(config.mode==='entra'&&config.configured);
   const samlEnabled=saml.enabled===true||accessOffered(config,'saml')||config.mode==='saml';
   const sso=`${entraEnabled?`<button type="button" class="button microsoft-signin" data-action="auth-entra-login">${microsoftMark()}Sign in with Microsoft</button>`:''}${samlEnabled?`<button type="button" class="button microsoft-signin" data-action="auth-saml-login">${icon('access')}Sign in with ${h(saml.display_name||'SAML SSO')}</button>`:''}`;
-  showModal('Sign in to Prṛthak',`<div class="modal-body auth-signin-panel">${errorSlot}<div class="auth-emblem">${icon('access')}</div><h3>Welcome to your workspace</h3>${state.authError?`<div class="form-error">${h(state.authError)}</div>`:''}<form id="local-login-form" method="post" action="/api/v1/auth/local" class="auth-local-form"><div class="field"><label for="local-username">Local username</label><input id="local-username" name="username" autocomplete="username" maxlength="64" required autofocus></div><div class="field"><label for="local-password">Password</label><input id="local-password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div><button class="button primary" type="submit">Sign in with local account</button></form>${saml.error?`<div class="inline-notice warning">Organisation SSO is unavailable: ${h(saml.error)}</div>`:''}${sso?`<div class="auth-divider"><span>Or use organisation SSO</span></div><div class="auth-sso-buttons">${sso}</div>`:'<p class="auth-provider-note">Organisation SSO can be configured by a Super Admin after signing in.</p>'}<div class="auth-role-chips"><span>Read Only</span><span>Admin</span><span>Super Admin</span></div><small>Local accounts and SSO accounts use the same workspace roles. A new or reset local account must change its password before entering the workspace.</small></div>`,'LOCAL ACCOUNT OR ORGANISATION SSO');
+  showSignInPage(`<div class="modal-body auth-signin-panel">${errorSlot}<div class="auth-emblem">${icon('access')}</div><h3>Welcome to your workspace</h3>${state.authError?`<div class="form-error">${h(state.authError)}</div>`:''}<form id="local-login-form" method="post" action="/api/v1/auth/local" class="auth-local-form"><div class="field"><label for="local-username">Local username</label><input id="local-username" name="username" autocomplete="username" maxlength="64" required autofocus></div><div class="field"><label for="local-password">Password</label><input id="local-password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div><button class="button primary" type="submit">Sign in with local account</button></form>${saml.error?`<div class="inline-notice warning">Organisation SSO is unavailable: ${h(saml.error)}</div>`:''}${sso?`<div class="auth-divider"><span>Or use organisation SSO</span></div><div class="auth-sso-buttons">${sso}</div>`:'<p class="auth-provider-note">Organisation SSO can be configured by a Super Admin after signing in.</p>'}<div class="auth-role-chips"><span>Read Only</span><span>Admin</span><span>Super Admin</span></div><small>Local accounts and SSO accounts use the same workspace roles. A new or reset local account must change its password before entering the workspace.</small></div>`);
 }
 function showLocalPasswordChange(required=state.passwordChangeRequired){
   if(state.authType!=='session'||accessProvider()!=='local')return;
-  if(required){state.data=null;closeDrawer();$('#view-content').innerHTML=emptyHTML('Change your password','Set your personal password before opening the workspace.','access');}
+  if(required){state.data=null;setWorkspaceVisible(false);$('#sign-in-content').replaceChildren();closeDrawer();$('#view-content').innerHTML=emptyHTML('Change your password','Set your personal password before opening the workspace.','access');}
   showModal('Change your password',`<form id="local-password-form" method="post" action="/api/v1/auth/password" data-required="${required?'true':'false'}"><div class="modal-body">${errorSlot}<div class="inline-notice ${required?'warning':''}">${required?'Your temporary password must be changed before you can use Prṛthak.':'Change the password for your local account.'} Other active sessions will be signed out.</div><p class="help-text">Account: <strong>${h(state.user?.username||state.user?.display_name||'Local user')}</strong>. Use 12–256 characters. Passwords are case-sensitive.</p><div class="field"><label for="local-current-password">Current password</label><input id="local-current-password" name="current_password" type="password" autocomplete="current-password" maxlength="1024" required autofocus></div><div class="field"><label for="local-new-password">New password</label><input id="local-new-password" name="new_password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required></div><div class="field"><label for="local-confirm-password">Confirm new password</label><input id="local-confirm-password" name="confirm_password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required></div></div><div class="modal-footer">${required?'<button class="button secondary" type="button" data-action="auth-signout">Sign out</button>':'<button class="button secondary" type="button" data-action="close-modal">Cancel</button>'}<button class="button primary" type="submit">Change password</button></div></form>`,'LOCAL ACCOUNT SECURITY');
 }
 async function localAuthSubmit(event){
@@ -115,7 +145,7 @@ function showLegacyDashboardLogin() {
   }else{
     content=`<div class="modal-body auth-signin-panel">${errorSlot}<div class="inline-notice warning">${h(state.authError || 'The controller authentication configuration is unavailable.')}</div><button class="button secondary" data-action="auth-retry">Retry sign-in configuration</button></div>`;
   }
-  showModal('Sign in to Prṛthak',content,'SECURE WORKSPACE ACCESS');
+  showSignInPage(content);
 }
 
 function legacyAccessUserForm(id) {
