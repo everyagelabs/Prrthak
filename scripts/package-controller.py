@@ -266,7 +266,7 @@ and image repositories. After verified extraction, run once:
   sudo ./scripts/install-controller.sh
 
 The installer detects RHEL or Ubuntu and prepares the supported root-owned
-Python3.9+, local Docker Engine and Composev2 dependencies before opening GUI
+Python 3.9+, local Docker Engine and Compose v2 or v5 before opening GUI
 setup. It does not disable existing host firewall protection or change external
 network/DNS/LB access. Conflicting container stacks require operator review.
 

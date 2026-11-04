@@ -23,6 +23,8 @@ class FakeHost:
         self.rootless = False
         self.conflict = ''
         self.failure = ''
+        self.rpm_inventory = 'rpm\nbash\npodman-helper\n'
+        self.rpm_stderr = b''
         self.compose_version = '2.39.0'
         self.gpg_output = None
         self.configuration_status = 'validated'
@@ -52,8 +54,15 @@ class FakeHost:
             if 'shadow-utils' in packages or 'passwd' in packages:
                 for value in ('useradd', 'groupadd', 'nologin'):
                     self.executable('/usr/bin/'+value)
+        elif name == 'rpm' and '-qa' in arguments:
+            return subprocess.CompletedProcess(arguments, 0, (self.rpm_inventory + self.conflict).encode(),
+                                               self.rpm_stderr)
         elif name == 'rpm' and '-q' in arguments:
-            output = self.conflict
+            packages = arguments[arguments.index('--qf')+2:]
+            missing = [package for package in packages if package != self.conflict]
+            output = '\n'.join(self.conflict if package == self.conflict else f'package {package} is not installed'
+                               for package in packages)
+            code = len(missing)
         elif name == 'dpkg-query':
             output = self.conflict+' ii ' if self.conflict else ''
         elif name == 'curl':
@@ -109,6 +118,7 @@ class ControllerPrerequisiteTests(unittest.TestCase):
         return [Path(arguments[0]).name for arguments, _ in self.host.calls]
 
     def test_fresh_rhel_adds_authenticated_owned_repo_and_reads_back_runtime(self):
+        self.host.compose_version = 'v5.7.0'
         self.installer.prepare()
         repo = (self.root/'etc/yum.repos.d/prthak-docker-ce.repo').read_text()
         self.assertIn('gpgcheck=1', repo)
@@ -191,6 +201,23 @@ class ControllerPrerequisiteTests(unittest.TestCase):
                 self.host.failure=manager;self.host.calls.clear()
                 with self.assertRaisesRegex(bootstrap.Blocked, 'package state'):self.installer.prepare()
                 self.assertNotIn('dnf',self.names());self.assertNotIn('env',self.names());self.assertNotIn('curl',self.names())
+
+    def test_untrustworthy_rpm_inventory_blocks_even_on_zero_exit(self):
+        for inventory, stderr in (('', b''), ('rpm\nbash\n', b'package database error')):
+            with self.subTest(inventory=inventory, stderr=stderr):
+                self.host.rpm_inventory, self.host.rpm_stderr = inventory, stderr
+                self.host.calls.clear()
+                with self.assertRaisesRegex(bootstrap.Blocked, 'package state'):
+                    self.installer.prepare()
+                self.assertNotIn('dnf', self.names())
+                self.assertNotIn('curl', self.names())
+
+    def test_unsupported_compose_plugin_is_preserved(self):
+        self.healthy()
+        self.host.compose_version = '1.29.2'
+        with self.assertRaisesRegex(bootstrap.Blocked, 'unsupported plugin was preserved'):
+            self.installer.prepare()
+        self.assertNotIn('dnf', self.names())
 
     def test_foreign_repository_or_key_symlink_is_preserved(self):
         repo = self.root/'etc/yum.repos.d/prthak-docker-ce.repo'; repo.write_text('foreign\n')

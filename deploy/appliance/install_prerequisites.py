@@ -207,17 +207,22 @@ class Installer:
         self.call(arguments, timeout=900)
 
     def conflicts(self):
+        inventory_error = 'The existing package state could not be inspected; no package installation was attempted'
         if self.family == 'rhel':
-            output, code = self.call([self.tool('rpm'), '-q', '--qf', '%{NAME}\n', *CONFLICTS['rhel']], required=False)
-            found = set(output.splitlines()).intersection(CONFLICTS['rhel'])
+            # A named RPM query adds the failure status of each absent package.
+            result = self.runner([self.tool('rpm'), '-qa', '--qf', '%{NAME}\n'])
+            installed = set(result.stdout.decode('utf-8', 'replace').splitlines())
+            if result.returncode or result.stderr.strip() or 'rpm' not in installed:
+                raise Blocked(inventory_error)
+            found = installed.intersection(CONFLICTS['rhel'])
         else:
             output, code = self.call([self.tool('dpkg-query'), '-W', '-f=${binary:Package} ${db:Status-Abbrev}\n',
                                    *CONFLICTS['ubuntu']], required=False)
+            if code not in (0, 1):
+                raise Blocked(inventory_error)
             found = {line.split()[0].split(':')[0] for line in output.splitlines()
                      if len(line.split()) >= 2 and line.split()[1].startswith('ii')}
             found.intersection_update(CONFLICTS['ubuntu'])
-        if code not in (0, 1):
-            raise Blocked('The existing package state could not be inspected; no package installation was attempted')
         if found:
             raise Blocked('An existing container stack conflicts with automatic Docker preparation; no packages were removed')
 
@@ -382,8 +387,8 @@ class Installer:
         if not self.plugins_safe():
             return False
         output, code = self.call(self.docker_arguments('compose', 'version', '--short'), required=False)
-        if code or not re.fullmatch(r'v?2\.[0-9]+(?:\.[0-9]+)?(?:[-+][A-Za-z0-9._-]+)?', output):
-            raise Blocked('A protected Compose v2 plugin is required; an existing unsupported plugin was preserved')
+        if code or not re.fullmatch(r'v?(?:2|5)\.[0-9]+(?:\.[0-9]+)?(?:[-+][A-Za-z0-9._-]+)?', output):
+            raise Blocked('A protected Compose v2 or v5 plugin is required; an existing unsupported plugin was preserved')
         return True
 
     def prepare(self):
@@ -421,7 +426,7 @@ class Installer:
             self.repository()
             self.package(['docker-ce', 'docker-ce-cli', 'containerd.io', 'docker-buildx-plugin', 'docker-compose-plugin'])
         if not self.compose_ready():
-            raise Blocked('Dependency installation did not supply Compose v2')
+            raise Blocked('Dependency installation did not supply Compose v2 or v5')
         systemctl = self.tool('systemctl')
         state, _ = self.call([systemctl, 'is-active', 'docker.service'], required=False)
         if state == 'active':
