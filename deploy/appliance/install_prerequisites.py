@@ -51,7 +51,7 @@ def manager_arguments(arguments):
         if name in seen:
             raise Blocked('Duplicate installer option')
         seen.add(name)
-        if name in ('--help', '-h', '--gui-setup', '--validate-only', '--no-start'):
+        if name in ('--help', '-h', '--gui-setup', '--offline', '--validate-only', '--no-start'):
             index += 1
         elif name in ('--env-file', '--data-root'):
             if index + 1 >= len(values) or not values[index + 1] or values[index + 1].startswith('-'):
@@ -64,6 +64,8 @@ def manager_arguments(arguments):
     if '--env-file' not in seen and '--gui-setup' not in seen:
         values.append('--gui-setup')
     automatic = not seen.intersection(('--env-file', '--validate-only', '--no-start', '--help', '-h'))
+    if '--offline' in seen and not automatic:
+        raise Blocked('Offline setup must use the automatic GUI installer')
     return values, automatic
 
 
@@ -146,10 +148,11 @@ class Installer:
             return None
         raise Blocked('A required OS tool is missing: ' + name)
 
-    def call(self, arguments, timeout=30, required=True):
+    def call(self, arguments, timeout=30, required=True, operation=None):
         result = self.runner(list(arguments), timeout=timeout)
         if required and result.returncode:
-            raise Blocked('Dependency operation failed; preserve the error state and rerun after review')
+            operation = operation or Path(arguments[0]).name
+            raise Blocked(f'Dependency operation failed ({operation}, exit {result.returncode})')
         return result.stdout.decode('utf-8', 'replace').strip(), result.returncode
 
     def mkdir(self, path, mode=0o700):
@@ -196,11 +199,23 @@ class Installer:
         if self.path('/proc/1/comm').read_text().strip() != 'systemd':
             raise Blocked('A genuine systemd host is required')
 
-    def package(self, packages):
+    def package(self, packages, offline=None):
         if not packages:
             return
         if self.family == 'rhel':
-            arguments = [self.tool('dnf'), '-y', '--setopt=install_weak_deps=False', 'install', *packages]
+            arguments = [self.tool('dnf'), '-y', '--setopt=install_weak_deps=False']
+            if offline is not None:
+                repo_id = 'prthak-offline'
+                keys = [(offline/'keys/docker.asc').as_uri()]
+                redhat_key = self.path('/etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release')
+                if redhat_key.exists():
+                    self.protected(redhat_key, resolve=True)
+                    keys.append(redhat_key.as_uri())
+                arguments.extend(['--noplugins', '--disablerepo=*',
+                                  '--repofrompath='+repo_id+','+(offline/'rpms').as_uri(),
+                                  '--enablerepo='+repo_id, '--setopt='+repo_id+'.gpgcheck=1',
+                                  '--setopt='+repo_id+'.gpgkey='+' '.join(keys), '--setopt=localpkg_gpgcheck=1'])
+            arguments.extend(['install', *packages])
         else:
             arguments = [self.tool('env'), 'DEBIAN_FRONTEND=noninteractive', 'APT_LISTCHANGES_FRONTEND=none',
                          self.tool('apt-get'), '-y', '--no-install-recommends', '--no-upgrade', '--no-remove', 'install', *packages]
@@ -391,8 +406,15 @@ class Installer:
             raise Blocked('A protected Compose v2 or v5 plugin is required; an existing unsupported plugin was preserved')
         return True
 
-    def prepare(self):
+    def prepare(self, offline=None):
         self.validate_host()
+        if offline is not None:
+            if self.family != 'rhel' or self.arch != 'amd64':
+                raise Blocked('The offline controller bundle requires RHEL 9 x86_64')
+            for name in ('keys/docker.asc', 'rpms/repodata/repomd.xml', 'images.json', 'images.tar.gz'):
+                path = self.protected(offline/name, allow_missing=True)
+                if not path.is_file():
+                    raise Blocked('The offline controller payload is incomplete: '+name)
         self.mkdir(self.work)
         self.mkdir(self.cli_config)
         config = self.cli_config / 'config.json'
@@ -402,29 +424,20 @@ class Installer:
         account_tools = ('useradd', 'groupadd', 'nologin')
         accounts_missing = any(self.tool(tool, optional=True) is None for tool in account_tools)
         if not docker_present or not compose_present or accounts_missing:
-            self.preflight_repository(allow_existing_provider=docker_present)
+            if offline is None:
+                self.preflight_repository(allow_existing_provider=docker_present)
             self.conflicts()
         if accounts_missing:
-            self.package(['shadow-utils' if self.family == 'rhel' else 'passwd'])
+            self.package(['shadow-utils' if self.family == 'rhel' else 'passwd'], offline)
             if any(self.tool(tool, optional=True) is None for tool in account_tools):
                 raise Blocked('The required dedicated-account tools were not installed')
         if docker_present:
             if not compose_present:
-                self.package(['docker-compose-plugin'])
+                self.package(['docker-compose-plugin'], offline)
         else:
-            basic = [('curl', 'curl'), ('tar', 'tar'), ('gpg', 'gnupg2' if self.family == 'rhel' else 'gnupg')]
-            missing = [package for tool, package in basic if self.tool(tool, optional=True) is None]
-            # CA trust is an OS package and is needed before authenticated curl.
-            if not self.path('/etc/ssl/certs/ca-certificates.crt' if self.family == 'ubuntu' else '/etc/pki/tls/certs/ca-bundle.crt').is_file():
-                missing.append('ca-certificates')
-            if self.family == 'ubuntu':
-                self.call([self.tool('apt-get'), 'update'], timeout=900)
-                keyrings = self.path('/etc/apt/keyrings')
-                self.protected(keyrings, allow_missing=True)
-                keyrings.mkdir(mode=0o755, exist_ok=True)
-            self.package(missing)
-            self.repository()
-            self.package(['docker-ce', 'docker-ce-cli', 'containerd.io', 'docker-buildx-plugin', 'docker-compose-plugin'])
+            if offline is None:
+                self.prepare_online_repository()
+            self.package(['docker-ce', 'docker-ce-cli', 'containerd.io', 'docker-buildx-plugin', 'docker-compose-plugin'], offline)
         if not self.compose_ready():
             raise Blocked('Dependency installation did not supply Compose v2 or v5')
         systemctl = self.tool('systemctl')
@@ -449,9 +462,24 @@ class Installer:
         except (ValueError, TypeError, AttributeError):
             raise Blocked('A local rootful Linux Docker daemon is required') from None
 
+    def prepare_online_repository(self):
+        basic = [('curl', 'curl'), ('tar', 'tar'), ('gpg', 'gnupg2' if self.family == 'rhel' else 'gnupg')]
+        missing = [package for tool, package in basic if self.tool(tool, optional=True) is None]
+        # CA trust is an OS package and is needed before authenticated curl.
+        if not self.path('/etc/ssl/certs/ca-certificates.crt' if self.family == 'ubuntu' else '/etc/pki/tls/certs/ca-bundle.crt').is_file():
+            missing.append('ca-certificates')
+        if self.family == 'ubuntu':
+            self.call([self.tool('apt-get'), 'update'], timeout=900)
+            keyrings = self.path('/etc/apt/keyrings')
+            self.protected(keyrings, allow_missing=True)
+            keyrings.mkdir(mode=0o755, exist_ok=True)
+        self.package(missing)
+        self.repository()
+
     def configuration_preflight(self, release, arguments):
         output, _ = self.call([sys.executable, '-I', str(release/'deploy/appliance/node_manager.py'),
-                               'install', '--release-root', str(release), *arguments, '--validate-only'])
+                               'install', '--release-root', str(release), *arguments, '--validate-only'],
+                              operation='controller configuration preflight')
         try:
             if json.loads(output).get('status') != 'validated':
                 raise ValueError()
@@ -515,7 +543,7 @@ def main(argv=None):
             protector.validate_host()
             protector.docker_home_safe(Path(pwd.getpwuid(0).pw_dir))
             protector.configuration_preflight(release, arguments)
-            protector.prepare()
+            protector.prepare(release/'offline' if '--offline' in arguments else None)
         delegate(release, arguments)
     except (Blocked, OSError, UnicodeError):
         print('Controller prerequisites blocked: '+str(sys.exc_info()[1]), file=sys.stderr)

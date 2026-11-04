@@ -453,6 +453,8 @@ class Engine:
     def __init__(self, root, project, docker=None):
         self.root,self.project=Path(root),project
         self.docker=tuple(docker or (shutil.which('docker') or '/usr/bin/docker','--host','unix:///var/run/docker.sock'))
+        images = (load(self.root/'config/installed.json') or {}).get('images', {})
+        self.controller_image = images.get('controller', CONTROLLER_IMAGE)
     def run(self,args,timeout=180,private_input=None):
         environment={key:os.environ[key] for key in ('PATH','LANG','LC_ALL','HOME') if key in os.environ}
         try:
@@ -526,7 +528,7 @@ class Engine:
         if not re.fullmatch(r'[0-9a-f]{12,64}',identifier):raise Blocked('Owned database container is not running')
         return json.loads(self.run(['exec','-i',identifier,'/opt/patroni/bin/python','/opt/prthak/restore_helper.py'],timeout=60,private_input=json.dumps(request).encode()))
     def validate_initial_environment(self,environment):
-        arguments=['run','--rm','--network','none','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges:true','--entrypoint','python3','-i',CONTROLLER_IMAGE,'/opt/prthak/controller_entrypoint.py','--validate-initial-env']
+        arguments=['run','--pull=never','--rm','--network','none','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges:true','--entrypoint','python3','-i',self.controller_image,'/opt/prthak/controller_entrypoint.py','--validate-initial-env']
         try:return json.loads(self.run(arguments,timeout=30,private_input=json.dumps(environment).encode()))
         except Blocked:raise Blocked('Bundled Entra/runtime validation failed; check tenant, client, HTTPS callback and complete private-secret configuration') from None
     def internal_tls_validate(self,request):
@@ -540,7 +542,7 @@ class Engine:
         if service not in ('database','etcd'):raise Blocked('Fixed internal TLS network namespace required')
         identifier=self.compose(['ps','-q',service]).strip()
         if not re.fullmatch(r'[0-9a-f]{12,64}',identifier):raise Blocked('Owned internal service is not running')
-        arguments=['run','--rm','--network','container:'+identifier,'--user','0','--cap-drop','ALL','--security-opt','no-new-privileges:true','--read-only','--entrypoint','python3','--mount','type=bind,source='+str(directory)+',target=/run/prthak-tls,readonly',CONTROLLER_IMAGE,'-m','controller.internal_certificates','--probe']
+        arguments=['run','--pull=never','--rm','--network','container:'+identifier,'--user','0','--cap-drop','ALL','--security-opt','no-new-privileges:true','--read-only','--entrypoint','python3','--mount','type=bind,source='+str(directory)+',target=/run/prthak-tls,readonly',self.controller_image,'-m','controller.internal_certificates','--probe']
         return json.loads(self.run(arguments,timeout=45,private_input=json.dumps({'ports':ports,'hostname':hostname,'fingerprint':fingerprint}).encode()))
 
 
@@ -785,9 +787,11 @@ class Manager:
         if router_only:return
         def bind(source,target,read_only=False):return {'type':'bind','source':str(source),'target':target,'read_only':read_only,'bind':{'create_host_path':False,'selinux':'z'}}
         common={'restart':'unless-stopped','security_opt':['no-new-privileges:true'],'cap_drop':['ALL'],'labels':{'io.prthak.appliance.id':settings['appliance_id']},'tmpfs':['/tmp:rw,noexec,nosuid,size=128m']}
+        if 'router' in settings.get('images', {}):
+            common['pull_policy'] = 'never'
         compose={'services':{
             'controller':{**common,'image':settings.get('images',{}).get('controller',CONTROLLER_IMAGE),'user':'10001:10001','ports':[settings['bind_ip']+':'+str(settings['controller_backend_port'])+':8787',settings['bind_ip']+':8796:8788',settings['bind_ip']+':8797:8789'],'volumes':[bind(root/'controller','/data'),bind(root/'config/controller','/run/prthak-bootstrap',True),bind('/run/prthak-appliance','/run/prthak-appliance',True)],'read_only':True},
-            'router':{**common,'image':ROUTER_IMAGE,'user':'10003:10003','command':['haproxy','-W','-db','-f','/config/haproxy.cfg'],'ports':[settings['bind_ip']+':'+str(settings['controller_port'])+':8787',settings['bind_ip']+':'+str(channels['control'])+':8788',settings['bind_ip']+':'+str(channels['discovery'])+':8789',settings['bind_ip']+':'+str(settings['database_router_port'])+':5433'],'volumes':[bind(root/'config/router','/config',True)],'read_only':True},
+            'router':{**common,'image':settings.get('images',{}).get('router',ROUTER_IMAGE),'user':'10003:10003','command':['haproxy','-W','-db','-f','/config/haproxy.cfg'],'ports':[settings['bind_ip']+':'+str(settings['controller_port'])+':8787',settings['bind_ip']+':'+str(channels['control'])+':8788',settings['bind_ip']+':'+str(channels['discovery'])+':8789',settings['bind_ip']+':'+str(settings['database_router_port'])+':5433'],'volumes':[bind(root/'config/router','/config',True)],'read_only':True},
             'etcd':{**common,'image':settings.get('images',{}).get('etcd',ETCD_IMAGE),'user':'10002:10002','profiles':['database'],'command':['/usr/local/bin/etcd','--config-file=/config/etcd.json'],'ports':[settings['bind_ip']+':2379:2379',settings['bind_ip']+':2380:2380'],'volumes':[bind(root/'etcd','/etcd-data'),bind(root/'config/etcd','/config',True)],'read_only':True},
             'database':{**common,'image':settings.get('images',{}).get('database',DATABASE_IMAGE),'user':'999:999','profiles':['database'],'ports':[settings['bind_ip']+':5432:5432',settings['bind_ip']+':8008:8008'],'volumes':[bind(root/'database','/var/lib/postgresql/data'),bind(root/'config/database','/config',True)],'devices':['/dev/watchdog0:/dev/watchdog0:rwm'],'stop_grace_period':'90s','read_only':True}}}
         atomic(root/'runtime/compose.json',compose)
@@ -1834,27 +1838,7 @@ def serve(manager,run_dir='/run/prthak-appliance',ready=None,*,_test_peer_uid=No
     server.serve_forever()
 
 
-def install(args):
-    values,local,root=installer_configuration(args)
-    if args.validate_only:
-        provider=initial_environment(values)
-        print(json.dumps({'status':'validated','data_root':str(root),'node_id':local['node_id'],'site':local['site'],'private_values_excluded':True,'provider_validation':'bundled_runtime_required' if provider.get('SEG_ENTRA_TENANT_ID') else 'disabled'}));return
-    if os.geteuid()!=0:raise Blocked('Install with sudo; the controller itself remains nonroot')
-    if Path('/proc/1/comm').read_text().strip()!='systemd':raise Blocked('The host installer requires genuine Linux systemd')
-    interpreter=Path(sys.executable).resolve()
-    for path in (interpreter,*interpreter.parents):
-        info=path.stat()
-        if info.st_uid!=0 or info.st_mode&0o022:raise Blocked('The privileged manager needs a root-owned system Python interpreter and protected ancestors')
-    controller_identity(create=True)
-    lease=acquire_lease()
-    pointer=Path('/etc/prthak/data-root')
-    if pointer.exists() and pointer.read_text().strip()!=str(root):raise Blocked('DATA_ROOT differs from the committed active pointer; use reviewed GUI storage migration')
-    installed=load(root/'config/installed.json')
-    local=installation_identity(root,local)
-    local=database_runtime_settings(root,local)
-    private_dir(root);private_dir(root/'config');private_dir(root/'manager/jobs');private_dir(root/'manager/reviews')
-    project='prthak-'+local['appliance_id'][:12];engine=Engine(root,project);engine.check()
-    release=Path(args.release_root).resolve();build=root/'runtime/build'
+def build_appliance_images(engine, release, build):
     for name in ('base','controller','database','etcd'):private_dir(build/name)
     for name in ('controller','dashboard'):
         destination=build/'base'/name
@@ -1879,6 +1863,63 @@ def install(args):
         identifier=engine.run(['image','inspect','--format','{{.Id}}',image]).strip()
         if not re.fullmatch(r'sha256:[a-f0-9]{64}',identifier):raise Blocked('A locally built immutable image identity is required')
         images[name]=identifier
+    return images
+
+
+def offline_appliance_images(engine, directory):
+    metadata = directory/'images.json'
+    archive = directory/'images.tar.gz'
+    if metadata.stat().st_size > 16384 or not 1 <= archive.stat().st_size < 2 * 1024**3:
+        raise Blocked('Offline image payload exceeds its size limits')
+    manifest = load(metadata)
+    if (not isinstance(manifest, dict) or set(manifest) != {'platform', 'images', 'archive_sha256'}
+            or manifest['platform'] != 'linux/amd64' or not isinstance(manifest['images'], dict)
+            or set(manifest['images']) != set(SERVICES)):
+        raise Blocked('A complete Linux AMD64 offline image manifest is required')
+    images = manifest['images']
+    if any(not isinstance(image, str) or not re.fullmatch(r'sha256:[a-f0-9]{64}', image)
+           for image in images.values()):
+        raise Blocked('The offline image manifest contains an invalid image identity')
+    digest = hashlib.sha256()
+    with archive.open('rb') as stream:
+        while block := stream.read(1024 * 1024):
+            digest.update(block)
+    if digest.hexdigest() != manifest['archive_sha256']:
+        raise Blocked('The offline image archive does not match the manifest checksum')
+    engine.run(['image', 'load', '--input', str(archive)], timeout=1800)
+    for name, image in images.items():
+        result = engine.run(['image', 'inspect', '--format', '{{.Id}} {{.Os}}/{{.Architecture}}', image])
+        if result.strip() != image + ' linux/amd64':
+            raise Blocked('The imported image does not match the offline manifest: ' + name)
+    return images
+
+
+def install(args):
+    values,local,root=installer_configuration(args)
+    if args.validate_only:
+        provider=initial_environment(values)
+        print(json.dumps({'status':'validated','data_root':str(root),'node_id':local['node_id'],'site':local['site'],'private_values_excluded':True,'provider_validation':'bundled_runtime_required' if provider.get('SEG_ENTRA_TENANT_ID') else 'disabled'}));return
+    if os.geteuid()!=0:raise Blocked('Install with sudo; the controller itself remains nonroot')
+    if Path('/proc/1/comm').read_text().strip()!='systemd':raise Blocked('The host installer requires genuine Linux systemd')
+    interpreter=Path(sys.executable).resolve()
+    for path in (interpreter,*interpreter.parents):
+        info=path.stat()
+        if info.st_uid!=0 or info.st_mode&0o022:raise Blocked('The privileged manager needs a root-owned system Python interpreter and protected ancestors')
+    controller_identity(create=True)
+    lease=acquire_lease()
+    pointer=Path('/etc/prthak/data-root')
+    if pointer.exists() and pointer.read_text().strip()!=str(root):raise Blocked('DATA_ROOT differs from the committed active pointer; use reviewed GUI storage migration')
+    installed=load(root/'config/installed.json')
+    local=installation_identity(root,local)
+    local=database_runtime_settings(root,local)
+    private_dir(root);private_dir(root/'config');private_dir(root/'manager/jobs');private_dir(root/'manager/reviews')
+    project='prthak-'+local['appliance_id'][:12];engine=Engine(root,project);engine.check()
+    release=Path(args.release_root).resolve()
+    if getattr(args, 'offline', False):
+        images = offline_appliance_images(engine, release/'offline')
+    else:
+        images = build_appliance_images(engine, release, root/'runtime/build')
+    engine.controller_image = images['controller']
     local['images']=images
     private_dir(root/'config/controller',10001);private_dir(root/'controller',10001)
     existing_settings=load(root/'config/controller/settings.json')
@@ -1899,7 +1940,7 @@ def install(args):
         environment={'PRTHAK_APPLIANCE':'1','PRTHAK_APPLIANCE_NODE_ID':local['node_id'],'PRTHAK_APPLIANCE_SITE':local['site'],'PRTHAK_APPLIANCE_NODE_IP':local['node_ip'],'PRTHAK_APPLIANCE_DATA_ROOT':str(root),'PRTHAK_APPLIANCE_MANAGER_SOCKET':'/run/prthak-appliance/manager.sock','PRTHAK_APPLIANCE_MANAGER_TOKEN_FILE':'/run/prthak-appliance/manager-token','PRTHAK_CLUSTER_PASSWORD_FILE':'/run/prthak-bootstrap/cluster-password','PRTHAK_EXISTING_NODE_IP':local['existing_node_ip']}
         environment.update(initial_env)
         atomic(root/'config/controller/settings.json',{**{key:local[key] for key in ('node_id','node_ip','site','controller_origin')},'environment':environment},owner=10001)
-    engine.run(['run','--rm','--network','none','--user','0','--entrypoint','python3','--mount','type=bind,source='+str(root/'config/controller')+',target=/bootstrap',CONTROLLER_IMAGE,'/opt/prthak/controller_entrypoint.py','--initialize','/bootstrap'])
+    engine.run(['run','--pull=never','--rm','--network','none','--user','0','--entrypoint','python3','--mount','type=bind,source='+str(root/'config/controller')+',target=/bootstrap',images['controller'],'/opt/prthak/controller_entrypoint.py','--initialize','/bootstrap'])
     manager=Manager(root);manager.recover_web_tls();manager.recover_public_port();manager.render()
     (root/'config/install-pending.json').unlink(missing_ok=True)
     code=Path('/opt/prthak-appliance');code.mkdir(parents=True,exist_ok=True)
@@ -1923,7 +1964,7 @@ def install(args):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__);sub=parser.add_subparsers(dest='command',required=True)
-    add=sub.add_parser('install');add.add_argument('--env-file');add.add_argument('--gui-setup',action='store_true');add.add_argument('--data-root');add.add_argument('--release-root',required=True);add.add_argument('--no-start',action='store_true');add.add_argument('--validate-only',action='store_true')
+    add=sub.add_parser('install');add.add_argument('--env-file');add.add_argument('--gui-setup',action='store_true');add.add_argument('--data-root');add.add_argument('--release-root',required=True);add.add_argument('--no-start',action='store_true');add.add_argument('--validate-only',action='store_true');add.add_argument('--offline',action='store_true')
     sub.add_parser('serve');args=parser.parse_args()
     try:
         if sys.version_info<(3,9):raise Blocked('Host manager needs Python3.9+; controller runtime is bundled')

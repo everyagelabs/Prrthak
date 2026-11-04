@@ -1,5 +1,6 @@
 """Private installer/manager tests. No host services, Docker socket or PGDATA touched."""
 import copy
+import hashlib
 import http.client
 import importlib.util
 import json
@@ -47,6 +48,26 @@ class FakeEngine:
 
 
 class ApplianceConfigurationTests(unittest.TestCase):
+    def test_offline_images_import_only_after_checksum_and_validate_amd64_ids(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            archive = directory/'images.tar.gz'
+            archive.write_bytes(b'transferred images')
+            images = {name:'sha256:'+str(index)*64 for index, name in enumerate(appliance.SERVICES)}
+            manifest = {'images': images, 'platform': 'linux/amd64',
+                        'archive_sha256': hashlib.sha256(archive.read_bytes()).hexdigest()}
+            appliance.atomic(directory/'images.json', manifest)
+            engine = Mock()
+            engine.run.side_effect = ['', *(image+' linux/amd64\n' for image in images.values())]
+            self.assertEqual(appliance.offline_appliance_images(engine, directory), images)
+            self.assertEqual(engine.run.call_args_list[0].args[0], ['image', 'load', '--input', str(archive)])
+            self.assertTrue(all(call.args[0][:2] == ['image', 'inspect'] for call in engine.run.call_args_list[1:]))
+            engine.reset_mock()
+            archive.write_bytes(b'incomplete copy')
+            with self.assertRaisesRegex(appliance.Blocked, 'checksum'):
+                appliance.offline_appliance_images(engine, directory)
+            engine.run.assert_not_called()
+
     def test_database_runtime_only_marks_empty_storage_and_preserves_legacy_physical_data(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);settings={'node_id':'test'}
@@ -191,6 +212,17 @@ class ApplianceManagerTests(unittest.TestCase):
         compose=json.loads((self.root/'runtime/compose.json').read_text())
         self.assertEqual(compose['services']['etcd']['image'],settings['images']['etcd'])
         self.assertEqual((self.root/'database/PG_VERSION').read_text(),'16\n')
+
+    def test_offline_compose_uses_local_image_ids_without_pulls(self):
+        settings = appliance.load(self.root/'config/installed.json')
+        settings['images'] = {name:'sha256:'+str(index)*64 for index, name in enumerate(appliance.SERVICES)}
+        appliance.atomic(self.root/'config/installed.json',settings)
+        reloaded = appliance.Manager(self.root,self.parent/'pointer',self.factory,self.parent)
+        reloaded.render()
+        services = appliance.load(self.root/'runtime/compose.json')['services']
+        for name, service in services.items():
+            self.assertEqual(service['image'], settings['images'][name])
+            self.assertEqual(service['pull_policy'], 'never')
     def test_unmarked_legacy_pgdata_blocks_render_and_start_before_any_service_action(self):
         manifest=self.full();manifest['local_node']['role']='database_voter'
         appliance.atomic(self.root/'config/manifest.json',manifest)

@@ -12,11 +12,13 @@ fail() { printf '%s\n' "Prṛthak installation stopped: $*" >&2; exit 1; }
 usage() {
   cat <<'USAGE'
 Usage: sudo ./scripts/install-controller.sh
+       sudo ./scripts/install-controller.sh --offline
 
 Detect RHEL 9 or Ubuntu 26.04, install required Python/Docker/Compose packages,
 then open the printed HTTPS URL to finish configuration in the GUI.
 Use a fresh dedicated Linux systemd VM and an independently verified release.
 The installer never removes another container stack or opens host firewall ports.
+--offline uses the local RPM and image payload of the RHEL 9 x86_64 release.
 
 Compatibility: --gui-setup, --data-root PATH, --env-file FILE,
                --validate-only, --no-start.
@@ -29,6 +31,7 @@ USAGE
 release_root=$2
 shift 2
 prepare=1
+offline=0
 expect_value=
 gui=0
 env_file=0
@@ -44,6 +47,7 @@ for argument do
   case "$argument" in
     --help|-h) usage; exit 0 ;;
     --gui-setup) gui=1 ;;
+    --offline) offline=1 ;;
     --env-file) env_file=1; prepare=0; expect_value=$argument ;;
     --data-root) expect_value=$argument ;;
     --validate-only|--no-start) prepare=0 ;;
@@ -52,6 +56,7 @@ for argument do
 done
 [ -z "$expect_value" ] || fail "Missing value for $expect_value."
 [ "$gui:$env_file" != 1:1 ] || fail 'Choose GUI setup or an existing environment file, not both.'
+[ "$offline:$prepare" != 1:0 ] || fail 'Offline setup must use the automatic GUI installer.'
 
 # Check every existing ancestor before executing privileged release/interpreter
 # bytes. Symlinked system interpreters are resolved, then their target and both
@@ -115,6 +120,9 @@ if [ "$prepare" -eq 1 ]; then
     *) fail 'Automatic controller setup supports RHEL 9 and Ubuntu 26.04.' ;;
   esac
   case "$(uname -m)" in x86_64|amd64|aarch64|arm64) ;; *) fail 'Supported controller CPUs are AMD64 and ARM64.' ;; esac
+  if [ "$offline" -eq 1 ]; then
+    [ "$family:$(uname -m)" = rhel:x86_64 ] || fail 'The offline controller bundle requires RHEL 9 x86_64.'
+  fi
   [ -d /run/systemd/system ] && [ -r /proc/1/comm ] || fail 'Use a genuine systemd VM.'
   [ "$(cat /proc/1/comm)" = systemd ] || fail 'systemd must run as PID 1.'
   [ -x /usr/bin/systemctl ] || fail 'The systemd control tools are required.'
@@ -136,6 +144,7 @@ fi
 python_bin=${PRTHAK_INSTALL_PYTHON:-/usr/bin/python3}
 case "$python_bin" in /*) ;; *) fail 'PRTHAK_INSTALL_PYTHON must be an absolute protected interpreter path.' ;; esac
 if [ ! -x "$python_bin" ]; then
+  [ "$offline" -eq 0 ] || fail 'Offline setup requires the stock RHEL system Python used by DNF.'
   [ "$prepare" -eq 1 ] && [ -z "${PRTHAK_INSTALL_PYTHON:-}" ] || fail 'A protected Python 3.9+ interpreter is required for this prepared-host operation.'
   printf '%s\n' 'Installing the required system Python interpreter...'
   if [ "$family" = rhel ]; then

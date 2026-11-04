@@ -139,6 +139,23 @@ class ControllerPrerequisiteTests(unittest.TestCase):
         self.assertTrue(all('--no-upgrade' in args and '--no-remove' in args for args in installs))
         self.assertNotIn('firewalld', str(self.host.calls))
 
+    def test_offline_rhel_installs_from_bundle_without_vendor_network_operations(self):
+        offline = self.root/'offline'
+        for name in ('keys/docker.asc', 'rpms/repodata/repomd.xml', 'images.json', 'images.tar.gz'):
+            path = offline/name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'offline fixture')
+        self.installer.prepare(offline)
+        installs = [args for args, _ in self.host.calls if Path(args[0]).name == 'dnf']
+        self.assertEqual(len(installs), 1)
+        self.assertIn('--disablerepo=*', installs[0])
+        self.assertIn('--noplugins', installs[0])
+        self.assertIn('--repofrompath=prthak-offline,'+(offline/'rpms').as_uri(), installs[0])
+        self.assertIn('--setopt=prthak-offline.gpgcheck=1', installs[0])
+        self.assertNotIn('curl', self.names())
+        self.assertNotIn('gpg', self.names())
+        self.assertFalse((self.root/'etc/yum.repos.d/prthak-docker-ce.repo').exists())
+
     def test_healthy_existing_runtime_has_no_package_repo_or_service_mutation(self):
         self.healthy()
         self.installer.prepare(); self.host.calls.clear(); self.installer.prepare()
@@ -307,11 +324,12 @@ class ControllerPrerequisiteTests(unittest.TestCase):
 class ControllerArgumentTests(unittest.TestCase):
     def test_default_is_gui_but_legacy_and_read_only_paths_skip_preparation(self):
         self.assertEqual(bootstrap.manager_arguments([]), (['--gui-setup'], True))
+        self.assertEqual(bootstrap.manager_arguments(['--offline']), (['--offline', '--gui-setup'], True))
         for arguments in (['--help'], ['--validate-only'], ['--no-start'], ['--env-file','/private/initial.env']):
             result, automatic = bootstrap.manager_arguments(arguments)
             self.assertFalse(automatic)
             self.assertTrue(all(value in result for value in arguments))
-        for arguments in (['--shell'], ['--data-root'], ['--gui-setup','--env-file','/a'], ['--no-start','--no-start']):
+        for arguments in (['--shell'], ['--data-root'], ['--gui-setup','--env-file','/a'], ['--no-start','--no-start'], ['--offline','--no-start']):
             with self.subTest(arguments=arguments), self.assertRaises(bootstrap.Blocked): bootstrap.manager_arguments(arguments)
 
     def test_read_only_main_delegates_without_dependency_actions(self):

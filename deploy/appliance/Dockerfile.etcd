@@ -2,8 +2,10 @@
 # source remains at the official release commit; only the two module versions
 # recorded in etcd-build-inputs.json change. Keep Go module/build information so
 # image scanners can independently inspect the resulting binaries.
-FROM golang:1.27.3-alpine3.24@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS builder
-ENV CGO_ENABLED=0 GOTOOLCHAIN=local
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine3.24@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS builder
+ARG TARGETOS
+ARG TARGETARCH
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOOS=$TARGETOS GOARCH=$TARGETARCH
 WORKDIR /src
 RUN wget -q -O /tmp/etcd.tar.gz https://codeload.github.com/etcd-io/etcd/tar.gz/0b065e61c679ea81f6862bb24c9815f7fc673966 \
     && printf '%s  %s\n' '393a9f8bd53093b5553111778ab5c7d251605460ed74bf8bc447110f180c38a6' /tmp/etcd.tar.gz | sha256sum -c - \
@@ -25,10 +27,7 @@ RUN set -eu; for module in . api client/pkg client/v3 etcdctl etcdutl pkg server
     done \
     && for binary in etcd etcdutl; do \
         awk '$1 == "dep" && $2 == "golang.org/x/crypto" && $3 == "v0.58.1-0.20261009181718-2f1f834330b2" { found=1 } END { exit !found }' "/out/build-info/$binary.txt"; \
-    done \
-    && /out/etcd --version \
-    && /out/etcdctl version \
-    && /out/etcdutl version
+    done
 
 FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
 RUN apk upgrade --no-cache \
@@ -41,6 +40,7 @@ COPY --from=builder /out/etcd /out/etcdctl /out/etcdutl /usr/local/bin/
 COPY --from=builder /out/build-info /opt/prthak/etcd-build/
 COPY --from=builder /src/LICENSE /opt/prthak/etcd-build/
 COPY etcd-build-inputs.json /opt/prthak/etcd-build/inputs.json
+RUN etcd --version && etcdctl version && etcdutl version
 LABEL org.opencontainers.image.title="Prthak reviewed etcd security rebuild" \
       org.opencontainers.image.version="3.6.16-prthak-security.1" \
       org.opencontainers.image.source="https://github.com/etcd-io/etcd" \
