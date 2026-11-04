@@ -259,9 +259,11 @@ function renderChrome(){
   $('#view-tabs').innerHTML=navigationViews.map(([key,[label]])=>`<a class="view-tab ${state.view===key?'active':''}" href="/${key}" aria-label="${h(label)}" ${state.view===key?'aria-current="page"':''}>${h(label)}</a>`).join('');
   $('#main').classList.toggle('overview-page',state.view==='overview');
   $('#overview-quick-filters').hidden=state.view!=='overview';
-  document.title=`${views[state.view][0]} · Prṛthak`;$('#breadcrumb-page').textContent=views[state.view][0];$('#page-title').textContent=views[state.view][1];$('#page-description').textContent=views[state.view][2];
+  document.title=`${views[state.view][0]} · Prṛthak`;$('#page-title').textContent=views[state.view][1];$('#page-description').textContent=views[state.view][2];
   $('#last-updated').textContent=state.lastSync?`Updated ${state.lastSync.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`:'Waiting for first sync';
-  $('#demo-banner').hidden=state.authType!=='demo';$('#controller-version').textContent=`v${state.data?.meta?.version || '0.1.0'}`;$('#footer-version').textContent=state.data?.meta?.version || '0.1.0';
+  $('#demo-banner').hidden=state.authType!=='demo';
+  const version = state.data?.meta?.version;
+  $('#controller-version').textContent = version ? `v${version}` : '—';
   const controllerName = $('#controller-display-name');
   if (controllerName) {
     controllerName.textContent = state.data?.meta?.controller_display_name || 'Controller';
@@ -664,7 +666,7 @@ document.addEventListener('submit',async event=>{
   finally{submit.disabled=false;}
 });
 $('#modal').addEventListener('close',()=>{if(typeof metadataModalClosed==='function'&&metadataAsync.active&&!$('#modal').open)metadataModalClosed();});$('#modal').addEventListener('cancel',event=>{if(state.passwordChangeRequired){event.preventDefault();return;}if(state.accountDialogOpen){event.preventDefault();closeModal();}});$('#modal-close').addEventListener('click',closeModal);$('#drawer-backdrop').addEventListener('click',closeDrawer);
-$('#refresh-button').innerHTML=icon('refresh');$('#refresh-button').addEventListener('click',()=>load());$('#breadcrumb-icon').innerHTML=icon('overview');$('#setup-icon').innerHTML=icon('setup');$('#setup-button').addEventListener('click',showSetup);$('#learn-button').addEventListener('click',()=>showLearning(undefined,{purpose:state.view==='traffic'?'traffic':state.view==='policies'?'automatic':''}));
+$('#refresh-button').innerHTML=icon('refresh');$('#refresh-button').addEventListener('click',()=>load());$('#setup-icon').innerHTML=icon('setup');$('#setup-button').addEventListener('click',showSetup);$('#learn-button').addEventListener('click',()=>showLearning(undefined,{purpose:state.view==='traffic'?'traffic':state.view==='policies'?'automatic':''}));
 $('#enroll-button').addEventListener('click', () => {
   const openEditor = {policies: showPolicy, locations: showLocationEditor, services: showServiceGroupEditor}[state.view];
   openEditor?.();

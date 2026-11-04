@@ -12,8 +12,25 @@ const form=()=>({id:'firewall-activation-form',selectedServers:['host-one'],valu
 const deferred=()=>{let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};};
 
 test('maintenance panel distinguishes live maintenance from monitor policies and preserves unsupported UFW',()=>{
- const f=fixture(),html=f.c.firewallActivationHTML();assert.match(html,/even when ordinary policy enforcement is monitor-only/);assert.match(html,/Start firewalld/);assert.match(html,/Stopped/);assert.match(html,/UFW is preserved/);assert.match(html,/Previous job/);assert.match(html,/Does not confirm the current request/);assert.match(html,/independent endpoint rollback watchdog/);
- f.c.state.firewallActivationPage.items[0].receipt.error='<script>alert(1)</script>';assert.match(f.c.firewallActivationHTML(),/&lt;script&gt;/);
+ const f=fixture(), endpoint=f.c.state.firewallActivationPage.items[0];
+ Object.assign(endpoint.receipt,{status:'blocked',target_operation:'activate_allow_all',checked_at:'2026-11-04T18:00:00Z',error:'<script>alert(1)</script>'});
+ const html=f.c.firewallActivationHTML();assert.match(html,/Changes can affect live access even in monitor mode/);assert.match(html,/Start firewalld/);assert.match(html,/Stopped/);assert.match(html,/Assessment leaves UFW in place/);assert.match(html,/Previous request/);assert.match(html,/Waiting for the agent to report on the current request/);assert.match(html,/A watchdog can roll back unsuccessful changes/);
+ assert.match(html,/<li>10\.0\.0\.8<\/li>/);
+ assert.match(html,/<span>Blocked<\/span>/);
+ assert.match(html,/<strong>Start firewalld with default allow<\/strong>/);
+ assert.match(html,/<time datetime="2026-11-04T18:00:00Z">/);
+ assert.match(html,/class="firewall-service-reason"><strong>Reason<\/strong> &lt;script&gt;/);
+});
+test('paging controls appear only when a different results page exists',()=>{
+ const f=fixture(),page=f.c.state.firewallActivationPage;
+ assert.doesNotMatch(f.c.firewallActivationHTML(),/firewall-activation-(previous|next)"/);
+ page.has_more=true;
+ assert.match(f.c.firewallActivationHTML(),/firewall-activation-previous" disabled/);
+ assert.match(f.c.firewallActivationHTML(),/firewall-activation-next"\s*>Next/);
+ page.offset=50;
+ page.has_more=false;
+ assert.match(f.c.firewallActivationHTML(),/firewall-activation-previous"\s*>Previous/);
+ assert.match(f.c.firewallActivationHTML(),/firewall-activation-next" disabled/);
 });
 test('selection stays explicit, no downtime is pre-acknowledged, and readonly cannot mutate',async()=>{
  const f=fixture();f.c.showFirewallActivationForm();assert.doesNotMatch(f.modals[0].html,/name="server_ids"[^>]*checked/);assert.doesNotMatch(f.modals[0].html,/acknowledge_downtime/);assert.match(f.modals[0].html,/Request fresh assessment/);assert.throws(()=>f.c.firewallActivationSelection({values:{operation:'migrate_ufw'}}),/Select at least one/);f.c.state.role='read_only';await f.c.firewallActivationSubmit(submit(form()));await f.c.firewallActivationAction({dataset:{action:'firewall-activation-open'}});assert.equal(f.requests.length,0);assert.equal(f.modals.length,1);
@@ -46,6 +63,8 @@ test('a matching receipt unlocks review and an unanswered request shows expiry',
  Object.assign(selection,form(),{fields:{'button[type="submit"]':{disabled:true}}});
  await f.c.firewallActivationAction({dataset:{action:'firewall-activation-assess'}});
  assert.match(f.element('#firewall-assessment-status').innerHTML,/Assessment request expired before the agent responded/);
+ assert.match(f.c.firewallActivationReceiptHTML({job,receipt}),/>Request expired</);
+ assert.match(f.c.firewallActivationReceiptHTML({job,receipt:page().items[0].receipt}),/Previous request[\s\S]*Current request expired before the agent responded/);
  assert.equal(selection.fields['button[type="submit"]'].disabled,true);
  receipt={id:job.id,plan_digest:job.plan_digest,status:'assessed',checked_at:new Date().toISOString()};
  await f.c.refreshFirewallActivationAssessment();

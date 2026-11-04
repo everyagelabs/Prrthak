@@ -1,6 +1,14 @@
 'use strict';
 
 const firewallMaintenanceOperations={activate_existing:'Start firewalld with existing rules',activate_allow_all:'Start firewalld with default allow',deactivate_existing:'Stop and disable firewalld',migrate_ufw:'Assess and migrate supported UFW rules',prepare_egress:'Prepare empty outbound policy template',enable_native_counters:'Enable native firewalld counters'};
+const firewallMaintenanceStatuses = {
+ assessed: {label: 'Assessed', tone: ''},
+ blocked: {label: 'Blocked', tone: 'danger'},
+ applying: {label: 'Applying', tone: 'warning'},
+ completed: {label: 'Completed', tone: ''},
+ rolled_back: {label: 'Rolled back', tone: 'warning'},
+ error: {label: 'Error', tone: 'danger'},
+};
 const agentFirewallServiceOperations=new Set(['activate_existing','activate_allow_all','deactivate_existing']);
 function firewallActivationIdentity(){return JSON.stringify([state.authType,state.role,state.user||null,state.token||'',state.csrfToken||'']);}
 function firewallActivationPage(){return state.firewallActivationOwner===firewallActivationIdentity()?state.firewallActivationPage||{}:{};}
@@ -16,14 +24,65 @@ function firewallActivationHTML(){
   const service=firewallServiceState(item.firewalld_state);
   const operation=item.ufw_active?'migrate_ufw':service.label==='Running'?'deactivate_existing':'activate_existing';
   const action=item.ufw_active?'Review UFW migration':service.label==='Running'?'Stop and disable':service.label==='Stopped'?'Start firewalld':'Assess firewalld';
-  return `<tr><td><strong>${h(item.hostname||item.server_id)}</strong><small>${h((item.ips||[]).join(', '))}</small></td><td>${badge(service.label,service.tone)}${item.ufw_active?'<small>UFW is active</small>':''}</td><td>${firewallActivationReceiptHTML(item)}</td><td><div class="inline-actions">${canWrite()?`<button type="button" class="button secondary small" data-action="firewall-activation-open" data-id="${h(item.server_id)}" data-operation="${operation}">${action}</button>`:''}<button type="button" class="text-button" data-action="firewall-activation-inspect" data-id="${h(item.server_id)}">Details</button></div></td></tr>`;
+  return `<tr>
+   <td class="firewall-service-endpoint"><strong>${h(item.hostname || item.server_id)}</strong>
+    <ul class="firewall-service-addresses" aria-label="IP addresses">${(item.ips || []).map(ip => `<li>${h(ip)}</li>`).join('')}</ul>
+   </td>
+   <td><span class="firewall-service-mobile-label" aria-hidden="true">firewalld</span>
+    ${badge(service.label, service.tone)}${item.ufw_active ? '<small class="firewall-service-ufw">UFW is active</small>' : ''}
+   </td>
+   <td><span class="firewall-service-mobile-label" aria-hidden="true">Maintenance report</span>${firewallActivationReceiptHTML(item)}</td>
+   <td><div class="inline-actions">${canWrite()?`<button type="button" class="button secondary small" data-action="firewall-activation-open" data-id="${h(item.server_id)}" data-operation="${operation}">${action}</button>`:''}
+    <button type="button" class="text-button" data-action="firewall-activation-inspect" data-id="${h(item.server_id)}">Details</button>
+   </div></td>
+  </tr>`;
  }).join('');
- return `<section class="card firewall-services"><div class="section-line"><h2>Endpoint firewall services</h2><div class="inline-actions"><button type="button" class="button secondary small" data-action="firewall-activation-refresh">Refresh status</button>${canWrite()?'<button type="button" class="button secondary small" data-action="firewall-activation-open">Firewall maintenance</button>':''}</div></div><p class="platform-intro">See which agents report firewalld running. You can review a start or stop, and the agent applies it locally after its next control poll.</p><p class="help-text">Starting and stopping firewalld need no inbound SSH from the controller. Either can change live access even when ordinary policy enforcement is monitor-only. The agent uses an independent endpoint rollback watchdog.</p>${state.firewallActivationError?`<p class="form-error">${h(state.firewallActivationError)}</p>`:''}<div class="table-scroll"><table><thead><tr><th>Endpoint</th><th>firewalld</th><th>Last maintenance result</th><th>Action</th></tr></thead><tbody>${rows||'<tr><td colspan="4">Endpoint firewall status will appear after the first agent report.</td></tr>'}</tbody></table></div><div class="table-footer"><span>${page.total?num(page.offset)+1:0}–${num(page.offset)+(page.items||[]).length} of ${num(page.total)} endpoints</span><button class="text-button" data-action="firewall-activation-previous" ${page.offset?'':'disabled'}>Previous</button><button class="text-button" data-action="firewall-activation-next" ${page.has_more?'':'disabled'}>Next</button></div><details class="firewall-service-help"><summary>Service maintenance details</summary><p class="help-text">UFW is preserved during assessment. A migration requires a separate review. Custom hooks, profiles, NAT and common stock UFW configurations can be unsupported.</p></details></section>`;
+ const offset = num(page.offset), count = (page.items || []).length;
+ return `<section class="card firewall-services">
+  <div class="firewall-services-intro">
+   <div class="section-line"><h2>Endpoint status</h2><div class="inline-actions">
+    <button type="button" class="button secondary small" data-action="firewall-activation-refresh">Refresh status</button>
+    ${canWrite()?'<button type="button" class="button secondary small" data-action="firewall-activation-open">Firewall maintenance</button>':''}
+   </div></div>
+   <p>Review a start or stop request. The agent applies the approved change on its next control poll.</p>
+   <p class="help-text">The agent uses its outbound connection for start and stop. Changes can affect live access even in monitor mode. A watchdog can roll back unsuccessful changes.</p>
+   ${state.firewallActivationError?`<p class="form-error">${h(state.firewallActivationError)}</p>`:''}
+  </div>
+  <div class="table-scroll"><table class="firewall-services-table">
+   <thead><tr><th scope="col">Endpoint</th><th scope="col">firewalld</th><th scope="col">Maintenance report</th><th scope="col">Actions</th></tr></thead>
+   <tbody>${rows||'<tr><td colspan="4">Endpoint firewall status will appear after the first agent report.</td></tr>'}</tbody>
+  </table></div>
+  <div class="table-footer">
+   <span>${count ? offset+1 : 0}–${count ? offset+count : 0} of ${num(page.total)} endpoints</span>
+   ${offset || page.has_more ? `<div class="inline-actions" role="group" aria-label="Firewall results pages">
+    <button type="button" class="button secondary small" data-action="firewall-activation-previous" ${offset?'':'disabled'}>Previous</button>
+    <button type="button" class="button secondary small" data-action="firewall-activation-next" ${page.has_more?'':'disabled'}>Next</button>
+   </div>` : ''}
+  </div>
+  <details class="firewall-service-help">
+   <summary>Service maintenance details</summary>
+   <p class="help-text">Assessment leaves UFW in place. Migration requires a separate review. Support depends on the rules, profiles and hooks on the host.</p>
+  </details>
+ </section>`;
 }
 function firewallActivationReceiptHTML(item){
- const receipt=item.receipt,job=item.job,current=receipt&&job&&receipt.id===job.id&&receipt.plan_digest===job.plan_digest;
- const operation=firewallMaintenanceOperations[receipt?.target_operation];
- return receipt?`<strong>${h(current?'This job: ':'Previous job: ')}${h(receipt.status)}</strong>${operation?`<small>${h(operation)}</small>`:''}<small>${h(timestamp(receipt.checked_at))}</small><small>${h(receipt.error||'')}</small>${current?'':'<small>Does not confirm the current request.</small>'}`:'<span class="help-text">No matching endpoint receipt; application is unverified.</span>';
+ const {receipt, job} = item;
+ const awaitingReport = job && (!receipt || receipt.id !== job.id || receipt.plan_digest !== job.plan_digest);
+ const requestExpired = awaitingReport && Date.parse(job.expires_at) <= Date.now();
+ const requestNote = requestExpired ? 'Current request expired before the agent responded.' : 'Waiting for the agent to report on the current request.';
+ if (!receipt) {
+  if (requestExpired) return `<div class="firewall-service-receipt">${badge('Request expired', 'warning')}<small>${requestNote}</small></div>`;
+  return `<span class="help-text">${job ? requestNote : 'No maintenance report yet.'}</span>`;
+ }
+ const operation = firewallMaintenanceOperations[receipt.target_operation];
+ const status = firewallMaintenanceStatuses[receipt.status] || {label: 'Unknown status', tone: 'neutral'};
+ return `<div class="firewall-service-receipt">
+  <div class="firewall-service-result">${badge(status.label, status.tone)}${awaitingReport ? '<small>Previous request</small>' : ''}</div>
+  ${operation ? `<strong>${h(operation)}</strong>` : ''}
+  ${receipt.checked_at ? `<time datetime="${h(receipt.checked_at)}">Reported ${h(timestamp(receipt.checked_at))}</time>` : ''}
+  ${receipt.error ? `<p class="firewall-service-reason"><strong>Reason</strong> ${h(receipt.error)}</p>` : ''}
+  ${awaitingReport ? `<small>${requestNote}</small>` : ''}
+ </div>`;
 }
 async function loadFirewallActivation(redraw=true){
  const owner=firewallActivationIdentity(),serial=(state.firewallActivationSerial||0)+1;state.firewallActivationSerial=serial;
