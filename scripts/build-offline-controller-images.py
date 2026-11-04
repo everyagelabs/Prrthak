@@ -68,12 +68,10 @@ def build_contexts(staging, payload):
     )
     if not router:
         raise ValueError("Expected a digest-pinned HAProxy image in the appliance manager")
-    (staging / "router").mkdir()
-    # Materialize a single-platform local image so save/load retains its ID.
-    (staging / "router/Dockerfile").write_text(
-        f'FROM {router.group(1)}\nLABEL org.opencontainers.image.title="Prthak appliance router"\n',
-        encoding="utf-8",
-    )
+    if payload["deploy/appliance/Dockerfile.router"].splitlines()[0] != f"FROM {router.group(1)}".encode():
+        raise ValueError("Offline router must use the same pinned HAProxy base as the appliance manager")
+    copy("router", "deploy/appliance/Dockerfile.router", "Dockerfile")
+    copy("router", "deploy/appliance/router-entrypoint.sh")
     copy("host", manager_source)
     copy("host", "deploy/appliance/offline_update.py")
 

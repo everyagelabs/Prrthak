@@ -28,6 +28,26 @@ ID = re.compile(r"[0-9a-f]{32}\Z")
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 FILENAME = re.compile(r"prthak-controller-([0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6})-offline-rhel9-x86_64\.tar\.gz\Z")
 PENDING = frozenset(("queued", "running"))
+FAILURE_STEPS = {
+    "preflight": "Check that the reviewed appliance and its dependencies are unchanged",
+    "previous_health": "Verify the existing controller and router over HTTPS",
+    "backup_runtime": "Save the current host runtime for recovery",
+    "stop_previous": "Stop the previous controller and router",
+    "copy_data": "Create and verify the controller data backup",
+    "stage_candidate": "Stage the signed controller runtime and update fence",
+    "start_candidate": "Start the candidate controller and router on loopback",
+    "candidate_manager": "Verify the candidate appliance manager",
+    "candidate_health": "Verify candidate HTTPS and the update fence on loopback",
+    "publish_listener": "Start the candidate on the configured public listener",
+    "public_health": "Verify candidate HTTPS and the update fence on the public listener",
+    "final_verification": "Verify the final controller runtime before committing",
+    "interrupted": "Resume recovery after an interrupted update",
+}
+RECOVERY_STEPS = {
+    "restore_files": "Restore the previous runtime and controller data",
+    "start_previous": "Restart the previous controller and router",
+    "verify_previous": "Verify the restored controller and router",
+}
 
 
 def read_chunk(headers, stream):
@@ -225,6 +245,11 @@ class OfflineUpdates:
                     and result.get("verified") is True and result.get("rolled_back") is False):
                 public.update(status="applied", can_cancel=True, result={"verified": True, "rolled_back": False, "phase": "committed"})
                 return public
+            failure_stage, recovery_stage = result.get("failure_stage"), result.get("recovery_stage")
+            if isinstance(failure_stage, str) and failure_stage in FAILURE_STEPS:
+                public["failure_step"] = FAILURE_STEPS[failure_stage]
+            if isinstance(recovery_stage, str) and recovery_stage in RECOVERY_STEPS and result.get("phase") == "rollback_failed":
+                public["recovery_step"] = RECOVERY_STEPS[recovery_stage]
             if result.get("phase") == "rolled_back" and result.get("rolled_back") is True:
                 public.update(status="rolled_back", can_cancel=True, result={"verified": False, "rolled_back": True, "phase": "rolled_back"})
                 return public

@@ -15,6 +15,7 @@ import tempfile
 
 PROJECT = Path(__file__).resolve().parents[1]
 REQUIRED = {'keys/docker.asc', 'rpms/repodata/repomd.xml', 'images.json', 'images.tar.gz'}
+GUI_ONLY = 'OFFLINE-UPDATE-ONLY'
 RPM = re.compile(r'rpms/[A-Za-z0-9._+~:-]+\.rpm')
 REPODATA = re.compile(r'rpms/repodata/[A-Za-z0-9._-]+')
 INSTALL = """Prthak offline controller for RHEL 9 x86_64
@@ -28,6 +29,17 @@ On the controller VM, run the installer from the verified release directory.
 
 The installer detects the offline payload and uses the bundled RPMs and images.
 Open the printed HTTPS setup URL to finish configuration.
+
+Created by Pratik Srivastava
+""".encode('utf-8')
+UPDATE = """Prthak offline GUI controller update for RHEL 9 x86_64
+
+Sign in as a Super Admin and open Platform settings > Updates. Upload this
+archive and its matching detached signature, review the result and confirm the
+restart. The installed appliance verifies the signature against its release
+trust. Host packages are preserved. The included signed RPM repository is for
+compatibility with older update validators. Use a full installation archive
+when setting up a new controller.
 
 Created by Pratik Srivastava
 """.encode('utf-8')
@@ -58,12 +70,18 @@ def verified_agents(directory, version):
     return packager.verified_agent_assets(directory, version, (PROJECT/'deploy/release-public-trust.json').read_bytes())
 
 
-def pack(controller, payload, output, key, agent_dist=PROJECT/'dist'):
+def pack(controller, payload, output, key, agent_dist=PROJECT/'dist', *, gui_update_only=False):
     match = re.fullmatch(r'(prthak-controller-([0-9]+\.[0-9]+\.[0-9]+))\.tar\.gz', controller.name)
     if not match or controller.is_symlink() or not controller.is_file():
         raise ValueError('Supply a reviewed controller installation archive')
     stem = match[1]
     files = payload_files(payload)
+    packages = [name for name in files if RPM.fullmatch(name)]
+    if gui_update_only:
+        if len(packages) != 1 or not packages[0].startswith('rpms/docker-compose-plugin-'):
+            raise ValueError('A GUI-only update needs the verified Docker Compose compatibility repository')
+    elif not any(name.startswith('rpms/docker-ce-') and not name.startswith(('rpms/docker-ce-cli-', 'rpms/docker-ce-rootless-')) for name in packages):
+        raise ValueError('A full installation needs the Docker Engine dependency repository')
     filename = stem + '-offline-rhel9-x86_64.tar.gz'
     output.mkdir(mode=0o700, parents=True, exist_ok=True)
     names = (filename, filename + '.signature.json', filename + '.public-trust.json')
@@ -79,17 +97,24 @@ def pack(controller, payload, output, key, agent_dist=PROJECT/'dist'):
             marker.mode, marker.size = 0o644, len(marker_data)
             marker.uname = marker.gname = 'root'
             bundle.addfile(marker, io.BytesIO(marker_data))
+            if gui_update_only:
+                marker = tarfile.TarInfo(stem + '/' + GUI_ONLY)
+                marker_data = b'Upload this archive and its signature through the installed Prthak GUI.\n'
+                marker.mode, marker.size = 0o644, len(marker_data)
+                marker.uname = marker.gname = 'root'
+                bundle.addfile(marker, io.BytesIO(marker_data))
             seen = set()
             embedded = set()
             for member in base:
                 parts = PurePosixPath(member.name).parts
                 if (not member.isfile() or len(parts) < 2 or parts[0] != stem or '..' in parts
-                        or parts[1] in ('offline', 'OFFLINE-CONTROLLER') or member.name in seen or member.mode & 0o022):
+                        or parts[1] in ('offline', 'OFFLINE-CONTROLLER', GUI_ONLY) or member.name in seen or member.mode & 0o022):
                     raise ValueError('Unsafe entry in the controller archive')
                 seen.add(member.name)
                 if member.name == stem + '/INSTALL.txt':
-                    member.size = len(INSTALL)
-                    bundle.addfile(member, io.BytesIO(INSTALL))
+                    instructions = UPDATE if gui_update_only else INSTALL
+                    member.size = len(instructions)
+                    bundle.addfile(member, io.BytesIO(instructions))
                 elif parts[1] == 'agent-releases':
                     data = agents.get(parts[-1]) if len(parts) == 3 else None
                     with base.extractfile(member) as source:
@@ -134,12 +159,15 @@ def main():
     parser.add_argument('--agent-dist', type=Path, default=PROJECT/'dist',
                         help='directory containing both signed Linux agent archives and detached signatures')
     parser.add_argument('--output-dir', type=Path, required=True)
+    parser.add_argument('--gui-update-only', action='store_true',
+                        help='build a GUI upload that preserves installed host packages')
     args = parser.parse_args()
     key = os.environ.get('PRTHAK_RELEASE_SIGNING_KEY_FILE')
     if not key:
         parser.error('PRTHAK_RELEASE_SIGNING_KEY_FILE is required')
     try:
-        print(pack(args.controller_archive, args.payload.resolve(strict=True), args.output_dir, key, args.agent_dist))
+        print(pack(args.controller_archive, args.payload.resolve(strict=True), args.output_dir, key, args.agent_dist,
+                   gui_update_only=args.gui_update_only))
     except (ValueError, OSError, tarfile.TarError, subprocess.SubprocessError) as error:
         parser.exit(1, 'Offline controller packaging blocked: ' + str(error) + '\n')
 

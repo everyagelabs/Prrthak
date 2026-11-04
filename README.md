@@ -4,7 +4,7 @@
 
 Prṛthak discovers servers and their real listening services, shows permitted source-to-service access, learns observed source/port relationships, and lets administrators review and apply firewalld changes centrally. The selected server is the destination: an access policy specifies **service/port + allowed sources**, without a separate destination field.
 
-**Current pilot candidate is v0.18.7-pilot.1.** It adds filtered workspace CSV exports and SMTP alert subscriptions. Native OS and data-center acceptance remain deferred. [Release downloads](https://github.com/everyagelabs/Prrthak/releases/tag/v0.18.7-pilot.1)
+**Current pilot candidate is v0.18.8-pilot.1.** It adds per-endpoint access policy details and a smaller signed RHEL 9 GUI update. The update addresses router startup and writer-fence permissions during the restart. Native OS and data-center acceptance remain deferred. [Release downloads](https://github.com/everyagelabs/Prrthak/releases/tag/v0.18.8-pilot.1)
 
 **Prior signed pilot candidate: [v0.17.0-pilot.1](https://github.com/everyagelabs/Prrthak/tree/v0.17.0-pilot.1).** [Installer validation and acceptance limits](docs/release-0.17.0-pilot.1.md). Use one controller command and one agent command across the supported RHEL/Ubuntu hosts. The installers detect the OS and prepare their dependencies automatically; all application settings stay in the GUI. Start from independently verified, protected release files and a GUI-generated private agent setup. Native OS/DC acceptance remains pending.
 

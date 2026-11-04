@@ -86,8 +86,16 @@ async function firewallAction(button){
   if(action==='firewall-target-page'){if(state.firewallEditSelection)state.firewallEditSelection.offset=Number(button.dataset.offset)||0;return refreshFirewallTargets();}
   if(action==='firewall-target-select'){if(state.firewallEditSelection)state.firewallEditSelection.selected=new Set(button.dataset.value==='all'?state.firewallEditSelection.ids:[]);return refreshFirewallTargets();}
   if(action==='firewall-edit')return firewallEditRule(key,button.dataset.operation);
-  if(action==='firewall-server'){closeModal();state.drawerTab='firewall';return openServer(id);}
-  if(action==='firewall-drawer-tab'){state.drawerTab=button.dataset.tab;renderServerDrawer(state.detailData);if(state.drawerTab==='firewall')return refreshServerFirewall(state.detail);return;}
+  if(action==='firewall-server'){closeModal();return openServer(id,'firewall');}
+  if(action==='firewall-drawer-tab'){
+    const tab=button.dataset.tab;
+    if(!['access','services','firewall'].includes(tab))return;
+    state.drawerTab=tab;
+    renderServerDrawer(state.detailData);
+    if(tab==='firewall')return refreshServerFirewall(state.detail);
+    if(tab==='access'&&!state.endpointAccess)return loadEndpointAccessPolicies(state.detail);
+    return;
+  }
   if(action==='firewall-open-scope'){state.flowServer=id;persistScope();return navigate('policies');}
   if(action==='firewall-plan'){button.disabled=true;try{firewallShowPlan(await api(`/firewall/changes/${encodeURIComponent(id)}`));}catch(error){toast(error.message);}finally{button.disabled=false;}return;}
   if(action==='firewall-refresh-plan'){if(!state.activeFirewallPlan)return;button.disabled=true;try{const current=await api(`/firewall/changes/${encodeURIComponent(state.activeFirewallPlan.id)}`);if(current)firewallShowPlan(current);else throw new Error('This plan is no longer available. Refresh the inventory.');}catch(error){formError(error);}finally{button.disabled=false;}return;}

@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import stat
 import tarfile
 import tempfile
 import time
@@ -72,6 +73,59 @@ class ArchiveTests(unittest.TestCase):
                     patch.object(updater, '_version', side_effect=['0.19.1', '0.19.0']):
                 with self.assertRaisesRegex(appliance.Blocked, 'newer'):
                     updater._verify_candidate(Manager(), root, '0.19.0', appliance)
+
+
+class UpdateFenceTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.journal = updater.directory(self.root) / 'active.json'
+        self.fence = self.root / 'runtime/controller-update-fence'
+        self.marker = self.fence / 'pending'
+        self.record = {'job_id': 'a' * 32, 'phase': 'applying'}
+        self.fence.parent.mkdir()
+        appliance.atomic(self.journal, self.record)
+        self.use_patch(appliance, 'safe_path', lambda _: self.root)
+        self.use_patch(appliance, 'protected_release_directory', lambda _: None)
+        self.use_patch(Path, 'lstat', self.as_root(Path.lstat))
+        self.use_patch(os, 'fstat', self.as_root(os.fstat))
+
+    def use_patch(self, target, name, value):
+        replacement = patch.object(target, name, value)
+        replacement.start()
+        self.addCleanup(replacement.stop)
+
+    @staticmethod
+    def as_root(operation):
+        def stat_as_root(*args, **kwargs):
+            fields = list(operation(*args, **kwargs))
+            fields[4] = 0
+            return os.stat_result(fields)
+        return stat_as_root
+
+    def test_new_fence_is_traversable_even_with_service_umask(self):
+        previous = os.umask(0o077)
+        try:
+            updater._install_fence(self.root, self.record, appliance)
+        finally:
+            os.umask(previous)
+        self.assertEqual(stat.S_IMODE(self.fence.stat().st_mode), 0o755)
+        self.assertEqual(self.marker.read_text(), self.record['job_id'])
+
+    def test_candidate_repairs_only_the_exact_legacy_fence(self):
+        self.fence.mkdir(mode=0o700)
+        appliance.atomic(self.marker, 'b' * 32, 0o644)
+        with self.assertRaisesRegex(appliance.Blocked, 'does not match'):
+            updater.repair_fence(self.root, self.record, appliance)
+        self.assertEqual(stat.S_IMODE(self.fence.stat().st_mode), 0o700)
+        appliance.atomic(self.marker, self.record['job_id'], 0o644)
+        with self.assertRaisesRegex(appliance.Blocked, 'journal is unsafe'):
+            updater.repair_fence(self.root, {**self.record, 'phase': 'publishing'}, appliance)
+        self.assertEqual(stat.S_IMODE(self.fence.stat().st_mode), 0o700)
+        updater.repair_fence(self.root, self.record, appliance)
+        self.assertEqual(stat.S_IMODE(self.fence.stat().st_mode), 0o755)
+        self.assertEqual(self.marker.read_text(), self.record['job_id'])
 
 
 class UpdateTransactionTests(unittest.TestCase):
@@ -215,6 +269,28 @@ class UpdateTransactionTests(unittest.TestCase):
         self.assertEqual(appliance.load(self.journal)['phase'], 'rolled_back')
         receipt = appliance.load(self.root / 'manager/jobs' / self.job)
         self.assertTrue(receipt['result']['rolled_back'])
+        self.assertEqual(receipt['result']['failure_stage'], 'candidate_health')
+        self.assertNotIn('candidate not ready', json.dumps(receipt))
+
+    def test_failed_recovery_reports_both_fixed_steps(self):
+        failed = False
+
+        def failed_health(manager, material, host, *, fenced=False):
+            nonlocal failed
+            if fenced or failed:
+                failed = True
+                raise appliance.Blocked('sensitive output from the failed health probe')
+
+        with patch.object(updater, '_wait_health', failed_health):
+            with self.assertRaises(appliance.Blocked):
+                updater.run(self.root, appliance)
+        receipt = appliance.load(self.root / 'manager/jobs' / self.job)
+        self.assertEqual(receipt['result']['phase'], 'rollback_failed')
+        self.assertEqual(receipt['result']['failure_stage'], 'candidate_health')
+        self.assertEqual(receipt['result']['recovery_stage'], 'verify_previous')
+        self.assertFalse(receipt['result']['verified'])
+        self.assertFalse(receipt['result']['rolled_back'])
+        self.assertNotIn('sensitive output', json.dumps(receipt))
 
     def test_boot_compensates_interrupted_stop_apply_and_publish(self):
         for phase in ('stopping', 'applying', 'publishing'):
@@ -228,6 +304,8 @@ class UpdateTransactionTests(unittest.TestCase):
                 updater.run(self.root, appliance)
                 self.assertEqual((self.data / 'database.sqlite').read_text(), 'old data')
                 self.assertEqual(appliance.load(self.journal)['phase'], 'rolled_back')
+                receipt = appliance.load(self.root / 'manager/jobs' / self.job)
+                self.assertEqual(receipt['result']['failure_stage'], 'interrupted')
                 failed = self.backup / 'failed-controller'
                 if failed.exists():
                     (failed / 'database.sqlite').unlink()

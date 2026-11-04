@@ -48,6 +48,19 @@ class FakeEngine:
 
 
 class ApplianceConfigurationTests(unittest.TestCase):
+    def test_gui_only_archive_cannot_enter_either_host_install_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            release = Path(temporary)
+            (release / 'OFFLINE-UPDATE-ONLY').write_text('GUI update only\n')
+            result = subprocess.run(['sh', str(ROOT / 'scripts/install-prerequisites.sh'), '--release-root',
+                                     str(release), '--offline'], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn('Platform settings > Updates', result.stderr)
+            with patch.object(appliance, 'installer_configuration') as configuration:
+                with self.assertRaisesRegex(appliance.Blocked, 'Platform settings > Updates'):
+                    appliance.install(SimpleNamespace(release_root=str(release), validate_only=True))
+                configuration.assert_not_called()
+
     def test_offline_images_import_only_after_checksum_and_validate_amd64_ids(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

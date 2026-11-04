@@ -429,6 +429,10 @@ def _receipt(root, record, host):
     job = host.load(job_path, {'id': record['job_id']})
     result = {'phase': phase, 'verified': phase == 'committed', 'rolled_back': phase == 'rolled_back',
               'version': record['version']}
+    if phase != 'committed' and 'failure_stage' in record:
+        result['failure_stage'] = record['failure_stage']
+    if phase == 'rollback_failed' and 'recovery_stage' in record:
+        result['recovery_stage'] = record['recovery_stage']
     job.update(status='completed' if phase == 'committed' else 'error', phase=phase, result=result, updated_at=time.time())
     if error:
         job['error'] = error
@@ -440,6 +444,45 @@ def _install_fence(root, record, host):
     fence.mkdir(mode=0o755, exist_ok=True)
     host.protected_release_directory(fence)
     host.atomic(fence / 'pending', record['job_id'], 0o644)
+    descriptor = os.open(fence, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        # The root systemd worker uses UMask=0077. The controller runs as 10001.
+        os.fchmod(descriptor, 0o755)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def repair_fence(root, record, host):
+    """Make the exact active fence visible after an older worker creates it mode 0700."""
+    if record.get('phase') not in ('applying', 'publishing', 'verified', 'rollback_failed'):
+        return
+    root = host.safe_path(str(root))
+    journal = directory(root) / 'active.json'
+    fence = root / 'runtime/controller-update-fence'
+    for path in (journal.parent.parent, journal.parent, fence.parent, fence):
+        host.protected_release_directory(path)
+    info = journal.lstat()
+    job = record.get('job_id', '')
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o077 or info.st_nlink != 1
+            or not isinstance(job, str) or not host.JOB.fullmatch(job) or host.load(journal) != record):
+        raise host.Blocked('The active offline update journal is unsafe')
+    descriptor = os.open(fence, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        marker = os.open('pending', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=descriptor)
+        with os.fdopen(marker, 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022 or info.st_nlink != 1
+                    or info.st_size != 32 or stream.read(33) != job.encode('ascii')):
+                raise host.Blocked('The offline update writer fence does not match the active journal')
+            if stat.S_IMODE(info.st_mode) != 0o644:
+                os.fchmod(stream.fileno(), 0o644)
+                os.fsync(stream.fileno())
+        if stat.S_IMODE(os.fstat(descriptor).st_mode) != 0o755:
+            os.fchmod(descriptor, 0o755)
+            os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _release_fence(root, record, host):
@@ -494,6 +537,7 @@ def _wait_manager(manager, host):
 def _rollback(manager, record, backup, host):
     # Repeating compensation after a process/host crash is safe because each
     # directory rename is atomic and the original is moved back only once.
+    record['recovery_stage'] = 'restore_files'
     _fixed_run(['stop', MANAGER_UNIT])
     lease = host.acquire_lease()
     try:
@@ -520,11 +564,13 @@ def _rollback(manager, record, backup, host):
             elif (backup / 'agents-absent').exists() and agents.exists():
                 _durable_move(agents, backup / 'failed-agent-releases')
             manager.installed = host.load(manager.root / 'config/installed.json')
+        record['recovery_stage'] = 'start_previous'
         _fixed_run(['daemon-reload'])
         _restart(manager)
     finally:
         os.close(lease)
     _start_manager(record, host)
+    record['recovery_stage'] = 'verify_previous'
     _wait_manager(manager, host)
     _wait_health(manager, manager._controller_configuration_material(), host)
     _terminal(manager.root, record, 'rolled_back', host, 'The update failed and the previous appliance was restored')
@@ -546,28 +592,36 @@ def run(root, host):
     release = staged / ('prthak-controller-' + record['version'])
     backup = base / ('backup-' + record['review_id'])
     journal = base / 'active.json'
+    stage = 'preflight'
     try:
         if record['phase'] == 'verified':
+            stage = 'final_verification'
             _publish_verified(manager, record, backup, staged, host)
             return
         if record['phase'] != 'queued':
+            record.setdefault('failure_stage', 'interrupted')
             _rollback(manager, record, backup, host)
             return
         _idle(manager, host)
         if (record['expires_at'] <= time.time() or record['base'] != host.digest(manager.installed)
                 or record['revision'] != manager.state()['revision']):
             raise host.Blocked('The installed appliance changed after update review')
+        stage = 'previous_health'
         _wait_health(manager, manager._controller_configuration_material(), host)
+        stage = 'backup_runtime'
         _system_snapshot(manager, backup, host)
         record['phase'] = 'stopping'
         host.atomic(journal, record)
+        stage = 'stop_previous'
         _fixed_run(['stop', MANAGER_UNIT])
         lease = host.acquire_lease()
         try:
             _stop_services(manager, host)
             record['phase'] = 'applying'
             host.atomic(journal, record)
+            stage = 'copy_data'
             _copy_data(manager, backup, host)
+            stage = 'stage_candidate'
             agents = root / 'runtime/agent-releases'
             if agents.exists():
                 _durable_move(agents, backup / 'agent-releases')
@@ -583,26 +637,35 @@ def run(root, host):
             compose = _compose(backup, record['images'], root, host)
             host.atomic(root / 'runtime/compose.json', _fenced(compose))
             _fixed_run(['daemon-reload'])
+            stage = 'start_candidate'
             _restart(manager)
         finally:
             os.close(lease)
+        stage = 'candidate_manager'
         _start_manager(record, host)
         manager.installed = {**candidate, 'bind_ip': '127.0.0.1'}
         material = manager._controller_configuration_material()
         _wait_manager(manager, host)
+        stage = 'candidate_health'
         _wait_health(manager, material, host, fenced=True)
+        stage = 'publish_listener'
         record['phase'] = 'publishing'
         host.atomic(journal, record)
         host.atomic(root / 'runtime/compose.json', _fenced(compose, loopback=False))
         manager.installed = candidate
         _restart(manager)
+        stage = 'public_health'
         _wait_health(manager, material, host, fenced=True)
         record['phase'] = 'verified'
         host.atomic(journal, record)
+        stage = 'final_verification'
         _publish_verified(manager, record, backup, staged, host)
     except Exception:
         if record['phase'] in TERMINAL:
             raise  # The systemd retry reconciles a terminal journal and writer fence.
+        # Publish only fixed stage codes. Exception messages can include private
+        # filesystem paths or command data and are not update diagnostics.
+        record.setdefault('failure_stage', stage)
         if record['phase'] == 'queued':
             _terminal(root, record, 'blocked', host, 'The reviewed offline update could not be safely started')
         else:
@@ -612,11 +675,9 @@ def run(root, host):
                 if record['phase'] in TERMINAL:
                     raise
                 record['phase'] = 'rollback_failed'
+                record['error'] = 'Automatic recovery could not be verified; the protected backup was retained'
                 host.atomic(journal, record)
-                job = host.load(root / 'manager/jobs' / record['job_id'], {'id': record['job_id']})
-                job.update(status='error', phase='rollback_failed',
-                           error='Automatic recovery could not be verified; the protected backup was retained')
-                host.atomic(root / 'manager/jobs' / record['job_id'], job)
+                _receipt(root, record, host)
                 raise
 
 

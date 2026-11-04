@@ -172,6 +172,67 @@ def access_fields(group, description):
             'zone_usage':next(iter(counts)) if len(counts)==1 else 'mixed','zone_usage_counts':counts}
 
 
+def endpoint_access_snapshot(server):
+    """Project inbound runtime configuration without guessing packet precedence."""
+    from .firewall import snapshot_view
+    from .store import Store
+
+    snapshot = snapshot_view(server)
+    runtime = [rule for rule in snapshot['rules'] if rule['scope'] == 'runtime']
+    status = snapshot['status']
+    firewall_state = server.get('firewalld_state')
+    offline = Store._heartbeat_stale(dict(server)) if server.get('last_seen') else server.get('status') == 'offline'
+    if status == 'missing' or status == 'error' and not runtime:
+        state = 'unavailable'
+    elif snapshot['stale'] or offline or firewall_state in ('not-running', 'stopped', 'inactive', 'failed') or status == 'error':
+        state = 'stale'
+    elif status == 'partial':
+        state = 'partial'
+    else:
+        state = 'reported'
+    row_status = {'reported': 'Reported runtime', 'partial': 'Partial inventory', 'stale': 'Last reported'}.get(state)
+    reason = {
+        'unavailable': 'Current firewalld inventory is unavailable.',
+        'stale': 'Showing the last runtime snapshot. Current rules and bindings are unverified.',
+        'partial': 'The agent reported incomplete firewall inventory.',
+    }.get(state)
+
+    # The original snapshot can retain bindings after a collection failure.
+    # Preserve positive evidence but avoid inferring an unbound zone from a partial report.
+    default, bound, known = zone_usage_evidence({**snapshot, 'status': 'ok', 'stale': False})
+    evidence = default, bound, known if status == 'ok' else set()
+    bindings = {name: {'name': name, 'usage': 'active' if name in bound else 'default', 'is_default': name == default,
+                       'interfaces': [], 'sources': []} for name in sorted(bound | ({default} if default else set()))}
+    for rule in runtime:
+        if rule['zone'] in bindings and rule['kind'] in ('interface', 'source') and rule['value']:
+            field = 'interfaces' if rule['kind'] == 'interface' else 'sources'
+            bindings[rule['zone']][field].append(rule['value'])
+    for zone in bindings.values():
+        zone['interfaces'].sort()
+        zone['sources'].sort()
+
+    labels = {'target': 'Zone fallback', 'zone_target': 'Zone fallback', 'direct': 'Direct INPUT rule',
+              'port': 'Port rule', 'rich_rule': 'Rich rule'}
+    entries = []
+    for rule in runtime if row_status else ():
+        kind = rule['kind']
+        if kind not in ('service', *labels) or rule['action'] not in ('accept', 'drop', 'reject'):
+            continue
+        usage = access_zone_usage(rule, evidence)
+        if usage == 'unbound':
+            continue
+        description = access_description(kind, rule['value'])
+        fields = access_fields({'ports': rule['ports'], 'action': rule['action'], 'port_resolution': 'consistent',
+                                '_zone_usage': {usage: 1}}, description)
+        entries.append({'policy_name': rule['value'] if kind == 'service' else labels[kind],
+                        'sources': [fields['source']], 'source_groups': [], 'destination_port': fields['destination_port'],
+                        'destination': fields['destination'], 'action': fields['decision'], 'zone': rule['zone'],
+                        'status': row_status, 'zone_usage': usage})
+    entries.sort(key=lambda row: (row['zone'], row['policy_name'], row['destination_port'], row['sources'], row['action']))
+    return {'state': state, 'observed_at': snapshot.get('collected_at'), 'reason': reason, 'rows': entries, 'total': len(entries),
+            'zones': list(bindings.values())}
+
+
 def plan_summaries(store,db,selected=None,ports=(),search='',search_ids=None,limit=20):
     from .firewall import public_plan
     result=[]

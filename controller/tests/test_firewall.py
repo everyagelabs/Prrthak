@@ -5,6 +5,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from controller.firewall import WorkflowConflict, classify, fingerprints
+from controller.firewall_views import endpoint_access_snapshot
 from controller.store import Store, now, parse_time, stamp
 
 
@@ -57,6 +58,38 @@ class FirewallTests(unittest.TestCase):
         self.assertEqual(retained["status"], "error")
         with self.assertRaises(ValueError):
             self.draft(hosts=["a"])
+
+    def test_endpoint_access_lists_runtime_decisions_and_zone_bindings(self):
+        self.report("a", [
+            self.port, self.log,
+            {**self.port, "scope": "permanent", "value": "8443/tcp"},
+            {**self.port, "zone": "unused", "value": "5432/tcp"},
+            {**self.port, "zone": "unused", "kind": "target", "value": "default"},
+            {**self.port, "zone": "", "kind": "default_zone", "value": "public"},
+            {**self.port, "kind": "interface", "value": "ens192"},
+            {**self.port, "zone": "internal", "kind": "source", "value": "10.30.0.0/16"},
+            {**self.port, "zone": "internal", "kind": "rich_rule",
+             "value": 'rule family="ipv4" source address="10.30.8.0/24" port port="443" protocol="tcp" reject'},
+        ])
+        view = endpoint_access_snapshot(self.store.get("servers", "a"))
+        self.assertEqual(view["state"], "reported")
+        self.assertEqual(view["total"], 2)
+        self.assertEqual([(row["action"], row["destination_port"]) for row in view["rows"]], [("deny", "443/tcp"), ("allow", "80/tcp")])
+        self.assertEqual(view["rows"][0]["sources"], ["10.30.8.0/24"])
+        self.assertEqual(view["zones"][0]["sources"], ["10.30.0.0/16"])
+        self.assertEqual(view["zones"][1]["interfaces"], ["ens192"])
+        self.assertTrue(view["zones"][1]["is_default"])
+
+    def test_endpoint_access_labels_cached_inventory_after_agent_stops_reporting(self):
+        server = self.store.get("servers", "a")
+        server["last_seen"] = stamp(now() - timedelta(hours=1))
+        view = endpoint_access_snapshot(server)
+        self.assertEqual(view["state"], "stale")
+        self.assertEqual(view["rows"][0]["status"], "Last reported")
+        self.assertEqual(view["observed_at"], server["firewall_snapshot"]["collected_at"])
+        missing = endpoint_access_snapshot({key: value for key, value in server.items() if key != "firewall_snapshot"})
+        self.assertEqual(missing["state"], "unavailable")
+        self.assertEqual(missing["rows"], [])
 
     def test_preview_binds_explicit_targets_and_before_after_unmatched_impact(self):
         plan = self.draft(hosts=["a", "b", "c"], operation="replace", new_value="8080/tcp")

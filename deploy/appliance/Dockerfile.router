@@ -1,0 +1,5 @@
+FROM haproxy:3.2-alpine3.24@sha256:5893840576071e6217cd52ebdcc14f454c6f7a631056fa6f4e0f40d3cac4215b
+LABEL org.opencontainers.image.title="Prthak appliance router"
+COPY --chmod=0755 router-entrypoint.sh /usr/local/bin/prthak-router-entrypoint
+ENTRYPOINT ["/usr/local/bin/prthak-router-entrypoint"]
+CMD ["haproxy", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]

@@ -428,7 +428,7 @@ test('Admin and Super Admin create a pending server with explicit hostname, then
 });
 test('Read Only can inspect pending servers without add, token or retirement actions',async()=>{
  const env=await workspace('servers',{mode:'entra',role:'read_only',responses:{'/api/v1/server-reservations':{items:[pendingServer]}}});assert.match(env.element('#view-content').innerHTML,/future-api-21/);assert.doesNotMatch(env.element('#view-content').innerHTML,/data-action="(?:reservation-new|reservation-token|server-lifecycle-delete-review)"/);
- await env.click('server',{id:host.id});assert.doesNotMatch(env.element('#server-drawer').innerHTML,/data-action="server-lifecycle-delete-review"/);await env.click('reservation-new');await env.click('reservation-token-generate',{id:pendingServer.id});await env.click('server-lifecycle-delete-review',{id:host.id});await env.click('server-lifecycle-delete-confirm');assert.equal(mutations(env).length,0);
+ await env.click('server',{id:host.id});await env.click('firewall-drawer-tab',{tab:'services'});assert.doesNotMatch(env.element('#server-drawer').innerHTML,/data-action="server-lifecycle-delete-review"/);await env.click('reservation-new');await env.click('reservation-token-generate',{id:pendingServer.id});await env.click('server-lifecycle-delete-review',{id:host.id});await env.click('server-lifecycle-delete-confirm');assert.equal(mutations(env).length,0);
 });
 test('retiring either an active or pending registration requires a preview and an explicit plan-bound confirmation',async()=>{
  for(const [server,role] of [[host,'admin'],[pendingServer,'super_admin']]){const encoded=encodeURIComponent(server.id),plan=deletionPlan(server);const env=await workspace('servers',{mode:'entra',role,responses:{'/api/v1/server-reservations':{items:[pendingServer]},['/api/v1/servers/'+encoded+'/delete-preview']:plan,['/api/v1/servers/'+encoded+'/delete-confirm']:{id:server.id,status:'retired'}}});await env.click('server-lifecycle-delete-review',{id:server.id});let requests=mutations(env);assert.equal(requests.length,1);assert.equal(requests[0].url,'/api/v1/servers/'+encoded+'/delete-preview');assert.deepEqual(JSON.parse(requests[0].options.body),{});assertCookieMutation(requests[0]);let html=env.element('#modal-content').innerHTML;assert.match(html,new RegExp(server.hostname));assert.match(html,/Reviewed impact/);assert.match(html,/Historical audit records remain available/);assert.doesNotMatch(html,/data-action="server-lifecycle-delete-confirm" disabled/);
@@ -658,7 +658,7 @@ test('compact session history pages explicitly and background overview refresh p
 });
 test('server drawer has independent paged history and returning to page one keeps the fresh GET result',async()=>{
  const fleet=[compactSession('fleet')],first=Array.from({length:6},(_,i)=>compactSession('host-first-'+i)),second=[compactSession('host-second')],server={...host,learning_sessions:first,learning_session_pagination:{total:7,active_total:4,limit:6,offset:0,has_more:true}},env=await workspace('traffic',{mode:'entra',role:'read_only',responses:{'/api/v1/overview':compactOverview(fleet),'/api/v1/servers/host-1':server,'/api/v1/learning?limit=6&offset=6&server_id=host-1':compactSessionPage(second,{total:7,offset:6,has_more:false}),'/api/v1/learning?limit=6&offset=0&server_id=host-1':compactSessionPage([compactSession('fresh-first')],{total:1,has_more:false})}});
- await env.click('server',{id:'host-1'});assert.match(env.element('#server-drawer').innerHTML,/Loaded 6 · 1–6 of 7 sessions/);await env.click('learning-session-page',{serverId:'host-1',offset:'6'});assert.match(env.element('#server-drawer').innerHTML,/Loaded 1 · 7–7 of 7 sessions/);assert.match(env.element('#server-drawer').innerHTML,/Window host-second/);assert.equal(env.run('learningSessionPage().offset'),0);
+ await env.click('server',{id:'host-1'});await env.click('firewall-drawer-tab',{tab:'services'});assert.match(env.element('#server-drawer').innerHTML,/Loaded 6 · 1–6 of 7 sessions/);await env.click('learning-session-page',{serverId:'host-1',offset:'6'});assert.match(env.element('#server-drawer').innerHTML,/Loaded 1 · 7–7 of 7 sessions/);assert.match(env.element('#server-drawer').innerHTML,/Window host-second/);assert.equal(env.run('learningSessionPage().offset'),0);
  await env.click('learning-session-page',{serverId:'host-1',offset:'0'});assert.match(env.element('#server-drawer').innerHTML,/Window fresh-first/);assert.doesNotMatch(env.element('#server-drawer').innerHTML,/Window host-first-0/);assert.equal(mutations(env).length,0);
 });
 test('large compact membership stays exact while frozen host ports and failures load as a bounded separate page',async()=>{
@@ -954,8 +954,8 @@ test('bilingual scalable wordmarks replace the cube and keep accessible product 
 });
 
 test('server inventory and details use only agent-reported addresses and keep planning values explicitly unverified',async()=>{
- const env=await workspace('servers');env.context.unreportedHost={...host,ips:[],peer_ip:'198.51.100.10',remote_ip:'198.51.100.11',connection_ip:'198.51.100.12',forwarded_for:'198.51.100.13',planned_ips:['198.51.100.14']};env.run('state.data.servers=[unreportedHost]');let html=env.run('serverRows().html');assert.match(html,/Not reported/);assert.doesNotMatch(html,/198\.51\.100\./);html=env.run('serverDrawerServicesHTML(unreportedHost)');assert.match(html,/Agent IPs not reported/);assert.doesNotMatch(html,/198\.51\.100\./);
- env.run('unreportedHost.ips=["10.241.55.21"]');html=env.run('serverRows().html');assert.match(html,/10\.241\.55\.21/);assert.doesNotMatch(html,/198\.51\.100\./);html=env.run('serverDrawerServicesHTML(unreportedHost)');assert.match(html,/10\.241\.55\.21/);assert.doesNotMatch(html,/198\.51\.100\./);
+ const env=await workspace('servers');env.context.unreportedHost={...host,ips:[],peer_ip:'198.51.100.10',remote_ip:'198.51.100.11',connection_ip:'198.51.100.12',forwarded_for:'198.51.100.13',planned_ips:['198.51.100.14']};env.run('state.data.servers=[unreportedHost]');let html=env.run('serverRows().html');assert.match(html,/Not reported/);assert.doesNotMatch(html,/198\.51\.100\./);html=env.run('serverDrawerHeaderHTML(unreportedHost)');assert.match(html,/Agent IPs not reported/);assert.doesNotMatch(html,/198\.51\.100\./);
+ env.run('unreportedHost.ips=["10.241.55.21"]');html=env.run('serverRows().html');assert.match(html,/10\.241\.55\.21/);assert.doesNotMatch(html,/198\.51\.100\./);html=env.run('serverDrawerHeaderHTML(unreportedHost)');assert.match(html,/10\.241\.55\.21/);assert.doesNotMatch(html,/198\.51\.100\./);
  env.run('state.reservations=[{id:"planned-one",hostname:"future-server",ips:[],planned_ips:["198.51.100.14"]}]');html=env.run('serverReservationsHTML()');assert.match(html,/Planned addresses · unverified/);assert.match(html,/198\.51\.100\.14/);assert.match(html,/do not enter source-policy membership/);
 });
 
@@ -1361,7 +1361,7 @@ test('risk navigation uses real page hooks and escaped badges identify each risk
  const env=await workspace('risk',{mode:'entra',role:'read_only',responses:{'/api/v1/risk/findings?limit=100&offset=0':{items:[finding],total:1},'/api/v1/risk/catalog':{revision:1,rules:[],sources:[]},'/api/v1/risk/regulatory':{controls:[],sources:[]}}});
  assert.equal(env.run('R.viewFromPath("/risk")'),'risk');assert.match(env.element('#navigation').innerHTML,/Risk &amp; compliance/);
  env.context.riskyFixture={...host,risky_ports:[finding],risk_summary:{total:1}};env.context.riskyListener={port:23,protocol:'tcp',service:'Telnet'};
- const details=env.run('listenerDetailsHTML(riskyListener,riskyFixture)');assert.match(details,/Risky port/);assert.match(details,/Plaintext &lt;service&gt;/);assert.doesNotMatch(details,/<service>/);assert.match(env.run('serverDrawerServicesHTML(riskyFixture)'),/1 risk indicators/);
+ const details=env.run('listenerDetailsHTML(riskyListener,riskyFixture)');assert.match(details,/Risky port/);assert.match(details,/Plaintext &lt;service&gt;/);assert.doesNotMatch(details,/<service>/);assert.match(env.run('serverDrawerHeaderHTML(riskyFixture)'),/1 risk indicators/);
  assert.equal(mutations(env).length,0);
 });
 
@@ -1382,6 +1382,37 @@ test('endpoint default-deny opt-in is unchecked when absent and is true only fro
  const env=await workspace('servers',{mode:'entra',role:'admin'});env.context.endpointFixture={configuration_state:{controller_url:'https://prthak.test',management_sources:['10.1.0.1/32'],protected_ssh_ports:[2022],zone:'public'}};
  const html=env.run('endpointConfigurationFields(endpointFixture)');assert.match(html,/name="allow_host_default_deny"/);assert.doesNotMatch(html,/name="allow_host_default_deny"[^>]*checked/);assert.match(html,/host_default_deny_v1/);assert.match(html,/separate acknowledged push/);
  env.context.endpointForm={values:{server_id:'host-1',controller_url:'https://prthak.test',management_sources:'10.1.0.1/32',protected_ssh_ports:'2022',zone:'public'}};assert.equal(env.run('endpointConfigurationPayload(endpointForm).settings.allow_host_default_deny'),false);env.context.endpointForm.values.allow_host_default_deny='true';assert.equal(env.run('endpointConfigurationPayload(endpointForm).settings.allow_host_default_deny'),false);env.context.endpointForm.values.allow_host_default_deny='on';assert.equal(env.run('endpointConfigurationPayload(endpointForm).settings.allow_host_default_deny'),true);
+});
+
+test('endpoint drawer opens applied access first with distinct agent and runtime evidence and exact scoped pagination',async()=>{
+ const applied='/api/v1/servers/host-1/applied-policies';
+ const managedRow={policy_name:'Billing <edge>',sources:['192.0.2.20/32','192.0.2.21/32'],source_groups:['Approved & tested'],destination_port:'8443/tcp',action:'allow',status:'Agent confirmed'};
+ const discoveredRow={policy_name:'Reject custom port',sources:['198.51.100.0/24'],destination_port:'2222/tcp',action:'deny',status:'Last reported',zone:'external',zone_usage:'active'};
+ const evidence={server_id:host.id,managed:{state:'confirmed',rows:[managedRow],total:2,offset:0,limit:1,has_more:true},learned:{state:'unverified',rows:[],total:0,reason:'No matching authenticated receipt.'},discovered:{state:'last_reported',rows:[discoveredRow],total:1,offset:0,limit:1,zones:[{name:'external',interfaces:['eno1'],sources:['198.51.100.0/24']}]}};
+ const env=await workspace('servers',{mode:'entra',role:'read_only',responses:{
+  [applied]:evidence,[applied+'?managed_offset=1']:{...evidence,managed:{state:'confirmed',rows:[{...managedRow,policy_name:'Second approved policy'}],total:2,offset:1,limit:1,has_more:false}},
+ }});
+ await env.click('server',{id:host.id});
+ const html=env.element('#server-drawer').innerHTML;
+ assert.match(html,/aria-pressed="true">Access policies/);
+ for(const pattern of [/Policy name/,/Source IP or group/,/Destination port/,/Billing &lt;edge&gt;/,/Approved &amp; tested/,/192\.0\.2\.20\/32/,/8443\/tcp/,/>Allow</,/Agent confirmed/,/No matching authenticated receipt/,/>Deny</,/Last reported/,/external · Bound/,/Interfaces: eno1/,/Source bindings: 198\.51\.100\.0\/24/])assert.match(html,pattern);
+ assert.doesNotMatch(html,/<edge>|Desired bundle/);
+ await env.click('endpoint-access-page',{section:'managed',offset:'1'});
+ assert.match(env.element('#server-drawer').innerHTML,/Second approved policy/);
+ assert.match(env.element('#server-drawer').innerHTML,/2–2 of 2 rows/);
+ assert.match(env.element('#server-drawer').innerHTML,/Reject custom port/);
+ assert.equal(mutations(env).length,0);
+});
+test('endpoint access refresh rejects evidence returned for another server',async()=>{
+ const path='/api/v1/servers/host-1/applied-policies';
+ const env=await workspace('servers',{responses:{[path]:{server_id:'host-2',managed:{state:'confirmed',rows:[{policy_name:'Wrong endpoint allow'}]}}}});
+ await env.click('server',{id:host.id});
+ assert.match(env.element('#server-drawer').innerHTML,/policy response did not match this endpoint/);
+ assert.doesNotMatch(env.element('#server-drawer').innerHTML,/Wrong endpoint allow/);
+ env.context.apiResponses[path]={server_id:host.id,managed:{state:'none',rows:[]}};
+ await env.click('endpoint-access-refresh');
+ assert.match(env.element('#server-drawer').innerHTML,/No recorded rules/);
+ assert.doesNotMatch(env.element('#server-drawer').innerHTML,/policy response did not match this endpoint/);
 });
 
 test('endpoint drawer separates fast listener checks from full inventory and labels offline data as last reported',async()=>{
@@ -1681,9 +1712,11 @@ test('Platform Updates resumes binary chunks, checks the package and applies onl
  record=updateRecord({status:'applied',result:{phase:'committed',verified:false}});
  await env.click('platform-update-refresh');
  assert.match(env.element('#view-content').innerHTML,/Update verification unavailable/);
- record=updateRecord({status:'rolled_back',result:{phase:'rolled_back',verified:false,rolled_back:true}});
+ record=updateRecord({status:'rolled_back',failure_step:'Verify candidate HTTPS and the update fence on loopback',result:{phase:'rolled_back',verified:false,rolled_back:true}});
  await env.click('platform-update-refresh');
  assert.match(env.element('#view-content').innerHTML,/Previous controller restored/);
+ assert.match(env.element('#view-content').innerHTML,/Failure step/);
+ assert.match(env.element('#view-content').innerHTML,/Verify candidate HTTPS/);
 });
 
 test('Platform Updates keeps uploads disabled without the appliance capability or a Super Admin session',async()=>{

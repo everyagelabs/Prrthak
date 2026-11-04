@@ -2,8 +2,12 @@
 # Collect an x86_64 RHEL 9 controller RPM repository on a connected Docker host.
 set -euo pipefail
 
-if [ "$#" -ne 1 ]; then
-    echo "Usage: bash scripts/build-offline-controller-rpms.sh OUTPUT_DIRECTORY" >&2
+compatibility_source=
+if [ "$#" -eq 3 ] && [ "$1" = --gui-update-from ]; then
+    compatibility_source=$(cd -- "$2" && pwd -P)
+    shift 2
+elif [ "$#" -ne 1 ]; then
+    echo "Usage: bash scripts/build-offline-controller-rpms.sh [--gui-update-from VERIFIED_OFFLINE_PAYLOAD] OUTPUT_DIRECTORY" >&2
     exit 2
 fi
 
@@ -20,6 +24,7 @@ trap 'rm -rf -- "$staging"' EXIT
 
 # Keep the resolver's RPM database empty so the output includes dependencies
 # that happen to be installed in the builder, too. Enable only public sources.
+if [ -z "$compatibility_source" ]; then
 docker run --rm -i --platform linux/amd64 --entrypoint /bin/bash "$ubi_image" -s <<'COLLECT' | tar -xf - -C "$staging"
 set -euo pipefail
 export LC_ALL=C
@@ -52,6 +57,37 @@ dnf --noplugins --releasever=9 --installroot=/tmp/prthak-resolve \
     docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >&2
 tar -C /media -cf - keys rpms
 COLLECT
+else
+    # Older GUI updaters require a real local repository in the signed layout.
+    # GUI updates leave host packages alone, so one matching signed RPM suffices.
+    packages=("$compatibility_source"/rpms/docker-compose-plugin-*.x86_64.rpm)
+    key=$compatibility_source/keys/docker.asc
+    if [ "${#packages[@]}" -ne 1 ] || [ ! -f "${packages[0]}" ] || [ -L "${packages[0]}" ] || [ ! -f "$key" ] || [ -L "$key" ]; then
+        echo 'The verified offline payload must contain exactly one Docker Compose RPM and its vendor key.' >&2
+        exit 1
+    fi
+    mkdir -p "$staging/rpms" "$staging/keys"
+    cp -- "${packages[0]}" "$staging/rpms/"
+    cp -- "$key" "$staging/keys/docker.asc"
+    docker run --rm -i --network none --platform linux/amd64 \
+        --mount "type=bind,src=$staging,dst=/media,readonly" --entrypoint /bin/bash "$ubi_image" -s <<'VERIFY'
+set -euo pipefail
+export LC_ALL=C
+key_home=$(mktemp -d)
+gpg --no-options --batch --no-autostart --homedir "$key_home" --with-colons \
+    --show-keys --fingerprint /media/keys/docker.asc > "$key_home/key.txt"
+primary_fingerprint=$(awk -F: '
+    $1 == "pub" { primary = 1; count++ }
+    $1 == "fpr" && primary { print $10; primary = 0 }
+    END { if (count != 1 || primary) exit 1 }
+' "$key_home/key.txt")
+test "$primary_fingerprint" = 060A61C51B558A7F742B77AAC52FEB6B621E9F35
+rpmdb=$(mktemp -d)
+rpmkeys --dbpath "$rpmdb" --import /media/keys/docker.asc
+rpmkeys --dbpath "$rpmdb" --checksig --verbose /media/rpms/*.rpm | tee "$rpmdb/signature"
+grep -Ei 'Signature.*: OK$' "$rpmdb/signature" >/dev/null
+VERIFY
+fi
 
 # The Ubuntu container supplies only the repository indexing tool. The package
 # bytes come exclusively from the signed Red Hat and Docker RPM repositories.

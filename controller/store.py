@@ -566,11 +566,12 @@ class Store:
 
     def compile_all(self, db, *, publication_policy_id=None, track_automatic=True):
         from .managed import record_bundle
+        from .endpoint_applied_policies import freeze_contributors
         servers = self._all(db, "servers")
         from .application_groups import sync as sync_application_groups
         sync_application_groups(self, db, servers)
         from .service_groups import effective_bundles
-        compiled = effective_bundles(self, db, servers=servers)
+        compiled = effective_bundles(self, db, servers=servers, retain_contributors=True)
         matched = compiled["matched"]
         maximums = {row[0]: row[1] for row in db.execute("SELECT server_id,MAX(version) FROM bundle_history GROUP BY server_id").fetchall()}
         writes, histories, publications, automatic = [], [], [], []
@@ -596,6 +597,9 @@ class Store:
                 version = max(old.get("version", 0), maximums.get(server["id"], 0), recovery_floor) + 1
                 server["_compiled"] = {**payload, "server_id": server["id"], "version": version, "digest": compiled_digest, "generated_at": stamp(), "service_group_snapshots": compiled["snapshots"].get(server["id"], [])}
                 historical = {**server["_compiled"], "actor": "compiler", "reason": "Effective policy changed", "created_at": server["_compiled"]["generated_at"]}
+                attribution = freeze_contributors(compiled["contributors"].get(server["id"], []))
+                if attribution is not None and not (server.get("host_default_deny_state") or {}).get("removal_pending"):
+                    historical["policy_contributors"] = attribution
                 histories.append((server["id"] + ":" + str(version), server["id"], version, compiled_digest, historical["created_at"], json.dumps(historical, sort_keys=True)))
                 server["desired_version"] = version
                 if server.get("apply_status") not in ("error", "rolled_back"):

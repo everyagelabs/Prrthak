@@ -31,6 +31,9 @@ USAGE
 [ "$#" -ge 2 ] && [ "$1" = --release-root ] || fail 'Use install-controller.sh from the extracted release.'
 release_root=$2
 shift 2
+if [ -e "$release_root/OFFLINE-UPDATE-ONLY" ] || [ -L "$release_root/OFFLINE-UPDATE-ONLY" ]; then
+  fail 'Use Platform settings > Updates to upload this GUI-only archive and its detached signature.'
+fi
 prepare=1
 offline=0
 expect_value=

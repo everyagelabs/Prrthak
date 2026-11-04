@@ -74,6 +74,25 @@ class LearningPolicyTests(unittest.TestCase):
             self.store.prune()
         self.assertEqual(lp.recommendations(self.store, session["id"])["rows"][0]["count"], 3)
 
+    def test_endpoint_applied_view_keeps_learned_generation_and_historical_policy_name(self):
+        from controller.endpoint_applied_policies import listing
+
+        session = self.session()
+        self.batch(session, [("10.20.0.1", 80, 1)])
+        desired = self.assignment()
+        self.assertEqual(listing(self.store, "a")["learned"]["rows"], [])
+        self.ack(desired)
+        with self.store.meta() as db:
+            policy = self.store._get(db, "learning_allow_policies", desired["policy_ids"][0])
+            lp._put_policy(self.store, db, {**policy, "name": "Renamed afterwards"})
+        self.batch(session, [("10.20.0.2", 80, 1)], "next")
+        section = listing(self.store, "a")["learned"]
+        self.assertEqual((section["state"], section["version"]), ("confirmed", desired["generation"]))
+        self.assertEqual([(row["policy_name"], row["sources"], row["destination_port"], row["action"]) for row in section["rows"]],
+                         [("Learned · a", ["10.20.0.1/32"], "80/tcp", "allow")])
+        self.report("a", "10.1.0.3")
+        self.assertEqual(listing(self.store, "a")["learned"]["state"], "last_confirmed")
+
     def test_auto_excludes_management_and_nonunicast_sources(self):
         session = self.session()
         self.batch(session, [("10.20.0.1", 2022, 2), ("224.0.0.2", 80, 1), ("0.0.0.0", 80, 1), ("10.20.0.2", 80, 2)])

@@ -109,8 +109,7 @@ jobs:
           PRTHAK_SCANNER: aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
         run: |
           mkdir -p .local/ci/images
-          docker pull haproxy:3.2-alpine3.24@sha256:5893840576071e6217cd52ebdcc14f454c6f7a631056fa6f4e0f40d3cac4215b
-          docker tag haproxy:3.2-alpine3.24@sha256:5893840576071e6217cd52ebdcc14f454c6f7a631056fa6f4e0f40d3cac4215b prthak-ci-router
+          docker build -f deploy/appliance/Dockerfile.router -t prthak-ci-router deploy/appliance
           for component in controller database router etcd; do
             docker image save -o ".local/ci/images/$component.tar" "prthak-ci-$component"
             docker run --rm -v "$PWD/.local/ci/images:/scan" "$PRTHAK_SCANNER" image --no-progress --scanners vuln --format json --output "/scan/$component.json" --input "/scan/$component.tar"

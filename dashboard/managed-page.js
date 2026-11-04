@@ -169,6 +169,85 @@ async function managedBundleHistory(id,offset=0) {
   }catch(error){state.bundleHistoryErrors ||= {};state.bundleHistoryErrors[id]=error.message;if(state.detail===id&&state.detailData)renderServerDrawer(state.detailData);}
   finally{if(state.managedBundleSequence===sequence)state.managedBundleLoading=null;}
 }
+const endpointAccessSections=[
+  ['managed','Managed policies','Access rules delivered by Prṛthak.'],
+  ['learned','Learned policies','Allow rules installed from observed traffic.'],
+  ['discovered','Discovered runtime rules','Rules reported by firewalld. Zone bindings describe where the rules can apply.'],
+];
+
+async function loadEndpointAccessPolicies(id, offsets={}){
+  if(!id || state.detail!==id)return;
+  const prior=state.endpointAccess;
+  const query=new URLSearchParams();
+  for(const [key] of endpointAccessSections)if(offsets[key]>0)query.set(key+'_offset',String(offsets[key]));
+  const request={id,loading:true,data:Object.keys(offsets).length&&prior?.id===id?prior.data:null,error:''};
+  state.endpointAccess=request;
+  const active=()=>state.detail===id&&state.endpointAccess===request;
+  const redraw=()=>{if(active()&&state.drawerTab==='access')renderServerDrawer(state.detailData);};
+  redraw();
+  try{
+    const result=await api(`/servers/${encodeURIComponent(id)}/applied-policies${query.size?'?'+query:''}`);
+    if(result.server_id!==id)throw new Error('The policy response did not match this endpoint.');
+    request.data=result;
+  }catch(error){
+    request.error=error.message || 'Policy evidence could not be loaded.';
+  }finally{
+    request.loading=false;
+    redraw();
+  }
+}
+
+function endpointAccessPage(section,offset){
+  if(!endpointAccessSections.some(([key])=>key===section) || !Number.isSafeInteger(offset) || offset<0)return;
+  const data=state.endpointAccess?.data;
+  if(!data || state.endpointAccess.loading)return;
+  const offsets=Object.fromEntries(endpointAccessSections.map(([key])=>[key,key===section?offset:data[key]?.offset || 0]));
+  return loadEndpointAccessPolicies(state.detail,offsets);
+}
+
+function endpointAccessSourcesHTML(row){
+  const groups=Array.isArray(row.source_groups)?row.source_groups:[];
+  const sources=Array.isArray(row.sources)?row.sources:[];
+  const labels=sources.map(value=>`<span>${h(value)}</span>`);
+  const first=labels.slice(0,4).join('');
+  const rest=labels.length>4?`<details><summary>${format(labels.length-4)} more on this row</summary><div class="endpoint-access-source-values">${labels.slice(4).join('')}</div></details>`:'';
+  const count=row.source_count>sources.length?`<small>${format(num(row.source_offset)+1)}–${format(num(row.source_offset)+sources.length)} of ${format(row.source_count)} resolved sources</small>`:'';
+  return `${groups.length?`<strong>${h(groups.join(', '))}</strong>`:''}${sources.length?`<div class="endpoint-access-source-values">${first}</div>${rest}`:groups.length?'':'—'}${count}`;
+}
+
+const endpointAccessZoneUsage={active:'Bound',default:'Default zone',unbound:'No active binding',unknown:'Binding unknown',host:'Host-wide'};
+
+function endpointAccessZonesHTML(zones){
+  if(!Array.isArray(zones)||!zones.length)return '';
+  return `<details class="endpoint-access-zones"><summary>Reported zone bindings</summary><p class="help-text">Source bindings are client IP ranges or address sets. Interface bindings are server interface names. To match a server IP to an interface, check the server’s interface addresses.</p>${zones.map(zone=>`<div class="endpoint-access-zone"><strong>${h(zone.name)}${zone.is_default?' · Default':''}</strong><span>Interfaces: ${h(zone.interfaces?.join(', ') || 'None reported')}</span><span>Source bindings: ${h(zone.sources?.join(', ') || 'None reported')}</span></div>`).join('')}</details>`;
+}
+
+function endpointAccessSectionHTML(key,label,description,section={},loading=false){
+  const rows=Array.isArray(section.rows)?section.rows:[];
+  const states={
+    confirmed:['Agent confirmed',''],last_confirmed:['Last confirmed','warning'],
+    reported:['Reported runtime','neutral'],reported_runtime:['Reported runtime','neutral'],
+    last_reported:['Last reported','warning'],stale:['Last reported','warning'],
+    partial:['Partial inventory','warning'],unverified:['Unverified','warning'],none:['No recorded rules','neutral'],
+    unavailable:['Unavailable','warning'],
+  };
+  const [status,tone]=states[section.state] || states.unavailable;
+  const table=rows.length?`<div class="card table-scroll"><table class="managed-table endpoint-access-table" aria-label="${h(label)}"><thead><tr><th scope="col">Policy name</th><th scope="col">Source IP or group</th><th scope="col">Destination port</th><th scope="col">Action &amp; status</th></tr></thead><tbody>${rows.map(row=>{
+    const action=row.action==='allow'?badge('Allow'):row.action==='deny'?badge('Deny','danger'):badge('Unknown','neutral');
+    const zoneUsage=endpointAccessZoneUsage[row.zone_usage] || '';
+    return `<tr><td><strong>${h(row.policy_name || 'Firewall rule')}</strong>${row.zone?`<small>${h(row.zone)}${zoneUsage?' · '+h(zoneUsage):''}</small>`:''}${row.note?`<small>${h(row.note)}</small>`:''}</td><td>${endpointAccessSourcesHTML(row)}</td><td>${h(row.destination_port || 'Not reported')}${row.destination&&row.destination!=='Endpoint'?`<small>${h(row.destination)}</small>`:''}</td><td>${action}${row.status?`<small>${h(row.status)}</small>`:''}</td></tr>`;
+  }).join('')}</tbody></table></div>`:'';
+  const page=section.offset>0||section.has_more?`<div class="endpoint-access-pagination"><span>${rows.length?`${format(num(section.offset)+1)}–${format(num(section.offset)+rows.length)} of ${format(section.total)} rows`:'No rows on this page'}</span><div><button type="button" class="button secondary small" data-action="endpoint-access-page" data-section="${key}" data-offset="${Math.max(0,section.offset-section.limit)}" ${loading||!section.offset?'disabled':''}>Previous</button><button type="button" class="button secondary small" data-action="endpoint-access-page" data-section="${key}" data-offset="${num(section.offset)+num(section.limit)}" ${loading||!section.has_more?'disabled':''}>Next</button></div></div>`:'';
+  const reason=section.reason || (!rows.length&&!section.offset?(section.state==='none'?'No applied rules were recorded for this section.':'There is no verified rule list for this section.'): '');
+  const evidence=[description,section.version&&(key==='managed'?`Bundle v${section.version}`:`Generation ${section.version}`),section.observed_at&&timestamp(section.observed_at)].filter(Boolean);
+  return `<section class="endpoint-access-section" aria-label="${h(label)}"><div class="managed-review-heading"><strong>${h(label)}</strong>${badge(status,tone)}</div><p class="help-text">${h(evidence.join(' · '))}</p>${reason?`<p class="help-text">${h(reason)}</p>`:''}${key==='discovered'?endpointAccessZonesHTML(section.zones):''}${table}${page}</section>`;
+}
+
+function endpointAccessPoliciesHTML(server){
+  const request=state.endpointAccess?.id===server.id?state.endpointAccess:null;
+  return `<section aria-label="Endpoint access policies"><div class="managed-review-heading"><strong>Access policies on this server</strong><button type="button" class="text-button" data-action="endpoint-access-refresh" ${request?.loading?'disabled':''}>Refresh evidence</button></div><p class="help-text">See agent-confirmed rules and the latest reported firewall rules for this endpoint. Application reachability can depend on other network controls.</p>${request?.error?`<p class="form-error" role="alert">${h(request.error)}</p>`:''}${!request||request.loading?'<p class="help-text" role="status">Loading endpoint policy evidence…</p>':''}${request?.data?endpointAccessSections.map(([key,label,description])=>endpointAccessSectionHTML(key,label,description,request.data[key],request.loading)).join(''):''}</section>`;
+}
+
 function managedEndpointHTML(server) {
   const report=server.managed_enforcement || {},status=M.serverState(server),history=state.bundleHistories?.[server.id],error=state.bundleHistoryErrors?.[server.id],protection=M.protection(server),outcomes=[...(state.bundleOutcomes?.[server.id] || []),...(history || []).flatMap(item=>item.outcomes || [])];
   return `<div class="managed-review-heading"><strong>Managed policy status</strong>${managedBadge(status)}</div>${managedStageHTML(report.status)}<dl class="managed-summary"><div><dt>Desired bundle</dt><dd>v${num(server.desired_version)}</dd></div><div><dt>Agent-applied version</dt><dd>${num(server.applied_version)?'v'+num(server.applied_version):'Not applied'}</dd></div><div><dt>Last agent outcome</dt><dd>${h(M.label(M.outcomeState(report)))}</dd></div></dl>${report.version?`<p class="help-text">Last outcome refers to bundle v${num(report.version)}${num(report.version)!==num(server.desired_version)?'; the new desired bundle needs its own authorization':''}. Reported ${h(timestamp(report.updated_at))}.</p>`:''}${report.error||report.rollback_reason?`<div class="managed-error"><strong>${report.rollback_reason?'Rollback reason':'Agent error'}</strong><br>${h(report.rollback_reason || report.error)}</div>`:''}${report.approval_id?`<button class="text-button" data-action="managed-open-rollout" data-id="${h(report.approval_id)}">Inspect linked authorization</button>`:''}${status==='preview'?'<div class="managed-next-step">This endpoint remains in preview. Complete the protection configuration and lab validation before enabling its local enforcement opt-in and authorizing an exact bundle.</div>':''}${managedProtectionHTML(protection)}<div class="detail-heading">Immutable bundle history<button class="text-button" data-action="managed-refresh-bundles" data-id="${h(server.id)}">Refresh evidence</button></div>${error?`<div class="managed-error">${h(error)}</div>`:''}${history===undefined?'<p class="help-text">Loading compiled bundle history.</p>':history.length?history.map(record=>{const bundle=record.bundle || record;return `<article class="managed-history-row"><div><strong>Bundle v${num(bundle.version)}</strong><small>${h(timestamp(record.recorded_at || record.created_at || bundle.generated_at))} · ${h(record.reason || 'Compiled access intent')}</small><code class="managed-digest">${h(bundle.digest || 'Digest not reported')}</code><small>${record.outcomes?.length?record.outcomes.map(outcome=>h(M.label(M.outcomeState(outcome)))).join(' · '):'No linked agent outcome supplied'}${record.outcome_total?` · Latest of ${format(record.outcome_total)} report${record.outcome_total===1?'':'s'}`:''}</small></div><div class="managed-history-actions"><button class="text-button" data-action="managed-view-bound-bundle" data-id="${h(server.id)}" data-version="${num(bundle.version)}">Inspect</button>${record.outcome_total?`<button class="text-button" data-action="managed-view-outcomes" data-id="${h(server.id)}" data-version="${num(bundle.version)}">Outcome history</button>`:''}</div></article>`;}).join(''):'<div class="managed-empty">No compiled bundles have been recorded.</div>'}${managedPaginationHTML(state.bundleHistoryPages?.[server.id],'managed-bundles-page',server.id)}${outcomes.length?`<div class="detail-heading">Latest linked outcomes on this history page</div>${outcomes.slice(0,20).map(outcome=>`<div class="managed-history-row"><div><strong>v${num(outcome.version)} · ${h(M.label(M.outcomeState(outcome)))}</strong><small>${h(timestamp(outcome.updated_at || outcome.completed_at))}</small><p class="managed-result-message">${h(outcome.rollback_reason || outcome.error || outcome.message || '')}</p></div></div>`).join('')}`:''}<p class="help-text">Bundle versions describe immutable intent. Only a matching agent-applied version and successful enforcement report establish a completed rollout.</p>`;

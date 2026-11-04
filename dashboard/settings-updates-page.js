@@ -67,6 +67,8 @@ function platformUpdateProgressHTML(record) {
       <div><dt>Package</dt><dd>${h(record.name || 'Not reported')}</dd></div>
       <div><dt>Target version</dt><dd>${h(review.version || record.version || 'Not reported')}</dd></div>
       <div><dt>Reported stage</dt><dd>${h(record.result?.phase ? humanize(record.result.phase) : label)}</dd></div>
+      ${record.failure_step ? `<div><dt>Failure step</dt><dd>${h(record.failure_step)}</dd></div>` : ''}
+      ${record.recovery_step ? `<div><dt>Recovery step</dt><dd>${h(record.recovery_step)}</dd></div>` : ''}
     </dl>
     ${record.status === 'uploading' ? `<progress id="platform-update-transfer" max="${h(record.size)}" value="${h(record.offset)}" aria-label="Controller package uploaded"></progress>
       <p id="platform-update-transfer-label" class="help-text">${h(platformUpdateProgressLabel(record))}</p>` : ''}

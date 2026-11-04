@@ -26,6 +26,18 @@ LOG = logging.getLogger("Prṛthak.controller")
 OFFLINE_UPDATE_WRITE_FENCE = Path("/run/prthak-controller-update/pending")
 
 
+def offline_update_fenced():
+    try:
+        OFFLINE_UPDATE_WRITE_FENCE.lstat()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        # An unreadable mounted fence can belong to an older root updater.
+        # Readiness can still be probed while API requests and jobs stay fenced.
+        return True
+    return True
+
+
 class App:
     def __init__(self, store, demo=False, signer=None, dashboard=None, tokens=None, controller_id=None, site=None, management_health=None, auth=None, platform_manager=None, state_dir=None, controller_certificate=None, controller_private_key=None, application_listen=None):
         if demo and getattr(store, "ha", False):
@@ -111,10 +123,10 @@ class App:
         self.store.register_node({"id": self.controller_id, "site": self.site, "last_seen": stamp(), "ready": ready, "role": "active" if ready else "unavailable"})
 
     def start_jobs(self):
-        if self.recovering() or OFFLINE_UPDATE_WRITE_FENCE.exists():
+        if self.recovering() or offline_update_fenced():
             def after_recovery():
                 while not self.stop.is_set():
-                    if not self.recovering() and not OFFLINE_UPDATE_WRITE_FENCE.exists():
+                    if not self.recovering() and not offline_update_fenced():
                         self.start_jobs()
                         return
                     self.stop.wait(.25)
@@ -393,7 +405,7 @@ def handler_for(app):
                 result = app.readiness(self.headers.get("X-Prthak-Recovery-Admission"))
                 self.response(200 if result["status"] == "ready" else 503, result)
                 return
-            if path.startswith("/api/") and OFFLINE_UPDATE_WRITE_FENCE.exists():
+            if path.startswith("/api/") and offline_update_fenced():
                 self.close_connection = True
                 self.response(503, {"error": "A controller update is being verified. Access resumes after the update finishes."}, {"Retry-After": "3"})
                 return
@@ -1073,6 +1085,10 @@ def handler_for(app):
                     raise PermissionError("Admin role required for imported firewall changes")
                 value = app.store.confirm_firewall_change(parts[2], self.body(), actor, principal=principal) if parts[3] == "confirm" else app.store.cancel_firewall_change(parts[2], actor)
                 self.response(200, value)
+            elif len(parts) == 3 and parts[0] == "servers" and parts[2] == "applied-policies" and method == "GET":
+                from .endpoint_applied_policies import listing
+                paging = {key: int(query[key][0]) for key in ("limit", "managed_offset", "learned_offset", "discovered_offset") if key in query}
+                self.response(200, listing(app.store, parts[1], **paging))
             elif len(parts) in (3, 4, 5) and parts[0] == "servers" and parts[2] == "policy-history" and method == "GET":
                 from . import managed_views
                 if len(parts) == 3:

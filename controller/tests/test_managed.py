@@ -213,6 +213,50 @@ class ManagedPolicyTests(unittest.TestCase):
         self.assertEqual(events[0]["server_id"], "target")
         self.assertIn("8080/tcp", events[0]["message"])
 
+    def test_endpoint_applied_view_uses_exact_installed_named_rules_and_protected_sources(self):
+        from controller.endpoint_applied_policies import listing
+
+        group = self.store.save_group({"name": "Load balancers", "type": "static", "server_ids": ["source"]}, "admin")
+        policy = self.store.save_policy({**self.policy, "name": "API access via LB", "services": [
+            {"port": 8443, "protocol": "tcp", "source_group_ids": [group["id"]]},
+            {"port": 2022, "protocol": "tcp", "sources": ["192.0.2.1"]},
+        ]}, "admin", self.policy["id"])
+        self.assertEqual(listing(self.store, "target")["managed"]["rows"], [])
+        _, applied = self.mark_enforced()
+        self.store.save_policy({**policy, "name": "New desired name", "services": [{"port": 9090, "sources": ["192.0.2.2"]}]},
+                               "admin", policy["id"])
+        group["name"] = "Renamed source group"
+        self.store.save_group(group, "admin", group["id"])
+        view = listing(self.store, "target")["managed"]
+        self.assertEqual((view["state"], view["version"]), ("confirmed", applied["version"]))
+        by_port = [row for row in view["rows"] if row["destination_port"] == "8443/tcp"]
+        self.assertEqual([(row["policy_name"], row["action"]) for row in by_port],
+                         [("API access via LB", "allow"), ("Managed port fallback", "deny")])
+        self.assertEqual((by_port[0]["sources"], by_port[0]["source_groups"]), (["10.0.0.2/32"], ["Load balancers"]))
+        self.assertEqual(next(row["sources"] for row in view["rows"] if row["policy_name"] == "Protected SSH access"), ["10.99.0.0/24"])
+        self.assertNotIn("9090/tcp", {row["destination_port"] for row in view["rows"]})
+        history = self.store.policy_history("target", applied["version"])
+        self.assertTrue(all(row["sources"] is None for row in history["policy_contributors"]))
+        page = listing(self.store, "target", limit=1, managed_offset=1)["managed"]
+        self.assertEqual(page["rows"], view["rows"][1:2])
+        self.assertTrue(page["has_more"])
+
+    def test_endpoint_applied_view_marks_legacy_sources_and_offline_runtime(self):
+        from controller.endpoint_applied_policies import listing
+
+        _, applied = self.mark_enforced()
+        with self.store.meta() as db:
+            history = json.loads(db.execute("SELECT data FROM bundle_history WHERE server_id=? AND version=?", ("target", applied["version"])).fetchone()[0])
+            history.pop("policy_contributors")
+            db.execute("UPDATE bundle_history SET data=? WHERE server_id=? AND version=?", (json.dumps(history), "target", applied["version"]))
+        with patch("controller.store.now", return_value=now() + timedelta(hours=1)):
+            view = listing(self.store, "target")["managed"]
+        self.assertEqual(view["state"], "last_confirmed")
+        allowed = next(row for row in view["rows"] if row["action"] == "allow")
+        self.assertEqual(allowed["policy_name"], "Managed bundle")
+        self.assertEqual(allowed["sources"], ["10.0.0.2/32"])
+        self.assertIn("not recorded", allowed["note"])
+
     def test_last_policy_removal_requires_reviewed_cleanup_and_reports_deactivation_intent(self):
         _, old = self.mark_enforced()
         self.store.delete_policy(self.policy["id"], "admin")

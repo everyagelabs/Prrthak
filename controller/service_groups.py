@@ -170,7 +170,7 @@ def delete(store, identifier, actor):
         store.audit("service_group.deleted", actor, {"service_group_id": identifier, "name": group["name"], "revision": group["revision"]}, db)
 
 
-def effective_bundles(store, db, *, servers=None, policies=None, service_group_overrides=None):
+def effective_bundles(store, db, *, servers=None, policies=None, service_group_overrides=None, retain_contributors=False):
     """Resolve each selector/source group once per fleet compilation or preview."""
     from .locations import reserved, selector as normalize_selector
     servers = store._all(db, "servers") if servers is None else servers
@@ -196,9 +196,10 @@ def effective_bundles(store, db, *, servers=None, policies=None, service_group_o
             selector_cache[key] = set.intersection(*sets) if sets else set(all_ids)
         return selector_cache[key]
 
-    group_members = {}
+    group_members, group_names = {}, {}
     for group in store._all(db, "groups"):
         group_members[group["id"]] = (selected(group["selector"]) if group.get("selector") else set()) if group["type"] == "dynamic" else set(group.get("server_ids", [])) & all_ids
+        group_names[group["id"]] = group.get("name") or group["id"]
     service_groups = {group["id"]: group for group in store._all(db, "service_groups")}
     service_groups.update(service_group_overrides or {})
     address_cache, source_cache = {}, {}
@@ -213,6 +214,7 @@ def effective_bundles(store, db, *, servers=None, policies=None, service_group_o
         return sources
 
     rules_by_host, matched, targets_by_policy, snapshots_by_host = {}, {}, {}, {}
+    contributors = {}
     for policy in sorted(policies, key=lambda item: item["id"]):
         exact = exact_policy_endpoints(policy)
         group_ids = policy.get("group_ids", [])
@@ -220,7 +222,7 @@ def effective_bundles(store, db, *, servers=None, policies=None, service_group_o
                    set().union(*(group_members.get(identifier, set()) for identifier in group_ids)) if group_ids
                    else selected(policy.get("selector", {})))
         targets_by_policy[policy["id"]] = targets
-        resolved, used_groups = [], {}
+        resolved, used_groups, contributions = [], {}, []
         for service in policy["services"]:
             group_id = service.get("service_group_id")
             if group_id is not None:
@@ -248,6 +250,11 @@ def effective_bundles(store, db, *, servers=None, policies=None, service_group_o
                     source_cache[key] = addresses(group_members.get(source_group_id, set()))
                 sources.update(source_cache[key])
             resolved.extend((port, sources) for port in ports)
+            if retain_contributors and policy["mode"] == "enforce" and sources:
+                labels = [group_names[identifier] for identifier in service.get("source_group_ids", [])]
+                labels.extend(f"{key}={value}" for key, value in sorted(selector.items()))
+                contributions.append({"policy_name": policy["name"], "policy_id": policy["id"],
+                                      "ports": ports, "sources": sorted(sources), "source_groups": labels})
         for identifier in targets:
             matched.setdefault(identifier, []).append(policy["id"])
             snapshots_by_host.setdefault(identifier, {}).update(used_groups)
@@ -257,6 +264,8 @@ def effective_bundles(store, db, *, servers=None, policies=None, service_group_o
                 rule = rules.setdefault(key, {"port": port["port"], "protocol": port["protocol"], "monitor": set(), "enforce": set(), "modes": set()})
                 rule["modes"].add(policy["mode"])
                 rule[policy["mode"]].update(sources)
+            if contributions:
+                contributors.setdefault(identifier, []).extend(contributions)
     payloads = {}
     for server in servers:
         services = []
@@ -267,4 +276,5 @@ def effective_bundles(store, db, *, servers=None, policies=None, service_group_o
         from .host_default_deny import payload as host_default_deny_payload
         payloads[server["id"]] = host_default_deny_payload(server, payloads[server["id"]])
     return {"servers": servers, "payloads": payloads, "matched": matched, "targets": targets_by_policy,
+            "contributors": contributors,
             "snapshots": {identifier: [groups[key] for key in sorted(groups)] for identifier, groups in snapshots_by_host.items()}}

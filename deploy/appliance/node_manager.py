@@ -2110,6 +2110,10 @@ os.execv(sys.executable, [sys.executable, '-I', str(code / 'node_manager.py'), '
 
 
 def install(args):
+    release=Path(args.release_root).resolve()
+    update_only=release/'OFFLINE-UPDATE-ONLY'
+    if update_only.exists() or update_only.is_symlink():
+        raise Blocked('Use Platform settings > Updates to upload this GUI-only archive and its detached signature')
     values,local,root=installer_configuration(args)
     if args.validate_only:
         provider=initial_environment(values)
@@ -2129,7 +2133,6 @@ def install(args):
     local=database_runtime_settings(root,local)
     private_dir(root);private_dir(root/'config');private_dir(root/'manager/jobs');private_dir(root/'manager/reviews')
     project='prthak-'+local['appliance_id'][:12];engine=Engine(root,project);engine.check()
-    release=Path(args.release_root).resolve()
     if getattr(args, 'offline', False):
         images = offline_appliance_images(engine, release/'offline')
     else:
@@ -2195,6 +2198,8 @@ def main():
             update = active_offline_update(root)
             if update and load('/run/prthak-appliance/controller-update-start.json', {}) != {'job_id':update['job_id']}:
                 raise Blocked('Wait for the offline update recovery service before starting the manager')
+            if update:
+                offline_update_module().repair_fence(root, update, sys.modules[__name__])
             manager=Manager(root)
             manager.recover_web_tls()
             serve(manager)

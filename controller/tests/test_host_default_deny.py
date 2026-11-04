@@ -91,6 +91,21 @@ class HostDefaultDenyTests(unittest.TestCase):
         self.assertEqual(deny.listing(self.store)['items'][0]['status'],'review_required')
         self.push();self.assertTrue(self.store.assignment('target')[0]['enforcement']['authorized'])
 
+    def test_endpoint_applied_view_shows_only_the_confirmed_whole_host_fallback(self):
+        from controller.endpoint_applied_policies import listing
+
+        self.push()
+        self.assertEqual(listing(self.store, 'target')['managed']['rows'], [])
+        self.receipt()
+        active = listing(self.store, 'target')['managed']['rows']
+        self.assertEqual([row['policy_name'] for row in active if row['action'] == 'deny'], ['Whole-server default deny'])
+        self.assertTrue(any(row['policy_name'] == 'Protected SSH access' for row in active))
+        self.push('disable')
+        self.receipt()
+        retained = listing(self.store, 'target')['managed']
+        self.assertFalse(any(row['action'] == 'deny' for row in retained['rows']))
+        self.assertIn('retained', retained['reason'])
+
     def test_membership_is_frozen_and_future_members_never_inherit_the_mode(self):
         self.store.update_server('target',{'tags':{'application':'billing'}},self.maker['actor'])
         group=self.store.save_group({'name':'Billing','type':'dynamic','selector':{'application':'billing'}},self.maker['actor'])

@@ -110,11 +110,22 @@ class OfflineUpdatesTests(unittest.TestCase):
         self.client.lose_submission = False
         self.api.apply(identifier, {"confirmation": CONFIRMATION})
         self.assertEqual(self.client.requests[-1], self.client.requests[-2])
-        self.client.jobs[self.client.requests[-1]["request_id"]] = {"status": "error", "result": {
-            "phase": "rolled_back", "verified": False, "rolled_back": True,
+        job = {"status": "error", "result": {
+            "phase": "rolled_back", "verified": False, "rolled_back": True, "failure_stage": "candidate_health",
         }}
+        self.client.jobs[self.client.requests[-1]["request_id"]] = job
         restarted = OfflineUpdates(self.app.platform, self.principal, self.client)
-        self.assertEqual(restarted.status()["update"]["status"], "rolled_back")
+        receipt = restarted.status()["update"]
+        self.assertEqual(receipt["status"], "rolled_back")
+        self.assertIn("candidate HTTPS", receipt["failure_step"])
+        job["result"].update(phase="rollback_failed", rolled_back=False, recovery_stage="verify_previous")
+        receipt = restarted.status()["update"]
+        self.assertEqual(receipt["status"], "failed")
+        self.assertIn("restored controller", receipt["recovery_step"])
+        job["result"].update(failure_stage="private Docker output", recovery_stage=["unrecognized value"])
+        receipt = restarted.status()["update"]
+        self.assertNotIn("failure_step", receipt)
+        self.assertNotIn("recovery_step", receipt)
         self.assertTrue(restarted.cancel(identifier)["cancelled"])
         self.assertIsNone(restarted.status()["update"])
         self.assertFalse(restarted._archive(identifier).exists())
@@ -168,4 +179,15 @@ class OfflineUpdatesTests(unittest.TestCase):
                 status, response = self.request(method, path, csrf=False)
                 self.assertEqual(status, 503)
                 self.assertIn("being verified", response["error"])
+        self.assertEqual(self.client.requests, [])
+
+    def test_inaccessible_legacy_fence_keeps_api_closed_during_manager_repair(self):
+        class LegacyFence:
+            def lstat(self):
+                raise PermissionError('mode 0700 root directory')
+
+        with patch("controller.app.OFFLINE_UPDATE_WRITE_FENCE", LegacyFence()):
+            status, response = self.request("GET", "", csrf=False)
+        self.assertEqual(status, 503)
+        self.assertIn("being verified", response["error"])
         self.assertEqual(self.client.requests, [])

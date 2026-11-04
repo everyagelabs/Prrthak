@@ -350,7 +350,8 @@ def refresh_host(store, db, server):
     from .service_health import sync as sync_service_expectations
     if sync_service_expectations(server, services, "learned"):
         store._put(db, "servers", server)
-    policy_ids = sorted(policy["id"] for policy in policies if not policy.get("removed", policy["status"] == "removed"))
+    active_ids = {policy["id"] for policy in policies if not policy.get("removed", policy["status"] == "removed")}
+    policy_ids = sorted(active_ids)
     authorities = [_authority(store, db, policy) for policy in sorted(policies, key=lambda row: row["id"])]
     bindings = _bindings(server)
     fingerprint = digest({"services": services, "policy_ids": policy_ids, "authorities": authorities, **bindings})
@@ -361,7 +362,8 @@ def refresh_host(store, db, server):
     binding = digest_binding(server["id"], generation, body_digest, bindings["protection_digest"], bindings["target_ips_digest"])
     host = {**(old or {}), "id": server["id"], "server_id": server["id"], "generation": generation, "digest": body_digest, "services": services, "policy_ids": policy_ids, "authorities": authorities, **bindings, "binding_digest": binding, "fingerprint": fingerprint, "updated_at": stamp(), "status": "pending"}
     store._put(db, "learning_allow_hosts", host)
-    store._put(db, "learning_allow_history", {**host, "id": server["id"] + ":" + str(generation)})
+    names = {policy["id"]: policy["name"] for policy in policies if policy["id"] in active_ids and policy.get("name")}
+    store._put(db, "learning_allow_history", {**host, "id": server["id"] + ":" + str(generation), "policy_names": names})
     return host
 
 
