@@ -20,11 +20,18 @@ type activationFake struct {
 	writes                                 []string
 	counter                                bool
 	foreignRace                            bool
+	allowTarget                            string
+	noActiveZone                           bool
 }
 
 func (f *activationFake) Run(ctx context.Context, name string, args ...string) (string, error) {
-	if name == "firewall-offline-cmd" && len(args) == 1 && args[0] == "--get-default-zone" {
-		return f.defaultZone, nil
+	if name == "firewall-offline-cmd" && len(args) == 1 {
+		switch args[0] {
+		case "--get-default-zone":
+			return f.defaultZone, nil
+		case "--check-config":
+			return "", nil
+		}
 	}
 	if name == "systemctl" {
 		op := args[0]
@@ -53,6 +60,9 @@ func (f *activationFake) Run(ctx context.Context, name string, args ...string) (
 				*active = true
 			case "stop":
 				*active = false
+				if unit == "firewalld.service" && f.dropRuntimeBinding {
+					f.runtimeInterfaces = f.permanentInterfaces
+				}
 			case "enable":
 				*enabled = true
 			case "disable":
@@ -74,13 +84,33 @@ func (f *activationFake) Run(ctx context.Context, name string, args ...string) (
 		return `s "no"`, nil
 	}
 	if name == "firewall-cmd" {
+		_, allowFileErr := os.Stat(f.root + activationDefaultAllowPath)
+		hasAllow := allowFileErr == nil
 		scope := "runtime"
 		for _, arg := range args {
+			if arg == "--get-active-zones" && f.noActiveZone {
+				return "", nil
+			}
 			if arg == "--permanent" {
 				scope = "permanent"
 			}
 		}
 		for _, arg := range args {
+			if arg == "--get-active-policies" && f.active && hasAllow {
+				return activationDefaultAllowName + "\n  ingress-zones: ANY\n  egress-zones: HOST\n", nil
+			}
+			if arg == "--policy="+activationDefaultAllowName && hasAllow {
+				target := f.allowTarget
+				if target == "" {
+					target = "ACCEPT"
+				}
+				return activationDefaultAllowName + "\n  priority: 32767\n  target: " + target +
+					"\n  ingress-zones: ANY\n  egress-zones: HOST\n  services:\n  ports:\n  protocols:\n" +
+					"  masquerade: no\n  forward-ports:\n  source-ports:\n  icmp-blocks:\n  rich rules:\n", nil
+			}
+			if arg == "--zone=public" && hasAllow && args[len(args)-1] == "--list-all" {
+				return "public\n  target: default\n", nil
+			}
 			if arg == "--state" {
 				if f.active {
 					return "running", nil
@@ -88,6 +118,9 @@ func (f *activationFake) Run(ctx context.Context, name string, args ...string) (
 				return "not running", errors.New("inactive")
 			}
 			if arg == "--get-policies" {
+				if hasAllow {
+					return activationDefaultAllowName, nil
+				}
 				if f.policies[scope] != "" {
 					return activationEgressPolicy, nil
 				}
@@ -179,7 +212,7 @@ func activationFixture(t *testing.T, operation string) (*Agent, *activationFake,
 			t.Fatal(err)
 		}
 	}
-	f := &activationFake{sourceBankFake: source, root: root, policies: map[string]string{}, active: operation == "prepare_egress" || operation == "enable_native_counters", ufwActive: operation == "migrate_ufw", ufwEnabled: operation == "migrate_ufw"}
+	f := &activationFake{sourceBankFake: source, root: root, policies: map[string]string{}, active: !startsFirewalld(operation), enabled: operation == "deactivate_existing", ufwActive: operation == "migrate_ufw", ufwEnabled: operation == "migrate_ufw"}
 	a.Commands = f
 	a.Config.Zone = "public"
 	files, err := activationConfigFiles(root)
@@ -187,6 +220,9 @@ func activationFixture(t *testing.T, operation string) (*Agent, *activationFake,
 		t.Fatal(err)
 	}
 	facts := FirewallActivationAssessment{FirewalldActive: f.active, FirewalldEnabled: "disabled", UFWActive: f.ufwActive, UFWEnabled: "disabled", Version: "2.3.1", Backend: "nftables", Zone: "public", IPs: []string{"10.0.0.1"}, SSHPorts: protection.SSHPorts, ManagementSources: protection.ManagementSources, DiscoveredPorts: []FirewallActivationPort{{2022, "tcp"}, {8443, "tcp"}}, TranslatedRules: []FirewallActivationRule{}, CanApply: true, Blockers: []string{}, Notes: []string{}}
+	if f.enabled {
+		facts.FirewalldEnabled = "enabled"
+	}
 	if f.ufwEnabled {
 		facts.UFWEnabled = "enabled"
 	}
@@ -273,6 +309,169 @@ func TestFirewallActivationFourReviewedOperationsAndIdempotentReceipts(t *testin
 		})
 	}
 }
+
+func TestFirewallActivationStartsAndEnablesWithoutSSHConfiguration(t *testing.T) {
+	a, commands, baseline, protection := activationFixture(t, "activate_existing")
+	a.Config.ManagementSources = nil
+	a.Config.ProtectedSSHPorts = nil
+	baseline.Assessment.SSHPorts = []int{}
+	baseline.Assessment.ManagementSources = []string{}
+	baseline.Digest = activationDigest(baseline)
+	protection.SSHPorts = []int{}
+	protection.ManagementSources = []string{}
+	protection.Digest = protectionDigest(protection)
+	a.firewallActivation.Baseline = func() (firewallActivationBaseline, Protection, error) {
+		return baseline, protection, nil
+	}
+	handled, err := a.processFirewallActivation(context.Background(), activationPolicy(t, a, "activate_existing", baseline, protection))
+	receipt := ReadFirewallActivationStatus(a.Config.StateDir)
+	if err != nil || !handled || !commands.active || !commands.enabled || receipt == nil || receipt.Status != "completed" {
+		t.Fatal("startup without SSH settings did not complete", handled, err, receipt)
+	}
+}
+
+func TestFirewallActivationStopsAndDisablesWithRollback(t *testing.T) {
+	for _, failHealth := range []bool{false, true} {
+		name := "verified stop"
+		if failHealth {
+			name = "restore after lost controller"
+		}
+		t.Run(name, func(t *testing.T) {
+			a, commands, baseline, protection := activationFixture(t, "deactivate_existing")
+			if failHealth {
+				commands.permanentInterfaces = ""
+				commands.dropRuntimeBinding = true
+				bank, err := a.sourceBankBaseline(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				baseline.SourceBanks = &bank
+				baseline.Digest = activationDigest(baseline)
+				a.firewallActivation.Baseline = func() (firewallActivationBaseline, Protection, error) {
+					return baseline, protection, nil
+				}
+				a.firewallActivation.Health = func(_ FirewallActivationAssignment, _ Protection) error {
+					if !commands.enabled {
+						return errors.New("outbound controller check failed")
+					}
+					return nil
+				}
+			}
+			_, err := a.processFirewallActivation(context.Background(), activationPolicy(t, a, "deactivate_existing", baseline, protection))
+			receipt := ReadFirewallActivationStatus(a.Config.StateDir)
+			if failHealth {
+				if err == nil || receipt == nil || receipt.Status != "rolled_back" || !commands.active || !commands.enabled ||
+					commands.runtimeInterfaces != "eth0" || commands.permanentInterfaces != "" {
+					t.Fatal("original firewalld activity and enablement were not restored", err, receipt)
+				}
+			} else if err != nil || receipt == nil || receipt.Status != "completed" || commands.active || commands.enabled {
+				t.Fatal("firewalld did not become stopped and disabled", err, receipt)
+			}
+			if err := activationFilesMatch(commands.root, baseline.Files, nil, false); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestFirewallActivationDefaultAllowRequiresExactReadbackAndRollsBack(t *testing.T) {
+	for _, target := range []string{"ACCEPT", "REJECT"} {
+		t.Run(target, func(t *testing.T) {
+			a, commands, baseline, protection := activationFixture(t, "activate_allow_all")
+			commands.defaultZone = "public"
+			commands.activeZones = "public\n  interfaces: eth0\n"
+			if target == "ACCEPT" {
+				commands.noActiveZone = true
+				commands.runtimeInterfaces = ""
+			}
+			commands.allowTarget = target
+			_, err := a.processFirewallActivation(context.Background(), activationPolicy(t, a, "activate_allow_all", baseline, protection))
+			receipt := ReadFirewallActivationStatus(a.Config.StateDir)
+			raw, readErr := os.ReadFile(commands.root + activationDefaultAllowPath)
+			if target == "ACCEPT" {
+				if err != nil || receipt == nil || receipt.Status != "completed" || !commands.active || !commands.enabled ||
+					readErr != nil || string(raw) != activationDefaultAllowXML {
+					t.Fatal("reviewed default inbound allow was not verified", err, readErr, receipt)
+				}
+			} else if err == nil || receipt == nil || receipt.Status != "rolled_back" || commands.active || commands.enabled ||
+				!os.IsNotExist(readErr) {
+				t.Fatal("different native policy did not restore previous state", err, readErr, receipt)
+			}
+		})
+	}
+}
+
+func TestFirewallActivationBroadChangesRefuseLocalEnforcement(t *testing.T) {
+	for _, operation := range []string{"activate_allow_all", "deactivate_existing"} {
+		t.Run(operation, func(t *testing.T) {
+			a, commands, baseline, protection := activationFixture(t, operation)
+			a.State.ManagedBundle = &ManagedBundle{HostDefaultDeny: true}
+			_, err := a.processFirewallActivation(context.Background(), activationPolicy(t, a, operation, baseline, protection))
+			receipt := ReadFirewallActivationStatus(a.Config.StateDir)
+			if err == nil || receipt == nil || receipt.Status != "blocked" || len(commands.writes) != 0 {
+				t.Fatal("managed default deny did not block service change", err, receipt)
+			}
+		})
+	}
+}
+
+func TestFirewallActivationAgentOnlyWitnessRequiresExactFreshControllerProof(t *testing.T) {
+	a, _, baseline, protection := activationFixture(t, "activate_existing")
+	a.inventory = &Report{IPs: []string{"192.0.2.10"}}
+	policy := activationPolicy(t, a, "activate_existing", baseline, protection)
+	request := *policy.FirewallActivation
+	now := time.Now().UTC()
+	nonce := strings.Repeat("a", 32)
+	witness := firewallActivationWitness{
+		ConfigurationDigest: request.ConfigurationDigest,
+		HealthMode:          "agent_controller_mtls",
+		sourceBankWitness: sourceBankWitness{
+			ID:             request.ID,
+			PlanDigest:     request.PlanDigest,
+			BaselineDigest: request.BaselineDigest,
+			managedWitness: managedWitness{
+				Nonce: nonce, ServerID: policy.ServerID, ProtectionDigest: protection.Digest,
+				CheckedAt: now, ControllerOK: true, Status: "healthy",
+			},
+		},
+	}
+	// The local baseline can still discover SSH. The controller proves only
+	// the outbound connection for this operation, even with that information.
+	if len(protection.SSHPorts) == 0 {
+		t.Fatal("fixture must include a discovered SSH listener")
+	}
+	if err := a.validateFirewallActivationWitness(witness, policy, request, protection, nonce, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, operation := range []string{"activate_allow_all", "deactivate_existing"} {
+		request.Operation = operation
+		if err := a.validateFirewallActivationWitness(witness, policy, request, protection, nonce, now); err != nil {
+			t.Fatalf("%s did not accept verified controller-only proof: %v", operation, err)
+		}
+	}
+	for name, change := range map[string]func(*firewallActivationWitness){
+		"legacy mode":          func(w *firewallActivationWitness) { w.HealthMode = "" },
+		"configuration change": func(w *firewallActivationWitness) { w.ConfigurationDigest = shaText("other config") },
+		"wrong plan":           func(w *firewallActivationWitness) { w.PlanDigest = shaText("another plan") },
+		"wrong nonce":          func(w *firewallActivationWitness) { w.Nonce = "different nonce" },
+		"stale receipt":        func(w *firewallActivationWitness) { w.CheckedAt = now.Add(-time.Minute) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			changed := witness
+			change(&changed)
+			if err := a.validateFirewallActivationWitness(changed, policy, request, protection, nonce, now); err == nil {
+				t.Fatal("invalid controller proof accepted")
+			}
+		})
+	}
+	for _, operation := range []string{"migrate_ufw", "prepare_egress", "enable_native_counters"} {
+		request.Operation = operation
+		if err := a.validateFirewallActivationWitness(witness, policy, request, protection, nonce, now); err == nil {
+			t.Fatalf("%s accepted controller-only proof", operation)
+		}
+	}
+}
+
 func TestFirewallActivationPostHealthFailureRestoresEveryOriginalFileAndService(t *testing.T) {
 	for _, operation := range []string{"activate_existing", "migrate_ufw", "prepare_egress", "enable_native_counters"} {
 		t.Run(operation, func(t *testing.T) {

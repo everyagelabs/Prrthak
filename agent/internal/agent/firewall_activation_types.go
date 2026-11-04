@@ -6,7 +6,10 @@ import (
 	"time"
 )
 
-const FirewallActivationCapability = "firewall_activation_v1"
+const (
+	FirewallActivationCapability          = "firewall_activation_v1"
+	FirewallActivationAgentOnlyCapability = "firewall_activation_agent_only_v1"
+)
 
 type FirewallActivationAssignment struct {
 	ID                  string          `json:"id"`

@@ -90,7 +90,7 @@ func (a *Agent) inventoryReport(ctx context.Context, now time.Time) Report {
 	if !a.Simulate {
 		report.NetworkControl = ReadNetworkControlReport(a.Config.StateDir)
 		report.FirewallActivation = ReadFirewallActivationStatus(a.Config.StateDir)
-		report.Capabilities = append(report.Capabilities, EgressControlCapability, QuarantineCapability, FirewallActivationCapability)
+		report.Capabilities = append(report.Capabilities, EgressControlCapability, QuarantineCapability, FirewallActivationCapability, FirewallActivationAgentOnlyCapability)
 		report.Capabilities = append(report.Capabilities, SourceBankPreparationCapability)
 		report.Capabilities = append(report.Capabilities, PolicyVerificationCapability)
 		report.Capabilities = append(report.Capabilities, "endpoint_configuration_v1", "approval_mode_proof_v1", HostDefaultDenyCapability)

@@ -79,7 +79,10 @@ func activationEgressMarker(stateDir, nonce string) error {
 	return atomicJSON(path, canonicalEgressTemplate(nonce))
 }
 
-type activationFilteredRunner struct{ CommandRunner }
+type activationFilteredRunner struct {
+	CommandRunner
+	ignorePolicy string
+}
 
 func (runner activationFilteredRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
 	text, err := runner.CommandRunner.Run(ctx, name, args...)
@@ -90,7 +93,7 @@ func (runner activationFilteredRunner) Run(ctx context.Context, name string, arg
 		if arg == "--get-policies" {
 			names := []string{}
 			for _, entry := range strings.Fields(text) {
-				if entry != activationEgressPolicy {
+				if entry != runner.ignorePolicy {
 					names = append(names, entry)
 				}
 			}
@@ -105,7 +108,7 @@ func (runner activationFilteredRunner) Run(ctx context.Context, name string, arg
 // without treating our newly reviewed inert template as a foreign policy.
 func activationOriginalPolicyBaseline(ctx context.Context, commands CommandRunner, stateDir string, original sourceBankBaseline, global string, created bool) (sourceBankBaseline, error) {
 	if created {
-		commands = activationFilteredRunner{commands}
+		commands = activationFilteredRunner{CommandRunner: commands, ignorePolicy: activationEgressPolicy}
 	}
 	inspection := &Agent{Config: Config{StateDir: stateDir}, Commands: commands, sourceBankOwnedRulesOverride: original.OwnedRules, sourceBankConfigDigest: func() (string, error) { return global, nil }}
 	return inspection.sourceBankBaseline(ctx)

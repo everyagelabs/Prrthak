@@ -520,7 +520,8 @@ def handler_for(app):
                         raise PermissionError("Native firewall maintenance witnesses are unavailable in demo mode")
                     payload = self.body()
                     self.response(200, app.management_health._check(lambda: verify(app.store, identity, payload), payload,
-                        ("server_id", "id", "plan_digest", "baseline_digest", "protection_digest", "configuration_digest")))
+                        ("server_id", "id", "plan_digest", "baseline_digest", "protection_digest", "configuration_digest"),
+                        allow_agent_only_activation=True))
                 elif path == "/api/v1/agent/policy" and method == "GET":
                     value, etag = app.store.assignment(identity)
                     if app.platform:

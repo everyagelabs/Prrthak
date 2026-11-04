@@ -94,6 +94,12 @@ func activationMigrationZoneXML(nonce string, facts FirewallActivationAssessment
 func (a *Agent) prepareActivationFiles(ctx context.Context, journal *managedJournal) error {
 	value := journal.FirewallActivation
 	root := a.activationRoot()
+	if value.Assignment.Operation == "activate_allow_all" {
+		if _, err := os.Lstat(root + activationDefaultAllowPath); !os.IsNotExist(err) {
+			return errors.New("the default inbound allow policy path already exists or cannot be inspected")
+		}
+		value.ChangedFiles[activationDefaultAllowPath] = firewallActivationFile{After: []byte(activationDefaultAllowXML), Mode: 0644, Absent: true}
+	}
 	if value.Assignment.Operation == "enable_native_counters" {
 		name := "/etc/firewalld/firewalld.conf"
 		raw, err := readPreparationSystemFile(root, name, 65536)

@@ -39,6 +39,35 @@ test('starting firewalld waits for the exact assessment and a blocked review has
 test('exact review displays translated source/port/action and both fresh confirmation controls',()=>{
  const f=fixture(),review=plan();f.c.showFirewallActivationReview(review);const html=f.modals[0].html;assert.match(html,/10.30.0.0\/24/);assert.match(html,/8443\/tcp/);assert.match(html,/2022/);assert.match(html,/native-baseline/);assert.match(html,/No second administrator is required/);assert.match(html,/<input id="firewall-activation-ack" name="acknowledge_downtime" type="checkbox">/);assert.equal(f.c.firewallActivationReviewUsable(review,review.challenge,false),false);assert.equal(f.c.firewallActivationReviewUsable(review,'yes',true),false);assert.equal(f.c.firewallActivationReviewUsable(review,review.challenge,true),true);review.can_apply=false;assert.equal(f.c.firewallActivationReviewUsable(review,review.challenge,true),false);
 });
+test('starting the existing configuration explains outbound health without asking for SSH setup',async()=>{
+ const endpoint=page().items[0];
+ endpoint.receipt={...endpoint.receipt,target_operation:'activate_existing',assessment:{...facts(),ssh_ports:[],management_sources:[]}};
+ const f=fixture(()=>({items:[endpoint]}));
+ f.c.showFirewallActivationForm(endpoint.server_id,'activate_existing');
+ assert.match(f.modals.at(-1).html,/need no controller SSH access/);
+ f.c.showFirewallActivationReview({...plan(),operation:'activate_existing',targets:[{assessment:endpoint.receipt.assessment}]});
+ assert.match(f.modals.at(-1).html,/authenticated outbound control connection from the agent/);
+ assert.doesNotMatch(f.modals.at(-1).html,/Protected actual SSH listeners|Restricted management sources/);
+ await f.c.firewallActivationAction({dataset:{action:'firewall-activation-inspect',id:endpoint.server_id}});
+ assert.doesNotMatch(f.modals.at(-1).html,/Configure protected SSH access/);
+});
+test('stop and default allow are explicit reviewed choices with distinct consequences',()=>{
+ const f=fixture(),endpoint=f.c.state.firewallActivationPage.items[0];
+ endpoint.firewalld_state='running';
+ assert.match(f.c.firewallActivationHTML(),/data-operation="deactivate_existing">Stop and disable/);
+ f.c.showFirewallActivationForm(endpoint.server_id,'activate_existing');
+ assert.match(f.modals.at(-1).html,/value="activate_existing" selected/);
+ assert.doesNotMatch(f.modals.at(-1).html,/value="activate_allow_all" selected/);
+ for(const [operation,consequence] of [
+  ['activate_allow_all',/otherwise unmatched inbound traffic to any local port/],
+  ['deactivate_existing',/removes its host traffic filtering/]
+ ]){
+  f.c.showFirewallActivationReview({...plan(),operation});
+  const html=f.modals.at(-1).html;
+  assert.match(html,consequence);
+  assert.doesNotMatch(html,/Protected actual SSH listeners|type="checkbox" checked/);
+ }
+});
 test('push resets manual acknowledgement and sends exact frozen identity; assigned is not applied',async()=>{
  const f=fixture(),review=plan();f.c.showFirewallActivationReview(review);f.element('#firewall-activation-ack').checked=true;await f.c.firewallActivationSubmit(submit({id:'firewall-activation-review-form',values:{confirmation_phrase:review.challenge}}));assert.equal(f.requests[0].url,'/firewall-activation/review-one/confirm');assert.equal(f.requests[0].options.body.confirmation_nonce,'exact-nonce');assert.equal(f.requests[0].options.body.digest,'exact-digest');assert.equal(f.requests[0].options.body.acknowledge_downtime,true);assert.equal(f.element('#firewall-activation-ack').checked,false);assert.match(f.messages[0],/queued is not applied/);
 });

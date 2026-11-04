@@ -56,6 +56,26 @@ func (a *Agent) firewallActivationStatus(value FirewallActivationReport) error {
 	}
 	return atomicJSON(firewallActivationStatusPath(a.Config.StateDir), value)
 }
+
+func (a *Agent) checkBroadFirewallMaintenance(policy *Policy) error {
+	managed, learned := a.State.ManagedBundle, a.State.LearningAllowBundle
+	if a.Config.Enforce || managed != nil && (managed.HostDefaultDeny || len(managed.Rules) != 0 || len(managed.IPSets) != 0) ||
+		learned != nil && (len(learned.Rules) != 0 || len(learned.IPSets) != 0) ||
+		policy.HostDefaultDeny || policy.Enforcement != nil && policy.Enforcement.Authorized ||
+		policy.LearningAllow != nil || len(policy.FirewallChanges) != 0 ||
+		policy.EgressBundle != nil || policy.Quarantine != nil {
+		return errors.New("remove active or pending firewall enforcement before stopping firewalld or enabling the default inbound allow")
+	}
+	network, err := readNetworkState(a.Config.StateDir)
+	if err != nil {
+		return errors.New("local egress and quarantine state cannot be verified")
+	}
+	if len(network.EgressRules) != 0 || network.QuarantinePlan != nil {
+		return errors.New("remove active egress and quarantine controls before this firewall operation")
+	}
+	return nil
+}
+
 func activationReceipt(request *FirewallActivationAssignment) FirewallActivationReport {
 	return FirewallActivationReport{SchemaVersion: 1, ID: request.ID, Operation: request.Operation, TargetOperation: request.TargetOperation, PlanDigest: request.PlanDigest, BaselineDigest: request.BaselineDigest, ProtectionDigest: request.ProtectionDigest, ConfigurationDigest: request.ConfigurationDigest, Status: "blocked", CheckedAt: time.Now().UTC()}
 }
@@ -149,6 +169,11 @@ func (a *Agent) processFirewallActivation(ctx context.Context, policy *Policy) (
 	if reason := a.sourceBankActivityBlocker(a.currentTime()); reason != "" {
 		return fail(errors.New(reason))
 	}
+	if request.TargetOperation == "deactivate_existing" || request.TargetOperation == "activate_allow_all" {
+		if err := a.checkBroadFirewallMaintenance(policy); err != nil {
+			return fail(err)
+		}
+	}
 	bounded, cancel := context.WithDeadline(ctx, request.ExpiresAt)
 	defer cancel()
 	ctx = bounded
@@ -171,7 +196,7 @@ func (a *Agent) processFirewallActivation(ctx context.Context, policy *Policy) (
 		return fail(err)
 	}
 	if !baseline.Assessment.CanApply || request.BaselineDigest != baseline.Digest || request.ProtectionDigest != protection.Digest {
-		return fail(errors.New("native firewall/SSH baseline changed; assess and review again"))
+		return fail(errors.New("native firewall maintenance baseline changed; assess and review again"))
 	}
 	if err := a.firewallActivationHealth(ctx, policy, *request, protection); err != nil {
 		return fail(err)
@@ -186,6 +211,12 @@ func (a *Agent) processFirewallActivation(ctx context.Context, policy *Policy) (
 	}
 	a.forceDiscovery = true
 	return true, nil
+}
+
+type firewallActivationWitness struct {
+	ConfigurationDigest string `json:"configuration_digest"`
+	HealthMode          string `json:"health_mode"`
+	sourceBankWitness
 }
 
 func (a *Agent) firewallActivationHealth(ctx context.Context, policy *Policy, request FirewallActivationAssignment, protection Protection) error {
@@ -207,21 +238,36 @@ func (a *Agent) firewallActivationHealth(ctx context.Context, policy *Policy, re
 		return err
 	}
 	nonce := hex.EncodeToString(raw)
-	response, err := fresh.request(ctx, "POST", "/api/v1/agent/firewall-activation/check", map[string]any{"id": request.ID, "plan_digest": request.PlanDigest, "baseline_digest": request.BaselineDigest, "protection_digest": request.ProtectionDigest, "configuration_digest": request.ConfigurationDigest, "nonce": nonce, "ssh_ports": protection.SSHPorts}, "")
+	ports := protection.SSHPorts
+	if agentOnlyFirewallActivation(request.Operation) {
+		ports = []int{}
+	}
+	response, err := fresh.request(ctx, "POST", "/api/v1/agent/firewall-activation/check", map[string]any{"id": request.ID, "plan_digest": request.PlanDigest, "baseline_digest": request.BaselineDigest, "protection_digest": request.ProtectionDigest, "configuration_digest": request.ConfigurationDigest, "nonce": nonce, "ssh_ports": ports}, "")
 	if err != nil {
 		return err
 	}
-	var witness struct {
-		ConfigurationDigest string `json:"configuration_digest"`
-		sourceBankWitness
-	}
+	var witness firewallActivationWitness
 	if err := decodeResponse(response, &witness); err != nil {
 		return err
 	}
+	return a.validateFirewallActivationWitness(witness, policy, request, protection, nonce, time.Now().UTC())
+}
+
+func (a *Agent) validateFirewallActivationWitness(witness firewallActivationWitness, policy *Policy, request FirewallActivationAssignment, protection Protection, nonce string, now time.Time) error {
 	if witness.ConfigurationDigest != request.ConfigurationDigest {
 		return errors.New("firewall maintenance witness configuration changed")
 	}
-	return a.validateSourceBankWitness(witness.sourceBankWitness, policy, &SourceBankPreparationAssignment{ID: request.ID, PlanDigest: request.PlanDigest, BaselineDigest: request.BaselineDigest}, protection, nonce, time.Now().UTC())
+	if agentOnlyFirewallActivation(request.Operation) {
+		if witness.HealthMode != "agent_controller_mtls" || len(witness.SSHChecks) != 0 {
+			return errors.New("firewalld service maintenance requires the agent/controller mTLS health witness")
+		}
+		// Use the exact protection digest while verifying the controller path
+		// independently of any SSH listeners discovered in the native baseline.
+		protection.SSHPorts = nil
+	} else if witness.HealthMode != "" {
+		return errors.New("this firewall maintenance operation requires its SSH management witness")
+	}
+	return a.validateSourceBankWitness(witness.sourceBankWitness, policy, &SourceBankPreparationAssignment{ID: request.ID, PlanDigest: request.PlanDigest, BaselineDigest: request.BaselineDigest}, protection, nonce, now)
 }
 
 func (a *Agent) applyFirewallActivation(ctx context.Context, policy *Policy, request *FirewallActivationAssignment, baseline firewallActivationBaseline, protection Protection, result *FirewallActivationReport) error {
@@ -295,6 +341,11 @@ func (a *Agent) applyFirewallActivation(ctx context.Context, policy *Policy, req
 		}
 	}
 	operation := request.Operation
+	if operation == "activate_allow_all" {
+		if _, err := a.Commands.Run(ctx, "firewall-offline-cmd", "--check-config"); err != nil {
+			return rollback(errors.New("firewalld did not validate the complete staged permanent configuration"))
+		}
+	}
 	if operation == "migrate_ufw" {
 		journal.FirewallActivation.UFWDisabled = true
 		journal.FirewallActivation.ServiceChanged = true
@@ -309,21 +360,36 @@ func (a *Agent) applyFirewallActivation(ctx context.Context, policy *Policy, req
 			return rollback(errors.New("UFW did not become inactive after its exact reviewed disable"))
 		}
 	}
-	if operation == "activate_existing" || operation == "migrate_ufw" {
+	if startsFirewalld(operation) || operation == "deactivate_existing" {
+		if operation == "deactivate_existing" {
+			readback, err := firewallDeactivationCommands(ctx, a.Commands, baseline.Files)
+			if err != nil {
+				return rollback(err)
+			}
+			current, err := activationOriginalPolicyBaseline(ctx, readback, a.Config.StateDir, *baseline.SourceBanks, baseline.Global, false)
+			if err != nil || !reflect.DeepEqual(current, *baseline.SourceBanks) {
+				return rollback(errors.New("live firewall configuration changed since review; stopping it could lose runtime rules"))
+			}
+		}
 		journal.FirewallActivation.ServiceChanged = true
 		if err := saveManagedJournal(path, journal); err != nil {
 			return rollback(err)
 		}
-		if _, err := a.Commands.Run(ctx, "systemctl", "start", "firewalld.service"); err != nil {
-			return rollback(err)
-		}
-		if text, err := a.Commands.Run(ctx, "firewall-cmd", "--state"); err != nil || strings.TrimSpace(text) != "running" {
-			return rollback(errors.New("firewalld startup read-back failed"))
-		}
-		if operation == "activate_existing" && a.Config.Zone == "" {
-			zone, _, err := a.managedTopology(ctx)
-			if err != nil || zone != baseline.Assessment.Zone {
-				return rollback(errors.New("the active zone did not match the reviewed permanent default zone"))
+		if operation == "deactivate_existing" {
+			if _, err := a.Commands.Run(ctx, "systemctl", "stop", "firewalld.service"); err != nil {
+				return rollback(err)
+			}
+			if baseline.NativeTopology != "" {
+				if _, err := activationInactiveContext(ctx, a.Commands, a.activationRoot(), false, nil); err != nil {
+					return rollback(err)
+				}
+			}
+		} else {
+			if _, err := a.Commands.Run(ctx, "systemctl", "start", "firewalld.service"); err != nil {
+				return rollback(err)
+			}
+			if text, err := a.Commands.Run(ctx, "firewall-cmd", "--state"); err != nil || strings.TrimSpace(text) != "running" {
+				return rollback(errors.New("firewalld startup read-back failed"))
 			}
 		}
 	} else {
@@ -399,7 +465,7 @@ func (a *Agent) applyFirewallActivation(ctx context.Context, policy *Policy, req
 	if err := a.firewallActivationHealth(ctx, policy, *request, protection); err != nil {
 		return rollback(err)
 	}
-	if operation == "activate_existing" || operation == "migrate_ufw" {
+	if startsFirewalld(operation) {
 		if _, err := a.Commands.Run(ctx, "systemctl", "enable", "firewalld.service"); err != nil {
 			return rollback(err)
 		}
@@ -409,10 +475,25 @@ func (a *Agent) applyFirewallActivation(ctx context.Context, policy *Policy, req
 			}
 		}
 	}
+	if operation == "deactivate_existing" {
+		if _, err := a.Commands.Run(ctx, "systemctl", "disable", "firewalld.service"); err != nil {
+			return rollback(err)
+		}
+	}
+	if operation == "activate_existing" || operation == "activate_allow_all" {
+		if err := activationDefaultZoneReadback(ctx, a.Commands, baseline.Assessment.Zone); err != nil {
+			return rollback(err)
+		}
+	}
+	if operation == "activate_allow_all" {
+		if err := activationDefaultAllowReadback(ctx, a.Commands, baseline.Assessment.Zone); err != nil {
+			return rollback(err)
+		}
+	}
 	if err := a.firewallActivationHealth(ctx, policy, *request, protection); err != nil {
 		return rollback(err)
 	}
-	if !baseline.Assessment.FirewalldActive && baseline.NativeTopology != "" {
+	if baseline.NativeTopology != "" {
 		var topology string
 		var err error
 		if a.firewallActivation != nil && a.firewallActivation.Topology != nil {
@@ -427,9 +508,13 @@ func (a *Agent) applyFirewallActivation(ctx context.Context, policy *Policy, req
 	if err := activationAppliedFilesMatch(a.activationRoot(), journal.FirewallActivation); err != nil {
 		return rollback(err)
 	}
-	if operation == "activate_existing" || operation == "migrate_ufw" {
+	if startsFirewalld(operation) || operation == "deactivate_existing" {
 		active, enabled, err := activationUnitState(ctx, a.Commands, "firewalld")
-		if err != nil || !active || enabled != "enabled" {
+		wantActive, wantEnabled := startsFirewalld(operation), "disabled"
+		if wantActive {
+			wantEnabled = "enabled"
+		}
+		if err != nil || active != wantActive || enabled != wantEnabled {
 			return rollback(errors.New("firewalld service activity/enablement did not verify"))
 		}
 		if operation == "migrate_ufw" {

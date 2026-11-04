@@ -42,6 +42,11 @@ func validateFirewallActivationJournal(journal *managedJournal) error {
 			return errors.New("invalid owned maintenance file bytes/mode")
 		}
 		switch value.Assignment.Operation {
+		case "activate_allow_all":
+			if name != activationDefaultAllowPath || !change.Absent || change.Mode != 0644 || len(change.Before) != 0 ||
+				string(change.After) != activationDefaultAllowXML || value.Baseline.Files[name] != "" {
+				return errors.New("default inbound allow rollback path or policy bytes differ from the exact supported scope")
+			}
 		case "enable_native_counters":
 			if name != "/etc/firewalld/firewalld.conf" || change.Absent || value.Baseline.Files[name] != activationFileFingerprint(change.Before, change.Mode) {
 				return errors.New("native-counter rollback path differs from protected baseline")
@@ -69,7 +74,8 @@ func validateFirewallActivationJournal(journal *managedJournal) error {
 			return errors.New("this maintenance operation cannot edit system configuration files")
 		}
 	}
-	if value.Assignment.Operation == "enable_native_counters" && len(value.ChangedFiles) != 1 || value.Assignment.Operation == "migrate_ufw" && len(value.ChangedFiles) != 2 || value.CreatedPolicy && value.Assignment.Operation != "prepare_egress" || value.Reloaded && value.Baseline.SourceBanks == nil {
+	if (value.Assignment.Operation == "enable_native_counters" || value.Assignment.Operation == "activate_allow_all") && len(value.ChangedFiles) != 1 || value.Assignment.Operation == "migrate_ufw" && len(value.ChangedFiles) != 2 || value.CreatedPolicy && value.Assignment.Operation != "prepare_egress" || value.Reloaded && value.Baseline.SourceBanks == nil ||
+		value.Assignment.Operation == "deactivate_existing" && (!value.Baseline.Assessment.FirewalldActive || value.Baseline.SourceBanks == nil) {
 		return errors.New("firewall maintenance journal operation/files are inconsistent")
 	}
 	if value.Baseline.SourceBanks != nil {
@@ -236,7 +242,18 @@ func rollbackFirewallActivation(ctx context.Context, commands CommandRunner, pat
 		if err := activationRestoreUnit(ctx, commands, "firewalld", value.Baseline.Assessment.FirewalldActive, value.Baseline.Assessment.FirewalldEnabled); err != nil {
 			return failure(err)
 		}
-		if value.Baseline.Assessment.UFWEnabled != "absent" {
+		if value.Assignment.Operation == "deactivate_existing" {
+			if value.Baseline.NativeTopology != "" {
+				restored, err := activationHostContext(ctx, commands, root)
+				if err != nil || restored != value.Baseline.NativeTopology {
+					return failure(errors.New("original host topology did not verify before restoring firewalld interface bindings"))
+				}
+			}
+			if err := restoreSourceBankBindings(ctx, commands, value.Baseline.SourceBanks.RuntimeBindings); err != nil {
+				return failure(err)
+			}
+		}
+		if (value.Assignment.Operation == "migrate_ufw" || value.Assignment.Operation == "activate_existing") && value.Baseline.Assessment.UFWEnabled != "absent" {
 			if err := activationRestoreUnit(ctx, commands, "ufw", value.Baseline.Assessment.UFWActive, value.Baseline.Assessment.UFWEnabled); err != nil {
 				return failure(err)
 			}
@@ -260,7 +277,15 @@ func rollbackFirewallActivation(ctx context.Context, commands CommandRunner, pat
 		return failure(err)
 	}
 	if value.Baseline.SourceBanks != nil {
-		restored, err := activationOriginalPolicyBaseline(ctx, commands, stateDir, *value.Baseline.SourceBanks, value.Baseline.Global, false)
+		readback := commands
+		if value.Assignment.Operation == "deactivate_existing" {
+			var err error
+			readback, err = firewallDeactivationCommands(ctx, commands, value.Baseline.Files)
+			if err != nil {
+				return failure(err)
+			}
+		}
+		restored, err := activationOriginalPolicyBaseline(ctx, readback, stateDir, *value.Baseline.SourceBanks, value.Baseline.Global, false)
 		if err != nil || !reflect.DeepEqual(restored, *value.Baseline.SourceBanks) {
 			return failure(errors.New("original firewall rules/bindings were not verified after maintenance rollback"))
 		}

@@ -77,12 +77,18 @@ Installation itself does not switch managers. An Admin can separately request as
 
 | Operation | What it changes |
 |---|---|
-| Activate existing firewalld | Starts/enables the existing configuration after exact native assessment and management protection review |
+| Activate existing firewalld | Starts and enables the existing configuration through the upgraded agent. This operation uses the agent’s outbound mTLS connection and requires no inbound SSH from the controller. |
+| Start firewalld with default allow | On eligible hosts, adds a persistent fallback to accept otherwise unmatched inbound traffic to the host from any source. Explicit deny rules keep precedence. |
+| Stop and disable firewalld | Stops the service and disables it at boot on eligible hosts. This removes active firewalld filtering. |
 | Supported UFW conversion | Stages only the narrowly supported inbound numeric source/port profile, preserves a protected backup, and switches managers with health/rollback checks |
 | Prepare egress | Creates the exact owned HOST-to-ANY template needed before outbound updates |
 | Enable native counters | Changes only the verified compatible NftablesCounters setting and performs the reviewed reload |
 
 This is distinct maintenance authority: activation/cutover can affect live traffic even on a monitor-mode agent. It requires its own signed exact job, typed confirmation, downtime acknowledgement, fresh health and independent rollback. It does not silently turn on ordinary inbound/outbound policy opt-ins.
+
+For start and stop actions, the health check verifies the agent’s outbound control connection. SSH and application reachability can change when the firewall state changes. UFW conversion, egress preparation, and counter enablement still use the configured protected SSH path.
+
+The default-allow start leaves its firewalld policy on disk across stop and reboot. Remove that native policy through an approved host change before enabling managed enforcement. Upgrade the controller before upgrading enrolled agents to use these actions.
 
 UFW conversion is deliberately restrictive. Routed/NAT rules, unknown before/after hooks, application profiles and custom or unmapped contexts block automatic conversion. Router/bridge/container/namespace contexts, foreign kernel hooks and a mismatch between live UFW rules and their persisted translation also block it. Review/export remains available; do not assume every default Ubuntu UFW configuration qualifies. A failed or uncertain recovery is reported as an error rather than successful activation.
 

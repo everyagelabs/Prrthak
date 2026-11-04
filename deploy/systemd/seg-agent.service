@@ -24,6 +24,8 @@ PrivateTmp=yes
 ProtectHome=yes
 ProtectSystem=strict
 ReadWritePaths=/var/lib/seg-agent
+# A reviewed default-allow start can stage one journaled firewalld policy.
+ReadWritePaths=-/etc/firewalld/policies
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes

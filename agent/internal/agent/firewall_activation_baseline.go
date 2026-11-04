@@ -28,10 +28,18 @@ func firewallActivationStatusPath(stateDir string) string {
 }
 func firewallActivationOperation(operation string) bool {
 	switch operation {
-	case "activate_existing", "migrate_ufw", "prepare_egress", "enable_native_counters":
+	case "activate_existing", "activate_allow_all", "deactivate_existing", "migrate_ufw", "prepare_egress", "enable_native_counters":
 		return true
 	}
 	return false
+}
+
+func agentOnlyFirewallActivation(operation string) bool {
+	return operation == "activate_existing" || operation == "activate_allow_all" || operation == "deactivate_existing"
+}
+
+func startsFirewalld(operation string) bool {
+	return operation == "activate_existing" || operation == "activate_allow_all" || operation == "migrate_ufw"
 }
 func (a *Agent) activationRoot() string {
 	if a.firewallActivation != nil {
@@ -139,6 +147,37 @@ func inactiveActivationZone(ctx context.Context, commands CommandRunner, configu
 	return zone, nil
 }
 
+func activationDefaultZoneReadback(ctx context.Context, commands CommandRunner, expected string) error {
+	text, err := commands.Run(ctx, "firewall-cmd", "--get-default-zone")
+	if err != nil || strings.TrimSpace(text) != expected {
+		return errors.New("the active zone did not match the reviewed permanent default zone")
+	}
+	text, err = commands.Run(ctx, "firewall-cmd", "--get-active-zones")
+	names, valid := activePolicyNames(text)
+	if err != nil || !valid || len(names) > 1 || len(names) == 1 && names[0] != expected {
+		return errors.New("the active zone did not match the reviewed permanent default zone")
+	}
+	text, err = commands.Run(ctx, "firewall-cmd", "--list-all-zones")
+	zones, parseErr := parseFirewallZones(text)
+	if err != nil || parseErr != nil {
+		return errors.New("the complete runtime zone bindings could not be verified")
+	}
+	matches := 0
+	for _, zone := range zones {
+		if len(zone.Fields["sources"]) != 0 ||
+			zone.Name != expected && (zone.Active || len(zone.Fields["interfaces"]) != 0) {
+			return errors.New("a runtime interface or source binding differs from the reviewed default zone")
+		}
+		if zone.Name == expected {
+			matches++
+		}
+	}
+	if matches != 1 {
+		return errors.New("the runtime default zone was not found exactly once")
+	}
+	return nil
+}
+
 func (a *Agent) firewallActivationBaseline(ctx context.Context, operation string) (firewallActivationBaseline, Protection, error) {
 	if a.firewallActivation != nil && a.firewallActivation.Baseline != nil {
 		return a.firewallActivation.Baseline()
@@ -172,14 +211,14 @@ func (a *Agent) firewallActivationBaseline(ctx context.Context, operation string
 			return block(err)
 		}
 	}
-	if operation == "prepare_egress" || operation == "enable_native_counters" {
+	if !startsFirewalld(operation) {
 		if !facts.FirewalldActive || facts.UFWActive {
 			return block(errors.New("this operation requires running firewalld with UFW inactive"))
 		}
 	} else if facts.FirewalldActive {
 		return block(errors.New("firewalld is already active; activation will not restart a running firewall"))
 	}
-	if operation == "activate_existing" && facts.UFWActive {
+	if agentOnlyFirewallActivation(operation) && facts.UFWActive {
 		return block(errors.New("UFW is active; use the separate assessed migration workflow"))
 	}
 	if operation == "migrate_ufw" && !facts.UFWActive {
@@ -213,8 +252,8 @@ func (a *Agent) firewallActivationBaseline(ctx context.Context, operation string
 		}
 		options[strings.TrimSpace(key)] = strings.TrimSpace(val)
 	}
-	if !facts.FirewalldActive && options["CleanupOnExit"] != "yes" {
-		return block(errors.New("inactive activation requires explicit CleanupOnExit=yes so stop can restore the pre-existing kernel authority"))
+	if (!facts.FirewalldActive || operation == "deactivate_existing") && options["CleanupOnExit"] != "yes" {
+		return block(errors.New("starting or stopping firewalld requires explicit CleanupOnExit=yes to verify kernel firewall cleanup"))
 	}
 	facts.Backend = options["FirewallBackend"]
 	if facts.Backend != "nftables" && facts.Backend != "iptables" {
@@ -232,16 +271,26 @@ func (a *Agent) firewallActivationBaseline(ctx context.Context, operation string
 	}
 	facts.ManagementSources = append([]string{}, protection.ManagementSources...)
 	facts.Zone = protection.Zone
-	if len(protection.ManagementSources) == 0 {
-		return block(errors.New("pin restricted SSH management source IPs or CIDRs in the signed endpoint configuration"))
-	}
-	if len(protection.SSHPorts) == 0 || len(protection.SSHPorts) > 8 {
-		return block(errors.New("verify one to eight actual SSH listeners on the endpoint and review protected SSH ports in its signed configuration"))
+	if !agentOnlyFirewallActivation(operation) {
+		if len(protection.ManagementSources) == 0 {
+			return block(errors.New("pin restricted SSH management source IPs or CIDRs in the signed endpoint configuration"))
+		}
+		if len(protection.SSHPorts) == 0 || len(protection.SSHPorts) > 8 {
+			return block(errors.New("verify one to eight actual SSH listeners on the endpoint and review protected SSH ports in its signed configuration"))
+		}
 	}
 	if !facts.FirewalldActive {
-		zone, err := inactiveActivationZone(ctx, a.Commands, a.Config.Zone, operation == "activate_existing")
+		zone, err := inactiveActivationZone(ctx, a.Commands, a.Config.Zone, agentOnlyFirewallActivation(operation))
 		if err != nil {
 			return block(err)
+		}
+		protection.Zone, facts.Zone = zone, zone
+		protection.Digest = protectionDigest(protection)
+	} else if operation == "deactivate_existing" && protection.Zone == "" {
+		text, err := a.Commands.Run(ctx, "firewall-cmd", "--get-default-zone")
+		zone := strings.TrimSpace(text)
+		if err != nil || !activationZoneName.MatchString(zone) {
+			return block(errors.New("the active default zone could not be verified"))
 		}
 		protection.Zone, facts.Zone = zone, zone
 		protection.Digest = protectionDigest(protection)
@@ -266,7 +315,17 @@ func (a *Agent) firewallActivationBaseline(ctx context.Context, operation string
 		return block(err)
 	}
 	if facts.FirewalldActive {
-		bank, err := a.sourceBankBaseline(ctx)
+		baselineAgent := a
+		if operation == "deactivate_existing" {
+			commands, err := firewallDeactivationCommands(ctx, a.Commands, baseline.Files)
+			if err != nil {
+				return block(err)
+			}
+			copy := *a
+			copy.Commands = commands
+			baselineAgent = &copy
+		}
+		bank, err := baselineAgent.sourceBankBaseline(ctx)
 		if err != nil {
 			return block(err)
 		}
@@ -274,6 +333,13 @@ func (a *Agent) firewallActivationBaseline(ctx context.Context, operation string
 		baseline.Global, err = firewallActivationGlobalConfigDigest(ctx, a.Config.StateDir, root, a.Commands)
 		if err != nil {
 			return block(err)
+		}
+		if operation == "deactivate_existing" {
+			baseline.NativeTopology, err = activationHostContext(ctx, a.Commands, root)
+			if err != nil {
+				return block(err)
+			}
+			facts.Notes = append(facts.Notes, "Stopping firewalld removes its live filtering and disables it at boot. Its permanent rules stay on the endpoint. Inbound services can become reachable.")
 		}
 	} else {
 		zones, err := a.Commands.Run(ctx, "firewall-offline-cmd", "--list-all-zones")
@@ -290,13 +356,25 @@ func (a *Agent) firewallActivationBaseline(ctx context.Context, operation string
 				return block(errors.New("permanent interface/source bindings require manual migration review"))
 			}
 			if zone.Name == facts.Zone {
+				if operation == "activate_allow_all" && zone.Target != "default" {
+					return block(errors.New("default inbound allow requires a default zone target; explicit zone targets are preserved"))
+				}
 				matches++
 			}
 		}
 		if matches != 1 {
 			return block(errors.New("the permanent default zone was not found exactly once in the assessed configuration"))
 		}
-		facts.Notes = append(facts.Notes, "Starting firewalld applies its assessed permanent configuration; discovered business services may be blocked. SSH/controller health does not prove every application dependency.")
+		facts.Notes = append(facts.Notes, "Starting firewalld applies its assessed permanent configuration; discovered services may be blocked.")
+		if agentOnlyFirewallActivation(operation) {
+			facts.Notes = append(facts.Notes, "This operation verifies fresh outbound agent/controller connectivity. Reachability of inbound services, including SSH, is unverified.")
+		}
+	}
+	if operation == "activate_allow_all" {
+		if err := activationDefaultAllowPreflight(ctx, a.Commands, root, facts.Version); err != nil {
+			return block(err)
+		}
+		facts.Notes = append(facts.Notes, "Adds an IPv4/IPv6 inbound allow for all otherwise-unmatched ports and sources. Explicit zone rules still run first. The policy remains in the permanent configuration.")
 	}
 	if operation == "migrate_ufw" {
 		if err := activationNoInitHooks(root); err != nil {

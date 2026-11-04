@@ -119,11 +119,18 @@ class ManagementHealth:
         return self._check(lambda: verify_assignment(store, server_id, payload), payload,
                            ("server_id", "version", "generation", "digest", "protection_digest", "target_ips_digest", "binding_digest"))
 
-    def _check(self, verify, payload, identity_fields):
+    def _check(self, verify, payload, identity_fields, *, allow_agent_only_activation=False):
         nonce = payload.get("nonce", "")
         if not isinstance(nonce, str) or not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", nonce):
             raise ValueError("A fresh transaction nonce of 16 to 128 characters is required")
         approved = verify()
+        if allow_agent_only_activation:
+            from .firewall_activation import AGENT_ONLY_MODE
+            if approved.get("health_mode") == AGENT_ONLY_MODE:
+                return {key: approved[key] for key in identity_fields} | {
+                    "nonce": nonce, "checked_at": stamp(), "controller_ok": True,
+                    "status": "healthy", "ssh_checks": [], "health_mode": AGENT_ONLY_MODE,
+                }
         target, ports = self._targets(approved)
         requested_ports = payload.get("ssh_ports")
         if requested_ports != ports:

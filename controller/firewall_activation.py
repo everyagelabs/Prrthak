@@ -18,12 +18,16 @@ from .source_banks import _identity, _fresh, _transaction
 from .store import digest, now, parse_time, stamp
 
 CAPABILITY = "firewall_activation_v1"
+AGENT_ONLY_CAPABILITY = "firewall_activation_agent_only_v1"
+AGENT_ONLY_MODE = "agent_controller_mtls"
+AGENT_ONLY_OPERATIONS = {"activate_existing", "deactivate_existing", "activate_allow_all"}
+MANAGED_POLICY_CONFLICT_OPERATIONS = {"deactivate_existing", "activate_allow_all"}
 KIND = "firewall_activation"
 JOB = "_firewall_activation_job"
 RECEIPT = "firewall_activation"
 PREFIX = "firewall_activation_review:"
 CHALLENGE = "APPLY FIREWALL MAINTENANCE"
-OPERATIONS = {"activate_existing", "migrate_ufw", "prepare_egress", "enable_native_counters"}
+OPERATIONS = AGENT_ONLY_OPERATIONS | {"migrate_ufw", "prepare_egress", "enable_native_counters"}
 TERMINAL = {"assessed", "blocked", "completed", "rolled_back", "error", "expired", "cancelled"}
 ID = re.compile(r"[A-Za-z0-9_.:-]{1,128}\Z")
 HEX = re.compile(r"[a-f0-9]{64}\Z")
@@ -43,10 +47,12 @@ def _selection(store, db, value):
     return identifiers
 
 
-def _blockers(server):
+def _blockers(server, *, operation=None):
     issues = []
     if CAPABILITY not in server.get("capabilities", []) or "signed_assignments_v1" not in server.get("capabilities", []):
         issues.append("An upgraded agent with signed firewall_activation_v1 support is required")
+    if operation in AGENT_ONLY_OPERATIONS and AGENT_ONLY_CAPABILITY not in server.get("capabilities", []):
+        issues.append("Upgrade this endpoint's agent to change firewalld service state without SSH")
     if not _fresh(server.get("last_seen")):
         issues.append("A fresh authenticated endpoint heartbeat is required")
     if not HEX.fullmatch(_context(server)["configuration_digest"]):
@@ -54,6 +60,35 @@ def _blockers(server):
     if not server.get("ips"):
         issues.append("Agent-reported interface addresses are required")
     return issues
+
+
+def _managed_policy_conflict(store, db, server, operation):
+    if operation not in MANAGED_POLICY_CONFLICT_OPERATIONS:
+        return ""
+    from .host_default_deny import guarded
+    from .network_control import assignment as network_assignment
+
+    if (server.get("_compiled", {}).get("mode") == "enforce"
+            or server.get("_managed_rules_active") or guarded(server)):
+        return "Remove active or pending managed enforcement and whole-host deny before this operation"
+    if (server.get("configuration_state") or {}).get("enforce") is True:
+        return "Turn off managed enforcement in the endpoint configuration before this operation"
+    learning = store._get(db, "learning_allow_hosts", server["id"]) or {}
+    if learning.get("applied_services") or learning.get("services"):
+        return "Remove active or pending learned access rules before this operation"
+    controls = server.get("network_control") or {}
+    pending = network_assignment(store, db, server)
+    for kind, key, active_status in (("egress", "egress_bundle", "enforced"), ("quarantine", "quarantine", "quarantined")):
+        reported = controls.get(kind) or {}
+        descriptor = pending.get(key) or {}
+        if reported.get("active", reported.get("status") == active_status):
+            return "Remove active outbound policy or emergency quarantine before this operation"
+        if descriptor and descriptor["operation"] != "assess" and (
+            reported.get("id") != descriptor["id"] or reported.get("status") not in
+            {"enforced", "removed", "quarantined", "released", "expired", "rolled_back", "blocked", "error"}
+        ):
+            return "Wait for the pending outbound policy or emergency quarantine operation"
+    return ""
 
 
 def _busy(server):
@@ -68,6 +103,8 @@ def _public(job):
 def _new_job(server, operation, target, actor, assessment=None):
     receipt = assessment or {}
     job = {"id": str(uuid.uuid4()), "server_id": server["id"], "operation": operation, "target_operation": target, "status": "assigned", "context": _context(server), "baseline_digest": receipt.get("baseline_digest", ""), "protection_digest": receipt.get("protection_digest", ""), "configuration_digest": _context(server)["configuration_digest"], "created_by": actor, "created_at": stamp(), "expires_at": stamp(now() + timedelta(minutes=15))}
+    if target in AGENT_ONLY_OPERATIONS:
+        job["health_mode"] = AGENT_ONLY_MODE
     if assessment:
         job["assessment"] = copy.deepcopy(receipt["assessment"])
     job["plan_digest"] = digest(job)
@@ -79,12 +116,17 @@ def assess(store, value, actor, principal):
         _transaction(db)
         _identity(store, db, actor, principal)
         identifiers = _selection(store, db, value)
+        operation = value["operation"]
+        agent_only = operation in AGENT_ONLY_OPERATIONS
         selected = []
         for identifier in identifiers:
             server = store._get(db, "servers", identifier)
             if not server:
                 raise ValueError("A selected endpoint no longer exists")
-            blockers = _blockers(server)
+            blockers = _blockers(server, operation=operation)
+            conflict = _managed_policy_conflict(store, db, server, operation)
+            if conflict:
+                blockers.append(conflict)
             if _busy(server):
                 blockers.append("Wait for the active maintenance outcome; uncertain work cannot be overwritten")
             if blockers:
@@ -94,6 +136,7 @@ def assess(store, value, actor, principal):
         for server in selected:
             previous = server.get(JOB) or {}
             if (previous.get("operation") == "assess" and previous.get("target_operation") == value["operation"]
+                    and (not agent_only or previous.get("health_mode") == AGENT_ONLY_MODE)
                     and previous.get("status") == "assigned" and previous.get("context") == _context(server)
                     and parse_time(previous["expires_at"]) > now()):
                 result.append(_public(previous))
@@ -106,10 +149,15 @@ def assess(store, value, actor, principal):
         return {"items": result, "count": len(result), "read_only_host_assessment": True}
 
 
-def _assessed(server, operation, management_health=None):
+def _assessed(store, db, server, operation, management_health=None):
     job, receipt = server.get(JOB) or {}, server.get(RECEIPT) or {}
-    issues = _blockers(server)
-    if job.get("operation") != "assess" or job.get("target_operation") != operation:
+    agent_only = operation in AGENT_ONLY_OPERATIONS
+    issues = _blockers(server, operation=operation)
+    conflict = _managed_policy_conflict(store, db, server, operation)
+    if conflict:
+        issues.append(conflict)
+    if (job.get("operation") != "assess" or job.get("target_operation") != operation
+            or agent_only and job.get("health_mode") != AGENT_ONLY_MODE):
         return {}, issues + ["Request a fresh assessment for this operation"]
     context = _context(server)
     if job.get("context") != context:
@@ -132,13 +180,14 @@ def _assessed(server, operation, management_health=None):
         issues.append("The native assessment does not prove this operation is supported and ready")
     if sorted({str(address(ip)) for ip in facts.get("ips", [])}) != context["ips"]:
         issues.append("Native assessed interface addresses differ from the current authenticated report")
-    if not facts.get("ssh_ports") or not facts.get("management_sources"):
-        issues.append("Actual SSH listeners and restricted management sources are required")
-    if not issues and management_health is not None:
-        try:
-            management_health.check_configuration(facts)
-        except ManagementHealthUnavailable as error:
-            issues.append(str(error))
+    if not agent_only:
+        if not facts.get("ssh_ports") or not facts.get("management_sources"):
+            issues.append("Actual SSH listeners and restricted management sources are required")
+        if not issues and management_health is not None:
+            try:
+                management_health.check_configuration(facts)
+            except ManagementHealthUnavailable as error:
+                issues.append(str(error))
     return receipt, sorted(set(issues))
 
 
@@ -152,7 +201,7 @@ def preview(store, value, actor, principal, *, management_health=None):
             server = store._get(db, "servers", identifier)
             if not server:
                 raise ValueError("A selected endpoint no longer exists")
-            receipt, issues = _assessed(server, value["operation"], management_health)
+            receipt, issues = _assessed(store, db, server, value["operation"], management_health)
             targets.append({"server_id": identifier, "hostname": server["hostname"], "assessment": copy.deepcopy(receipt.get("assessment")), "baseline_digest": receipt.get("baseline_digest", ""), "blockers": issues})
             blockers.extend(server["hostname"] + ": " + issue for issue in issues)
             bindings[identifier] = {"context": _context(server), "receipt": receipt}
@@ -180,7 +229,7 @@ def confirm(store, identifier, value, actor, principal, *, management_health=Non
             server = store._get(db, "servers", server_id)
             if not server:
                 raise WorkflowConflict("A reviewed endpoint was removed", {})
-            receipt, issues = _assessed(server, plan["operation"], management_health)
+            receipt, issues = _assessed(store, db, server, plan["operation"], management_health)
             if issues or binding != {"context": _context(server), "receipt": receipt}:
                 raise WorkflowConflict("Native assessment changed; review again", {"server_id": server_id, "blockers": issues})
             job = _new_job(server, plan["operation"], plan["operation"], actor, receipt)
@@ -199,6 +248,10 @@ def confirm(store, identifier, value, actor, principal, *, management_health=Non
 def assignment(store, db, server):
     job = server.get(JOB) or {}
     if not job or job.get("status") in TERMINAL or parse_time(job["expires_at"]) <= now() or job.get("context") != _context(server) or CAPABILITY not in server.get("capabilities", []):
+        return None
+    if job.get("health_mode") == AGENT_ONLY_MODE and AGENT_ONLY_CAPABILITY not in server.get("capabilities", []):
+        return None
+    if _managed_policy_conflict(store, db, server, job.get("target_operation")):
         return None
     if job["operation"] != "assess" and not approvals.authorized(store, db, job.get("approval_proof"), plan_id=job["id"], plan_digest=job["plan_digest"], server_id=server["id"]):
         return None
@@ -254,7 +307,9 @@ def validate_receipt(value):
             subnet = network(rule["source"])
             if subnet.version != (4 if rule["family"] == "ipv4" else 6):
                 raise ValueError("Translated UFW source family differs")
-        if facts["can_apply"] and (facts["blockers"] or not facts["ssh_ports"] or not facts["management_sources"]):
+        missing_ssh_scope = value["target_operation"] not in AGENT_ONLY_OPERATIONS and (
+            not facts["ssh_ports"] or not facts["management_sources"])
+        if facts["can_apply"] and (facts["blockers"] or missing_ssh_scope):
             raise ValueError("Ready maintenance assessment needs exact protected management context")
     if value["status"] == "assessed" and facts is None:
         raise ValueError("Assessed maintenance receipt requires its native facts")
@@ -290,13 +345,17 @@ def verify(store, server_id, value):
         active = assignment(store, db, server) if server else None
         if not active or active["operation"] == "assess" or _blockers(server) or any(value.get(key) != active.get(key) for key in ("id", "plan_digest", "baseline_digest", "protection_digest", "configuration_digest")):
             raise PermissionError("Exact firewall maintenance authority expired or changed")
-        facts = server[JOB]["assessment"]
+        job = server[JOB]
+        facts = job["assessment"]
         if sorted({str(address(ip)) for ip in facts["ips"]}) != sorted(server["ips"]):
             raise PermissionError("Assessed interface addresses changed")
-        if not server[JOB].get("admitted_at"):
-            server[JOB]["admitted_at"] = stamp()
+        agent_only = active["operation"] in AGENT_ONLY_OPERATIONS and job.get("health_mode") == AGENT_ONLY_MODE
+        if agent_only and value["ssh_ports"] != []:
+            raise ValueError("Agent-based firewalld service changes require an empty SSH probe list")
+        if not job.get("admitted_at"):
+            job["admitted_at"] = stamp()
             store._put(db, "servers", server)
-        return {"server_id": server_id, **{key: active[key] for key in ("id", "plan_digest", "baseline_digest", "protection_digest", "configuration_digest")}, "ips": facts["ips"], "ssh_ports": facts["ssh_ports"], "management_sources": facts["management_sources"]}
+        return {"server_id": server_id, **{key: active[key] for key in ("id", "plan_digest", "baseline_digest", "protection_digest", "configuration_digest")}, "ips": facts["ips"], "ssh_ports": facts["ssh_ports"], "management_sources": facts["management_sources"], **({"health_mode": AGENT_ONLY_MODE} if agent_only else {})}
 
 
 def listing(store, value=None):

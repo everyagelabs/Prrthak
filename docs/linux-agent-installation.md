@@ -25,7 +25,7 @@ The automatic entrypoint detects OS/version and CPU, validates the GUI kit and s
 
 The scripts have staged/mocked acceptance checks. Native RHEL 8/9 and Ubuntu host testing is deferred to the deployment phase; passing the platform check does not certify kernel, systemd, SELinux/polkit, firewalld or rollback behavior.
 
-After monitor-only enrollment, **Firewall maintenance** offers fresh assessment and reviewed activation, restricted UFW conversion, egress-template preparation and compatible native-counter enablement. No installation automatically switches firewall managers. Unknown/custom UFW hooks remain blocked. See [workflow and limits](observability-and-network-controls.md).
+After monitor-only enrollment, open **Firewall → Start firewalld** for a stopped endpoint or **Stop and disable** for a running endpoint. Request a fresh assessment and review the change. You can explicitly choose **Start firewalld with default allow** to permit otherwise unmatched inbound traffic. The upgraded agent applies the change locally after polling and verifies its outbound mTLS control connection before and after. These service actions need no controller-to-endpoint SSH access. See [workflow and limits](observability-and-network-controls.md).
 
 ## Prepare the endpoint and release
 

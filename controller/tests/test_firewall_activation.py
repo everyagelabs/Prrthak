@@ -25,7 +25,7 @@ class FirewallActivationTests(unittest.TestCase):
         fixture.IndependentApprovalTests.setUp(self)
         with self.store.meta() as db:
             host = self.store._get(db, "servers", "target")
-            host["capabilities"].append(activation.CAPABILITY)
+            host["capabilities"].extend((activation.CAPABILITY, activation.AGENT_ONLY_CAPABILITY))
             host["configuration_state"] = {"digest": "d" * 64}
             # Activation has its own native health admission, not a false claim
             # that an inactive daemon meets normal enforcement readiness.
@@ -67,9 +67,9 @@ class FirewallActivationTests(unittest.TestCase):
     def confirm(self, plan):
         return activation.confirm(self.store, plan["id"], self.payload(plan), self.maker["actor"], self.maker)
 
-    def health(self):
+    def health(self, ssh_ports=None):
         assigned = self.store.assignment("target")[0]["firewall_activation"]
-        return {**{key: assigned[key] for key in ("id", "plan_digest", "baseline_digest", "protection_digest", "configuration_digest")}, "nonce": "b" * 32, "ssh_ports": [2022]}
+        return {**{key: assigned[key] for key in ("id", "plan_digest", "baseline_digest", "protection_digest", "configuration_digest")}, "nonce": "b" * 32, "ssh_ports": [] if ssh_ports is None else ssh_ports}
 
     def test_assessment_does_not_enable_policy_or_fake_generic_readiness(self):
         before = self.store.assignment("target")[0]
@@ -94,17 +94,112 @@ class FirewallActivationTests(unittest.TestCase):
         self.assertEqual(plan["targets"][0]["blockers"], ["pin restricted SSH management source IPs or CIDRs"])
 
     def test_preview_checks_current_witness_scope_and_canonical_interface_addresses(self):
-        self.assess()
+        self.assess("prepare_egress")
         host = self.store.get("servers", "target")
         self.receipt(assessment={"firewalld_active": False, "firewalld_enabled": "disabled", "ufw_active": False,
                                 "ufw_enabled": "absent", "version": "2.3.1", "backend": "nftables", "zone": "public",
                                 "ips": host["ips"] * 2, "ssh_ports": [2022], "management_sources": ["10.90.0.0/24"],
                                 "discovered_ports": [], "translated_rules": [], "can_apply": True, "blockers": [], "notes": []})
-        preview = lambda health: activation.preview(self.store, self.scope(), self.maker["actor"], self.maker, management_health=health)
+        preview = lambda health: activation.preview(self.store, self.scope("prepare_egress"), self.maker["actor"], self.maker, management_health=health)
         self.assertIn("Platform settings", preview(ManagementHealth("", []))["targets"][0]["blockers"][0])
         self.assertTrue(preview(ManagementHealth("10.90.0.5", ["10.70.0.0/24"]))["can_apply"])
 
-    def test_all_four_operations_require_fresh_review_phrase_and_manual_ack_same_admin(self):
+    def test_start_admits_only_exact_authenticated_agent_witness_without_ssh(self):
+        self.assess()
+        facts = self.receipt()["assessment"]
+        self.receipt(assessment={**facts, "ssh_ports": [], "management_sources": []})
+        app = App(self.store, auth=self.auth)
+        app.management_health = ManagementHealth("", [])
+        with patch.object(app.management_health, "_targets", side_effect=AssertionError("SSH must not be used")):
+            plan = activation.preview(self.store, self.scope(), self.maker["actor"], self.maker, management_health=app.management_health)
+            self.assertTrue(plan["can_apply"], plan["blockers"])
+            activation.confirm(self.store, plan["id"], self.payload(plan), self.maker["actor"], self.maker, management_health=app.management_health)
+            request = self.health()
+
+            def check(body, identity="target"):
+                handler = object.__new__(handler_for(app))
+                handler.command, handler.path, handler.connection = "POST", "/api/v1/agent/firewall-activation/check", object()
+                handler.client_address, handler.headers = ("127.0.0.1", 12345), Message()
+                handler.body = lambda: body
+                result = {}
+                handler.response = lambda status, value=None, headers=None: result.update(status=status, value=value)
+                with patch.object(app, "endpoint_identity", return_value=identity):
+                    handler.dispatch()
+                return result
+
+            self.assertEqual(check({**request, "ssh_ports": [2022]})["status"], 400)
+            self.assertEqual(check({**request, "nonce": "invalid"})["status"], 400)
+            self.assertEqual(check({**request, "plan_digest": "f" * 64})["status"], 403)
+            self.assertEqual(check(request, identity="different-endpoint")["status"], 403)
+            self.assertNotIn("admitted_at", self.store.get("servers", "target")[activation.JOB])
+            proof = check(request)
+            self.assertEqual(proof["status"], 200, proof)
+            self.assertEqual(proof["value"]["health_mode"], activation.AGENT_ONLY_MODE)
+            self.assertEqual(proof["value"]["ssh_checks"], [])
+            self.assertTrue(proof["value"]["controller_ok"])
+            for key in set(request) - {"ssh_ports"}:
+                self.assertEqual(proof["value"][key], request[key])
+            self.assertIn("admitted_at", self.store.get("servers", "target")[activation.JOB])
+
+    def test_start_requires_upgraded_agent_and_new_assessment_mode(self):
+        old = self.assess()["items"][0]["id"]
+        with self.store.meta() as db:
+            host = self.store._get(db, "servers", "target")
+            host[activation.JOB].pop("health_mode")
+            self.store._put(db, "servers", host)
+        self.receipt()
+        plan = activation.preview(self.store, self.scope(), self.maker["actor"], self.maker)
+        self.assertFalse(plan["can_apply"])
+        self.assertNotEqual(self.assess()["items"][0]["id"], old)
+        with self.store.meta() as db:
+            host = self.store._get(db, "servers", "target")
+            host["capabilities"].remove(activation.AGENT_ONLY_CAPABILITY)
+            self.store._put(db, "servers", host)
+        self.assertNotIn("firewall_activation", self.store.assignment("target")[0])
+        with self.assertRaises(WorkflowConflict) as blocked:
+            self.assess()
+        self.assertIn("Upgrade this endpoint's agent", str(blocked.exception.plan))
+        self.assertEqual(self.assess("migrate_ufw")["count"], 1)
+
+    def test_stop_and_allow_all_recheck_managed_conflicts_before_review_and_witness(self):
+        for operation in sorted(activation.MANAGED_POLICY_CONFLICT_OPERATIONS):
+            with self.subTest(operation=operation), self.assertRaises(WorkflowConflict) as blocked:
+                self.assess(operation)
+            self.assertIn("pending managed enforcement", str(blocked.exception.plan))
+        for policy in self.store.all("policies"):
+            self.store.delete_policy(policy["id"], self.maker["actor"])
+        for operation in sorted(activation.MANAGED_POLICY_CONFLICT_OPERATIONS):
+            with self.subTest(operation=operation):
+                plan = self.preview(operation)
+                self.assertTrue(plan["can_apply"], plan["blockers"])
+                with self.store.meta() as db:
+                    host = self.store._get(db, "servers", "target")
+                    host["_managed_rules_active"] = True
+                    self.store._put(db, "servers", host)
+                with self.assertRaises(WorkflowConflict):
+                    self.confirm(plan)
+                with self.store.meta() as db:
+                    host = self.store._get(db, "servers", "target")
+                    host.pop("_managed_rules_active")
+                    self.store._put(db, "servers", host)
+                self.confirm(plan)
+                request = self.health()
+                self.assertEqual(activation.verify(self.store, "target", request)["health_mode"], activation.AGENT_ONLY_MODE)
+                with self.store.meta() as db:
+                    host = self.store._get(db, "servers", "target")
+                    host["network_control"] = {"egress": {"active": True}}
+                    self.store._put(db, "servers", host)
+                with self.assertRaises(PermissionError):
+                    activation.verify(self.store, "target", request)
+                with self.store.meta() as db:
+                    host = self.store._get(db, "servers", "target")
+                    host.pop("network_control")
+                    self.store._put(db, "servers", host)
+                self.receipt("rolled_back")
+
+    def test_all_operations_require_fresh_review_phrase_and_manual_ack_same_admin(self):
+        for policy in self.store.all("policies"):
+            self.store.delete_policy(policy["id"], self.maker["actor"])
         for operation in sorted(activation.OPERATIONS):
             with self.subTest(operation=operation):
                 plan = self.preview(operation)
