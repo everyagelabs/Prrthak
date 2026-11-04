@@ -51,7 +51,7 @@ def record_revision(db, policy, actor, reason="Policy configuration changed"):
     existing = db.execute("SELECT data FROM policy_revisions WHERE policy_id=? AND revision=?", (policy["id"], policy["revision"])).fetchone()
     if existing:
         saved = json.loads(existing[0])
-        if any(saved.get(key) != policy.get(key) for key in ("name", "selector", "group_ids", "mode", "services")):
+        if any(saved.get(key) != policy.get(key) for key in ("name", "selector", "group_ids", "endpoint_ids", "mode", "services")):
             raise RuntimeError("Immutable policy revision collision")
         return
     db.execute("INSERT INTO policy_revisions(id,policy_id,revision,created_at,data) VALUES(?,?,?,?,?)", (policy["id"] + ":" + str(policy["revision"]), policy["id"], policy["revision"], value["created_at"], json.dumps(value, sort_keys=True)))
@@ -92,7 +92,7 @@ def revisions(store, identifier, revision=None):
 
 
 def difference(before, after):
-    fields = ("name", "selector", "group_ids", "mode", "services", "host_default_deny")
+    fields = ("name", "selector", "group_ids", "endpoint_ids", "mode", "services", "host_default_deny")
     return {"before": before, "after": after, "from_revision": before.get("revision", before.get("version")), "to_revision": after.get("revision", after.get("version")), "changes": [{"field": field, "before": before.get(field), "after": after.get(field)} for field in fields if before.get(field) != after.get(field)]}
 
 
@@ -357,8 +357,11 @@ def baseline(server):
 def policy_intent(policy):
     # Catalogue snapshots and source/target membership are resolved values;
     # the saved symbolic policy explicitly authorizes their later resolution.
-    return {key: ([{k: v for k, v in item.items() if k != "service_group_snapshot"} for item in policy[key]] if key == "services" else policy.get(key))
-            for key in ("id", "name", "selector", "group_ids", "mode", "services")}
+    intent = {key: ([{k: v for k, v in item.items() if k != "service_group_snapshot"} for item in policy[key]] if key == "services" else policy.get(key))
+              for key in ("id", "name", "selector", "group_ids", "mode", "services")}
+    if "endpoint_ids" in policy:
+        intent["endpoint_ids"] = policy["endpoint_ids"]
+    return intent
 
 
 def authorize_policy(store, db, policy, actor, principal):

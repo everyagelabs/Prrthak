@@ -38,6 +38,18 @@ def matches(tags, selector):
     return all(tags.get(key) == value for key, value in selector.items())
 
 
+def exact_policy_endpoints(policy):
+    """None is a legacy scope; malformed exact scope must match nothing."""
+    if "endpoint_ids" not in policy:
+        return None
+    ids = policy["endpoint_ids"]
+    if (policy.get("selector") or policy.get("group_ids") or not isinstance(ids, list)
+            or not 1 <= len(ids) <= 100
+            or any(not isinstance(item, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", item) for item in ids)):
+        return set()
+    return set(ids)
+
+
 def validate_tags(value):
     if not isinstance(value, dict) or len(value) > 32:
         raise ValueError("Tags and selectors must be objects with at most 32 entries")
@@ -113,7 +125,15 @@ def validate_policy(value):
         raise ValueError("group_ids must be a list of up to 100 saved group IDs")
     if group_ids and selector:
         raise ValueError("Choose saved groups or a tag selector, not both")
-    return {"name": name.strip(), "selector": selector, "group_ids": sorted(set(group_ids)), "mode": mode, "services": normalized}
+    policy = {"name": name.strip(), "selector": selector, "group_ids": sorted(set(group_ids)), "mode": mode, "services": normalized}
+    if "endpoint_ids" in value:
+        if selector or group_ids or value.get("match_all"):
+            raise ValueError("Choose exact endpoints, saved groups, tags, or all endpoints")
+        ids = exact_policy_endpoints({**policy, "endpoint_ids": value["endpoint_ids"]})
+        if not ids:
+            raise ValueError("Choose between 1 and 100 enrolled endpoint IDs")
+        policy["endpoint_ids"] = sorted(ids)
+    return policy
 
 
 class LearningExpired(ValueError):
@@ -612,6 +632,10 @@ class Store:
             if getattr(db,"dialect","sqlite")=="sqlite":
                 db.execute("BEGIN IMMEDIATE")
             old = self._get(db, "policies", identifier) if identifier else None
+            if (old and "endpoint_ids" in old and "endpoint_ids" not in policy
+                    and not policy["selector"] and not policy["group_ids"]
+                    and value.get("match_all") is not True and not allow_restore):
+                raise ValueError("Explicitly confirm changing this policy to all endpoints")
             if "expected_revision" in value:
                 expected=value["expected_revision"]
                 if isinstance(expected,bool) or not isinstance(expected,int) or expected<1:
@@ -645,6 +669,9 @@ class Store:
             for group_id in policy["group_ids"]:
                 if group_id not in groups:
                     raise ValueError("Policy references an unknown saved group")
+            if any(not db.execute("SELECT 1 FROM servers WHERE id=?", (endpoint_id,)).fetchone()
+                   for endpoint_id in policy.get("endpoint_ids", [])):
+                raise ValueError("Policy references an unknown enrolled endpoint")
             policy.update({"id": identifier or str(uuid.uuid4()), "revision": old.get("revision", 0) + 1 if old else 1, "created_at": old["created_at"] if old else stamp(), "updated_at": stamp()})
             if principal is not None:
                 from .managed import authorize_policy
@@ -941,6 +968,9 @@ class Store:
             if session["status"] == "active":
                 cutoff = min(now(), parse_time(session["expires_at"]))
                 session.update({"status": "stopped" if cutoff < parse_time(session["expires_at"]) else "expired", "stopped_at": stamp(cutoff)})
+                from .learning import TRAFFIC_PURPOSE, evidence_expiry
+                if session.get("purpose") == TRAFFIC_PURPOSE:
+                    session["evidence_expires_at"] = evidence_expiry(cutoff)
                 self._put(db, "sessions", session)
                 self.audit("learning.stopped", actor, {"session_id": identifier}, db)
             for server_id in session["server_ids"]:
@@ -952,14 +982,17 @@ class Store:
             return session
 
     def _assignment_value(self, identifier, db):
-        from .learning import CAPABILITY, assignment as learning_assignment
+        from .learning import CAPABILITY, TRAFFIC_DISCOVERY_CAPABILITY, assignment as learning_assignment, requires_long_capture
         server = self._get(db, "servers", identifier)
         if not server:
             raise KeyError(identifier)
         result = dict(server.get("_compiled", {"server_id": identifier, "version": 0, "digest": digest({}), "mode": "monitor", "services": [], "generated_at": "1970-01-01T00:00:00Z"}))
         current = now()
         from .learning_targets import for_endpoint as endpoint_sessions
-        sessions = [session for session in endpoint_sessions(db, identifier, at=current, recent=True) if session.get("selection_mode") != "discovered" or CAPABILITY in server.get("capabilities", [])]
+        capabilities = server.get("capabilities", [])
+        sessions = [session for session in endpoint_sessions(db, identifier, at=current, recent=True)
+                    if (session.get("selection_mode") != "discovered" or CAPABILITY in capabilities)
+                    and (TRAFFIC_DISCOVERY_CAPABILITY in capabilities or not requires_long_capture(session))]
         result["learning_sessions"] = sorted((learning_assignment(session, identifier) for session in sessions if session["status"] == "active" and parse_time(session["starts_at"]) <= current < parse_time(session["expires_at"])), key=lambda item: item["id"])
         tombstones = []
         for session in sessions:
@@ -1038,7 +1071,9 @@ class Store:
         if identifier not in session["server_ids"]:
             raise PermissionError("Session is not assigned to this endpoint")
         cutoff = min(parse_time(session["expires_at"]), parse_time(session.get("stopped_at", session["expires_at"])))
-        from .learning import ports_for
+        from .learning import TRAFFIC_DISCOVERY_CAPABILITY, ports_for, requires_long_capture
+        if requires_long_capture(session) and TRAFFIC_DISCOVERY_CAPABILITY not in server.get("capabilities", []):
+            raise ValueError("Endpoint no longer advertises support for this extended traffic window")
         ports = {(port["protocol"], port["port"]) for port in ports_for(session, identifier)}
         normalized = []
         for event in events:
@@ -1110,8 +1145,10 @@ class Store:
         from .hit_monitoring import prune as prune_hits
         prune_hits(self)
         from .security import prune
+        from .evidence_views import prune_expired_traffic_evidence
         with self.lock, self.meta() as db:
             prune(db)
+            prune_expired_traffic_evidence(db)
         cutoff = stamp(now() - timedelta(hours=self.retention_hours))
         with self.flow_lock, self.traffic() as db:
             from .traffic_capture import prune as prune_capture

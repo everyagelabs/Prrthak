@@ -50,6 +50,33 @@ def initialize(db):
             elif name not in columns:
                 db.execute("ALTER TABLE " + table + " ADD COLUMN " + name + " " + definition)
     db.execute("CREATE UNIQUE INDEX IF NOT EXISTS flows_capture_identity ON flows(server_id,session_id,event_id) WHERE event_id<>''")
+    db.execute("CREATE INDEX IF NOT EXISTS flows_capture_second ON flows(server_id,session_id,source_ip,protocol,port,capture_kind,first_seen) WHERE capture_processed=1 AND event_id<>''")
+
+
+def batch_peaks(db, batch):
+    """Count fixed UTC seconds over unique typed events from all processed batches."""
+    peaks = {}
+    sql = """WITH changed AS (
+        SELECT DISTINCT source_ip,protocol,port,capture_kind,first_seen
+        FROM flows WHERE batch_key=? AND capture_processed=1 AND event_id<>''
+    ) SELECT f.source_ip,f.protocol,f.port,f.capture_kind,f.first_seen,SUM(f.count)
+    FROM changed JOIN flows f ON f.source_ip=changed.source_ip AND f.protocol=changed.protocol
+        AND f.port=changed.port AND f.capture_kind=changed.capture_kind AND f.first_seen=changed.first_seen
+    JOIN batches b ON b.batch_key=f.batch_key
+    WHERE f.server_id=? AND f.session_id=? AND f.capture_processed=1 AND f.event_id<>''
+        AND (b.evidence_processed=1 OR b.received_at<? OR (b.received_at=? AND b.batch_key<=?))
+    GROUP BY f.source_ip,f.protocol,f.port,f.capture_kind,f.first_seen"""
+    # Use the same batch order as reconciliation so a report can never show
+    # a burst from a future batch before its observations are published.
+    args = (batch["batch_key"], batch["server_id"], batch["session_id"], batch["received_at"], batch["received_at"], batch["batch_key"])
+    for row in db.execute(sql, args):
+        key = (row[0], row[1], row[2], row[3])
+        second, count = row[4], int(row[5])
+        previous = peaks.get(key)
+        if previous is None or count > previous[0] or (count == previous[0] and second < previous[1]):
+            peaks[key] = (count, second)
+    return peaks
+
 
 
 def metadata(event, source=None, *, capabilities=None, kinds=_UNSCOPED):

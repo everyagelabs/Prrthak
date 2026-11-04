@@ -188,7 +188,18 @@ func ValidatePolicy(p *Policy) error {
 		}) >= 0 {
 			return errors.New("invalid learning ID")
 		}
-		if !s.ExpiresAt.After(s.StartsAt) || s.ExpiresAt.Sub(s.StartsAt) > 7*24*time.Hour {
+		maximumDuration := 7 * 24 * time.Hour
+		switch s.Purpose {
+		case "", "policy":
+		case "traffic":
+			if s.PolicyAction != "observe" || len(s.ObservationKinds) == 0 {
+				return errors.New("traffic discovery requires typed observe-only capture")
+			}
+			maximumDuration = 30 * 24 * time.Hour
+		default:
+			return errors.New("invalid learning purpose")
+		}
+		if !s.ExpiresAt.After(s.StartsAt) || s.ExpiresAt.Sub(s.StartsAt) > maximumDuration {
 			return errors.New("invalid learning time window")
 		}
 		if s.StoppedAt != nil && s.StoppedAt.Before(s.StartsAt) {

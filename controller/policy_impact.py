@@ -13,7 +13,7 @@ from .firewall import WorkflowConflict
 from .inventory_views import rows
 from .network_addresses import address, network
 from .service_groups import effective_bundles
-from .store import digest, now, parse_time, stamp, validate_policy
+from .store import digest, exact_policy_endpoints, now, parse_time, stamp, validate_policy
 from .traffic_capture import public as capture_public
 from .traffic_views import DIMENSIONS, _grouped, _ids
 
@@ -139,7 +139,10 @@ def _compilation_budget(tables, servers, policies):
     catalogues = {group["id"]: group for group in tables["service_groups"]}
     source_work = rule_work = 0
     for policy in policies:
-        targets = set().union(*(members.get(identifier, set()) for identifier in policy["group_ids"])) if policy.get("group_ids") else selected(policy.get("selector", {}))
+        exact = exact_policy_endpoints(policy)
+        targets = (exact & all_ids if exact is not None else
+                   set().union(*(members.get(identifier, set()) for identifier in policy["group_ids"])) if policy.get("group_ids")
+                   else selected(policy.get("selector", {})))
         for service in policy["services"]:
             ports = catalogues.get(service.get("service_group_id"), {}).get("ports", []) if "service_group_id" in service else [service]
             source_ids = set(selected(service["source_selector"])) if service.get("source_selector") else set()
@@ -268,6 +271,13 @@ def preview(store, value=None, *, policy_id=None, proposed=False):
             group_ids = {group["id"] for group in tables["groups"]}
             if any(identifier not in group_ids for identifier in candidate["group_ids"]):
                 raise ValueError("Policy references an unknown saved target group")
+            server_ids = {server["id"] for server in servers}
+            if set(candidate.get("endpoint_ids", [])) - server_ids:
+                raise ValueError("Policy references an unknown enrolled endpoint")
+            if (old and "endpoint_ids" in old and "endpoint_ids" not in candidate
+                    and not candidate["selector"] and not candidate["group_ids"]
+                    and value["policy"].get("match_all") is not True):
+                raise ValueError("Explicitly confirm changing this policy to all endpoints")
             for service in candidate["services"]:
                 service["source_selector"] = selector(service["source_selector"], tables["locations"])
                 if any(identifier not in group_ids for identifier in service["source_group_ids"]):

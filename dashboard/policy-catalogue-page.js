@@ -49,6 +49,7 @@ function policyDestination(policy,kind){
     const ids=policy.server_ids || (policy.server_id?[policy.server_id]:[]);
     return policy.hostname || ids.map(serverName).join(', ') || 'Endpoint not reported';
   }
+  if(policy.endpoint_ids?.length)return policy.endpoint_ids.map(serverName).join(', ');
   if(policy.group_ids?.length)return policyGroupNames(policy.group_ids);
   if(Object.keys(policy.selector || {}).length)return selectorDescription(policy.selector);
   return 'All endpoints';
@@ -214,11 +215,9 @@ function policyImpactAlive(context){return policyImpactContext===context&&contex
 function policyImpactDraftValue(form){
   if(!canWrite())throw new Error('Only Admins can preview unsaved policy changes.');
   const editor=state.activePolicyEditor,id=form.dataset.id || '';if(!editor||editor.kind!=='managed'||editor.id!==id)throw new Error('Open a fresh policy editor before previewing a draft.');
-  const fields=new FormData(form),type=fields.get('target_type'),selector=type==='tags'?L.withLocation(parseTags(String(fields.get('selector') || '')),String(fields.get('target_location_id') || '')):{},group_ids=type==='groups'?fields.getAll('target_groups'):[];
-  if(type==='tags'&&!Object.keys(selector).length)throw new Error('Enter target tags, or choose All endpoints.');
-  if(type==='groups'&&!group_ids.length)throw new Error('Select at least one saved server group.');
+  const fields=new FormData(form),target=policyEditorTarget(fields);
   if(id)policyExactValue('managed',editor.policy,id);
-  return {policy:{name:String(fields.get('name') || '').trim(),mode:fields.get('mode'),selector,group_ids,services:collectPolicyServices(form)},...(id?{policy_id:id,expected_revision:editor.policy.revision}:{})};
+  return {policy:{name:String(fields.get('name') || '').trim(),mode:fields.get('mode'),...target,services:collectPolicyServices(form)},...(id?{policy_id:id,expected_revision:editor.policy.revision}:{})};
 }
 function policyImpactOptions(context){
   const ports=String($('#policy-impact-ports')?.value || '').split(/[,\s]+/).filter(Boolean);

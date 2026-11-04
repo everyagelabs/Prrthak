@@ -17,6 +17,7 @@ function fixture({role='admin',request}={}){
  vm.createContext(c);
  vm.runInContext(app.slice(app.indexOf('async function api('),app.indexOf('\nfunction toast(')),c);
  vm.runInContext(app.match(/function canWrite\(\)\{[^\n]+/)[0],c);
+ vm.runInContext(app.slice(app.indexOf('function policyEditorTarget('),app.indexOf('function updatePolicyTargets(')),c);
  vm.runInContext(source,c);
  const run=code=>vm.runInContext(code,c);
  const action=(action,extra={})=>c.policyCatalogueAction({dataset:{action,...extra}});
@@ -61,4 +62,15 @@ test('late responses cannot overwrite a closed modal different user or newer req
 });
 test('malformed foreign oversized or falsely complete results fail closed',async()=>{
  for(const value of [result({id:'another-policy'}),result({items:Array(101).fill(result().items[0])}),result({coverage:{complete_window:true}}),result({items:[{...result().items[0],proposed_decision:'verified'}]}),result({items:[{...result().items[0],count_unit:'requests'}]})]){const f=fixture({request:()=>value});await f.action('policy-catalogue-impact',{id:'policy-1'});assert.equal(f.element('#policy-impact-error').hidden,false);assert.match(f.element('#policy-impact-results').innerHTML,/No safe\/allow\/block conclusion/);assert.doesNotMatch(f.element('#policy-impact-results').innerHTML,/Billing host/);}
+});
+
+test('draft preview submits exact endpoint IDs and requires acknowledgement to expand to the fleet',async()=>{
+ const f=fixture(),form=f.draft();f.c.state.activePolicyEditor.policy.endpoint_ids=['host-1'];
+ form.values.target_type='endpoints';form.values.target_endpoints=['host-1','host-1'];
+ await f.action('policy-catalogue-impact-draft');
+ assert.deepEqual(JSON.parse(f.requests.at(-1).options.body).policy.endpoint_ids,['host-1']);
+ form.values.target_type='all';const count=f.requests.length;
+ await f.action('policy-catalogue-impact-draft');assert.equal(f.requests.length,count);assert.match(f.element('#policy-impact-error').textContent,/fleet-wide expansion/);
+ form.values.confirm_match_all='on';await f.action('policy-catalogue-impact-draft');
+ const request=JSON.parse(f.requests.at(-1).options.body);assert.equal(request.policy.match_all,true);assert.equal(request.policy.endpoint_ids,undefined);
 });

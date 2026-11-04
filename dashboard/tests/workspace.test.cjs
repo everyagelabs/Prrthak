@@ -452,11 +452,11 @@ test('learning validates explicit hosts, duration and ports and new scopes requi
 test('cached listener preview is requested again for each changed endpoint selection and stays host specific',async()=>{
  const secondHost={...host,id:'host-2',hostname:'db-two',listeners:[{port:5432,protocol:'tcp',address:'0.0.0.0'}]};
  const env=await workspace('traffic',{mode:'entra',role:'admin',responses:{'POST /api/v1/learning/preview':options=>{const ids=JSON.parse(options.body).server_ids;return {message:'Cached inventory preview. Start learning requests a fresh scan on every selected server.',servers:ids.map(id=>({server_id:id,hostname:id==='host-1'?'api-one':'db-two',ports:id==='host-1'?[{port:2022,protocol:'tcp'},{port:8080,protocol:'tcp'}]:[{port:5432,protocol:'tcp'}],supported:true,offline:id==='host-2',freshness:'cached_preview',last_discovery_at:'2026-10-30T10:00:00Z'}))};}}});
- env.run(`state.data.servers.push(${JSON.stringify(secondHost)})`);await env.click('learn');const form=renderedForm(env,'learning-form',{server_ids:['host-1'],duration:'1',unit:'3600'});let selected=['host-1'];form.querySelectorAll=selector=>selector==='input[name="server_ids"]:checked'?selected.map(value=>({value})):[];
+ env.run(`state.data.servers.push(${JSON.stringify(secondHost)})`);await env.click('learn');const form=renderedForm(env,'learning-form',{server_ids:['host-1'],duration:'1',unit:'3600'});form.values.server_ids=['host-1'];
  await env.run('refreshLearningPreview()');let preview=env.element('#learning-preview').innerHTML;assert.match(preview,/api-one/);assert.match(preview,/2022\/tcp/);assert.match(preview,/8080\/tcp/);assert.doesNotMatch(preview,/db-two|5432/);assert.match(preview,/Cached preview/);assert.match(preview,/fresh scan/);
- selected=['host-2'];env.context.changeEvent={target:{name:'server_ids',closest:()=>form}};env.run('learningChange(changeEvent)');await new Promise(setImmediate);preview=env.element('#learning-preview').innerHTML;assert.match(preview,/db-two/);assert.match(preview,/5432\/tcp/);assert.doesNotMatch(preview,/api-one|8080|2022/);assert.match(preview,/Offline.*awaiting connection/);
+ form.values.server_ids=['host-2'];await env.run('refreshLearningPreview()');preview=env.element('#learning-preview').innerHTML;assert.match(preview,/db-two/);assert.match(preview,/5432\/tcp/);assert.doesNotMatch(preview,/api-one|8080|2022/);assert.match(preview,/Offline.*awaiting connection/);
  const requests=mutations(env);assert.deepEqual(requests.map(request=>JSON.parse(request.options.body).server_ids),[['host-1'],['host-2']]);assert.equal(requests.every(request=>request.url==='/api/v1/learning/preview'),true);requests.forEach(assertCookieMutation);
- selected=[];env.run('learningChange(changeEvent)');await new Promise(setImmediate);assert.match(env.element('#learning-preview').innerHTML,/Select endpoints/);assert.equal(mutations(env).length,2,'clearing all hosts clears preview without an invalid network call');
+ form.values.server_ids=[];await env.run('refreshLearningPreview()');assert.match(env.element('#learning-preview').innerHTML,/Select endpoints/);assert.equal(mutations(env).length,2,'clearing all hosts clears preview without an invalid network call');
 });
 test('per-host session state reports pending, error, empty and frozen listener scopes without cross-host ports',async()=>{
  const env=await workspace('traffic');const a={...host,hostname:'api-one'},b={...host,id:'host-2',hostname:'db-two'};
@@ -475,8 +475,8 @@ test('Read Only cannot open, preview or submit learning and cookie sessions requ
 test('a delayed cached preview cannot replace the latest selected-host preview',async()=>{
  let releaseFirst;const firstResult=new Promise(resolve=>{releaseFirst=resolve;});let previewCalls=0;
  const env=await workspace('traffic',{mode:'entra',role:'admin',responses:{'POST /api/v1/learning/preview':()=>++previewCalls===1?firstResult:{servers:[{server_id:'host-2',hostname:'latest-db',ports:[{port:5432,protocol:'tcp'}],supported:true}]}}});
- await env.click('learn');const form=renderedForm(env,'learning-form');let selected=['host-1'];form.querySelectorAll=selector=>selector==='input[name="server_ids"]:checked'?selected.map(value=>({value})):[];
- const earlier=env.run('refreshLearningPreview()');selected=['host-2'];await env.run('refreshLearningPreview()');assert.match(env.element('#learning-preview').innerHTML,/latest-db/);
+ await env.click('learn');const form=renderedForm(env,'learning-form');form.values.server_ids=['host-1'];
+ const earlier=env.run('refreshLearningPreview()');form.values.server_ids=['host-2'];await env.run('refreshLearningPreview()');assert.match(env.element('#learning-preview').innerHTML,/latest-db/);
  releaseFirst({servers:[{server_id:'host-1',hostname:'superseded-api',ports:[{port:8080,protocol:'tcp'}],supported:true}]});await earlier;
  assert.match(env.element('#learning-preview').innerHTML,/latest-db/);assert.doesNotMatch(env.element('#learning-preview').innerHTML,/superseded-api|8080/);
 });
@@ -650,7 +650,7 @@ test('a discovery port limit validates only when enabled and does not alter manu
  await env.click('learn');const manual=renderedForm(env,'learning-form',{server_ids:['host-1'],selection_mode:'manual',port_filter_enabled:'on',port_filter:'443/tcp',ports:'8443/tcp',duration:'1',unit:'3600'});await submitRendered(env,manual);request=mutations(env).filter(item=>item.url==='/api/v1/learning').at(-1);assert.deepEqual(JSON.parse(request.options.body).ports,[{port:8443,protocol:'tcp'}]);assert.equal(JSON.parse(request.options.body).port_filter,undefined);
 });
 test('cached preview sends the exact port filter and hides unselected host listeners without modifying inventory',async()=>{
- const env=await workspace('traffic',{mode:'entra',role:'admin',responses:{'POST /api/v1/learning/preview':{servers:[{server_id:'host-1',hostname:'web-one',supported:true,ports:[{port:22,protocol:'tcp'},{port:443,protocol:'tcp'},{port:80,protocol:'tcp'}]},{server_id:'host-2',hostname:'other-host',supported:true,ports:[{port:22,protocol:'tcp'}]}]}}});await env.click('learn');const form=renderedForm(env,'learning-form',{selection_mode:'discovered',port_filter_enabled:'on',port_filter:'443/tcp'});form.querySelectorAll=selector=>selector==='input[name="server_ids"]:checked'?[{value:'host-1'},{value:'host-2'}]:[];
+ const env=await workspace('traffic',{mode:'entra',role:'admin',responses:{'POST /api/v1/learning/preview':{servers:[{server_id:'host-1',hostname:'web-one',supported:true,ports:[{port:22,protocol:'tcp'},{port:443,protocol:'tcp'},{port:80,protocol:'tcp'}]},{server_id:'host-2',hostname:'other-host',supported:true,ports:[{port:22,protocol:'tcp'}]}]}}});await env.click('learn');const form=renderedForm(env,'learning-form',{selection_mode:'discovered',port_filter_enabled:'on',port_filter:'443/tcp'});form.values.server_ids=['host-1','host-2'];
  await env.run('refreshLearningPreview()');const request=mutations(env)[0];assert.deepEqual(JSON.parse(request.options.body),{server_ids:['host-1','host-2'],port_filter:[{port:443,protocol:'tcp'}]});const preview=env.element('#learning-preview').innerHTML;assert.match(preview,/Only 443\/tcp will be learned or automatically allowed/);assert.match(preview,/443\/tcp/);assert.doesNotMatch(preview,/22\/tcp|80\/tcp/);assert.match(preview,/No selected network listeners in cached inventory/);assert.equal(env.run('state.data.servers[0].listeners[0].port'),2022);
 });
 test('saved service groups copy into the optional discovery limit and no-match session scopes stay explicit',async()=>{
@@ -1566,4 +1566,29 @@ test('Platform Updates can resume a durable request after an uncertain host ackn
  await env.submit('platform-update-review-form',{confirmation:updatePhrase});
  assert.equal(env.requests.filter(request=>request.url===updatePath+'/apply').length,1);
  assert.doesNotMatch(env.element('#view-content').innerHTML,/Update verified/);
+});
+
+test('Policies offers discovery and a manual policy saves exact enrolled endpoint IDs',async()=>{
+ const env=await workspace('policies',{mode:'entra',role:'admin'});
+ const action=env.element('#learn-button');
+ assert.equal(action.hidden,false);assert.match(action.innerHTML,/Discover policy/);
+ action.eventListeners.click[0]();assert.equal(env.element('#modal-title').textContent,'Discover policy');
+ assert.match(env.element('#modal-content').innerHTML,/name="policy_action" value="auto_allow"/);
+ env.run('showPolicy()');assert.match(env.element('#modal-content').innerHTML,/Specific endpoints by IP or name/);
+ const form=renderedForm(env,'policy-form',{name:'Exact Billing endpoint',target_type:'endpoints',target_endpoints:['host-1'],mode:'enforce'});
+ form.querySelectorAll=selector=>selector==='.rule-row'?[policyRow({rule_type:'port',rule_port:'8443',rule_protocol:'tcp',rule_sources:'192.0.2.10',rule_selector:'',rule_location_id:''})]:[];
+ await submitRendered(env,form);
+ const request=mutations(env)[0],body=JSON.parse(request.options.body);
+ assert.equal(request.url,'/api/v1/policies');assert.deepEqual(body.endpoint_ids,['host-1']);assert.deepEqual(body.selector,{});assert.deepEqual(body.group_ids,[]);assertCookieMutation(request);
+});
+test('Traffic discovery reports typed rate and retention with CSV access and no policy actions',async()=>{
+ const data=evidencePage(),row={...data.rows[0],capture_kind:'accepted_connection',count_unit:'connections',peak_observed_per_second:37,rate_window_seconds:1,rate_is_lower_bound:true};
+ const env=await workspace('traffic',{mode:'entra',role:'admin',responses:{'/api/v1/learning/session-1/recommendations?limit=200&offset=0':{...data,purpose:'traffic',rows:[row],evidence_expires_at:'2026-12-20T00:00:00Z'}}});
+ assert.match(env.element('#learn-button').innerHTML,/Discover traffic/);
+ await env.click('recommendation-open',{id:'session-1',purpose:'traffic'});
+ assert.equal(env.element('#modal-title').textContent,'Traffic discovery observations');
+ const html=env.element('#modal-content').innerHTML;
+ assert.match(html,/37 connections\/s/);assert.match(html,/retention ends/);assert.match(html,/Export CSV/);
+ assert.doesNotMatch(html,/recommendation-form|recommendation-apply|Preview selected access/);
+ assert.equal(mutations(env).length,0);
 });

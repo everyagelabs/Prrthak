@@ -11,10 +11,31 @@ from .inventory_views import rows
 
 MAX_EXPORT_BYTES=64*1024*1024
 EXPORT_SLOTS=threading.BoundedSemaphore(2)
+RATE_FIELDS = ('peak_observed_per_second', 'rate_window_seconds', 'peak_observed_at', 'rate_is_lower_bound')
 FIELDS=('session_id','server_id','hostname','source_ip','source_cidr','port','protocol','service','process','count','verdicts','first_seen','last_seen','eligible_for_auto','excluded_reason','count_unit','capture_kind','capture_backend','address_family')
+
 
 class ExportBusy(RuntimeError):
     pass
+
+
+def traffic_evidence_available(session):
+    from .learning import TRAFFIC_PURPOSE
+    from .store import stamp
+    expiry = session.get("evidence_expires_at")
+    return session.get("purpose") != TRAFFIC_PURPOSE or bool(expiry and expiry > stamp())
+
+
+def prune_expired_traffic_evidence(db):
+    from .approval_views import _expression
+    from .learning import TRAFFIC_PURPOSE
+    from .store import stamp
+    purpose = _expression(db, ("purpose",))
+    expiry = _expression(db, ("evidence_expires_at",))
+    expired = "SELECT id FROM sessions WHERE " + purpose + "=? AND " + expiry + "<=?"
+    args = (TRAFFIC_PURPOSE, stamp())
+    for table, session_id in (("learning_evidence", "session_id"), ("learning_evidence_receipts", _expression(db, ("session_id",)))):
+        db.execute(f"DELETE FROM {table} WHERE id IN (SELECT id FROM {table} WHERE {session_id} IN ({expired}) LIMIT 1000)", args)
 
 
 def server_filter(session,identifier):
@@ -88,9 +109,9 @@ def pending_summaries(db,session_id,limit=100):
     return result,total
 
 
-def csv_values(row):
+def csv_values(row, fields=FIELDS):
     values=[]
-    for field in FIELDS:
+    for field in fields:
         value=';'.join(row[field]) if field=='verdicts' else row.get(field,'')
         if isinstance(value,str) and value.lstrip(' \t\r\n').startswith(('=','+','-','@')):value="'"+value
         values.append(value)
@@ -114,16 +135,18 @@ def csv_spool(store,session_id,server_id=None,*,max_bytes=None):
                 output.write(raw);size+=len(raw)
             output.write(b'\xef\xbb\xbf');size=3
             if size>max_bytes:raise ValueError('Complete CSV exceeds its size bound')
-            write(FIELDS)
             with store.read_meta() as db:
                 if getattr(db,'dialect','sqlite')=='sqlite':db.execute('BEGIN')
                 from .session_views import header
                 session=header(db,session_id)
                 server_filter(session,server_id)
+                from .learning import TRAFFIC_PURPOSE
+                fields = FIELDS + RATE_FIELDS if session.get("purpose") == TRAFFIC_PURPOSE else FIELDS
+                write(fields)
                 current_id,current_server=None,None
-                for row in evidence_rows(db,session_id,server_id):
+                for row in evidence_rows(db,session_id,server_id) if traffic_evidence_available(session) else ():
                     if row['server_id']!=current_id:current_id=row['server_id'];current_server=server_view(db,current_id)
-                    write(csv_values(_row_public(row,current_server)))
+                    write(csv_values(_row_public(row,current_server, purpose=session.get("purpose")), fields))
             output.flush();output.seek(0)
             yield output,size
     finally:EXPORT_SLOTS.release()

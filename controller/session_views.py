@@ -8,10 +8,11 @@ from .store import stamp, validate_port
 MAX_IDS_BYTES = 3 * 1024 * 1024
 MAX_PORT_BYTES = 16384
 MAX_DETAIL_BYTES = 8 * 1024 * 1024
-FIELDS = ("name", "status", "starts_at", "expires_at", "ended_at", "selection_mode", "policy_action", "initial_approval_state", "created_by", "evidence_revision", "observation_kinds")
+FIELDS = ("name", "status", "starts_at", "expires_at", "ended_at", "selection_mode", "policy_action", "initial_approval_state", "created_by", "evidence_revision", "observation_kinds", "purpose", "evidence_expires_at")
 
 
 def initialize(db):
+    db.execute("CREATE INDEX IF NOT EXISTS public_learning_session_purpose ON sessions ((" + _expression(db, ("purpose",)) + "),(" + _expression(db, ("evidence_expires_at",)) + "),id)")
     db.execute("CREATE INDEX IF NOT EXISTS public_learning_session_start ON sessions ((" + _expression(db, ("starts_at",)) + "),id)")
     db.execute("CREATE INDEX IF NOT EXISTS public_learning_session_active ON sessions ((" + _expression(db, ("status",)) + "),(" + _expression(db, ("starts_at",)) + "),(" + _expression(db, ("expires_at",)) + "),id)")
 
@@ -65,7 +66,7 @@ def _summary(row):
     from .traffic_capture import observation_kinds
     if result["observation_kinds"]:result["observation_kinds"] = observation_kinds(json.loads(result["observation_kinds"]))
     else:result.pop('observation_kinds',None)
-    for field, fallback in (("selection_mode", "manual"), ("policy_action", "observe")):
+    for field, fallback in (("selection_mode", "manual"), ("policy_action", "observe"), ("purpose", "policy")):
         result[field] = result[field] or fallback
     if row[start + 6]:
         fields = ("id", "status", "created_at", "expires_at", "digest", "plan_digest")
@@ -84,13 +85,19 @@ def _where(db, server_id):
     return "EXISTS(SELECT 1 FROM json_each(sessions.data,'$.server_ids') member WHERE member.value=?)", (server_id,)
 
 
-def listing(store, limit=6, offset=0, server_id=None):
+def listing(store, limit=6, offset=0, server_id=None, purpose=None):
     if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 20 or isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
         raise ValueError("Learning pagination requires limit 1..20 and nonnegative offset")
     with store.read_meta() as db:
         if getattr(db, "dialect", "sqlite") == "sqlite":
             db.execute("BEGIN")
         where, args = _where(db, server_id)
+        if purpose is not None:
+            from .learning import purpose_for
+            purpose_for({"purpose": purpose})
+            field = _expression(db, ("purpose",))
+            where += " AND " + ("COALESCE(" + field + ",'policy')" if purpose == "policy" else field) + "=?"
+            args += (purpose,)
         total = int(db.execute("SELECT COUNT(*) FROM sessions WHERE " + where, args).fetchone()[0])
         active = _expression(db, ("status",)) + "='active' AND " + _expression(db, ("starts_at",)) + "<=? AND " + _expression(db, ("expires_at",)) + ">?"
         current = stamp()
@@ -99,7 +106,7 @@ def listing(store, limit=6, offset=0, server_id=None):
         # LIMIT is below the scalar/array projection, never after Python decode.
         sql = "SELECT " + _projection(db) + " FROM (SELECT id,data FROM sessions WHERE " + where + " ORDER BY " + order + " LIMIT ? OFFSET ?) sessions"
         items = [_summary(row) for row in db.execute(sql, args + (limit, offset))]
-        return {"items": items, "total": total, "active_total": active_total, "limit": limit, "offset": offset, "has_more": offset + limit < total, "server_id": server_id, "summary_only": True}
+        return {"items": items, "total": total, "active_total": active_total, "limit": limit, "offset": offset, "has_more": offset + limit < total, "server_id": server_id, "summary_only": True, **({"purpose": purpose} if purpose is not None else {})}
 
 
 def header(db, identifier):

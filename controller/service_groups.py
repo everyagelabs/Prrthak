@@ -10,7 +10,7 @@ import json
 import uuid
 
 from .firewall import WorkflowConflict
-from .store import digest, stamp, validate_port
+from .store import digest, exact_policy_endpoints, stamp, validate_port
 
 
 def initialize(db):
@@ -214,8 +214,11 @@ def effective_bundles(store, db, *, servers=None, policies=None, service_group_o
 
     rules_by_host, matched, targets_by_policy, snapshots_by_host = {}, {}, {}, {}
     for policy in sorted(policies, key=lambda item: item["id"]):
+        exact = exact_policy_endpoints(policy)
         group_ids = policy.get("group_ids", [])
-        targets = set().union(*(group_members.get(identifier, set()) for identifier in group_ids)) if group_ids else selected(policy.get("selector", {}))
+        targets = (exact & all_ids if exact is not None else
+                   set().union(*(group_members.get(identifier, set()) for identifier in group_ids)) if group_ids
+                   else selected(policy.get("selector", {})))
         targets_by_policy[policy["id"]] = targets
         resolved, used_groups = [], {}
         for service in policy["services"]:

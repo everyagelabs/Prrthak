@@ -123,3 +123,10 @@ test('fresh discovery pending and failed hosts are never counted as confirmed co
  assert.equal(F.learningStatus({status:'healthy',collector_status:'off',learning_discovery_status:'no_listeners'}),'no_listeners');
  assert.equal(F.learningStatus({status:'offline',collector_status:'learning',learning_discovery_pending:true}),'unknown');
 });
+
+test('exact endpoint policies stay bound to enrollment IDs through metadata or address changes',()=>{
+ const policy={endpoint_ids:['billing-1','retired'],selector:{},group_ids:[]};
+ const moved=servers.map(server=>server.id==='billing-1'?{...server,tags:{application:'other'},ips:['192.0.2.55']}:server);
+ assert.deepEqual(F.policyTargets(policy,moved,[]).map(server=>server.id),['billing-1']);
+ assert.deepEqual(F.policyTargets(policy,moved.filter(server=>server.id!=='billing-1'),[]),[]);
+});

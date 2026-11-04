@@ -51,6 +51,8 @@ def initialize(db):
         db.execute(f"CREATE TABLE IF NOT EXISTS {table} (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
     db.execute("CREATE TABLE IF NOT EXISTS learning_evidence (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, server_id TEXT NOT NULL, data TEXT NOT NULL)")
     db.execute("CREATE INDEX IF NOT EXISTS learning_evidence_session ON learning_evidence(session_id,server_id)")
+    from .approval_views import _expression
+    db.execute("CREATE INDEX IF NOT EXISTS learning_evidence_receipt_session ON learning_evidence_receipts ((" + _expression(db, ("session_id",)) + "))")
     if getattr(db, "dialect", "sqlite") == "postgresql":
         db.execute("ALTER TABLE learning_allow_policies ADD COLUMN IF NOT EXISTS server_id TEXT NOT NULL DEFAULT ''")
         db.execute("ALTER TABLE learning_allow_policies ADD COLUMN IF NOT EXISTS session_id TEXT NOT NULL DEFAULT ''")
@@ -171,10 +173,15 @@ def _protected(server, port, protocol):
     return ""
 
 
-def _row_public(row, server):
+def _row_public(row, server, *, purpose=None):
     from .traffic_capture import public as capture_public
     result = capture_public(row)
     result["hostname"] = server.get("hostname", row["server_id"])
+    from .learning import TRAFFIC_PURPOSE
+    if purpose == TRAFFIC_PURPOSE:
+        result["eligible_for_auto"] = False
+        result["excluded_reason"] = "Discover traffic is observe-only"
+        return result
     frozen_ssh = row["protocol"] == "tcp" and (row.get("service", "").casefold() == "ssh" or "sshd" in row.get("process", "").casefold())
     reason = row.get("source_error", "") or ("SSH access requires the ordinary protected managed-policy review" if frozen_ssh else _protected(server, row["port"], row["protocol"]))
     result["eligible_for_auto"] = not bool(reason)
@@ -202,7 +209,9 @@ def _active(session):
 
 def _automatic(store, db, session, server, rows, evidence_overflow=False):
     from .host_default_deny import guarded
-    if guarded(server):return
+    from .learning import TRAFFIC_PURPOSE
+    if guarded(server) or session.get("purpose") == TRAFFIC_PURPOSE:
+        return
     if session.get("policy_action", "observe") != "auto_allow" or session.get("selection_mode") != "discovered" or session.get("auto_allow_confirmed") is not True or server["id"] in session.get("auto_allow_paused_server_ids", []) or not _active(session):
         return
     from . import approvals
@@ -249,22 +258,37 @@ def _triple(row):
 
 def reconcile(store, limit=100):
     """Replay-safe durable evidence transfer; never hold both database transactions."""
+    from .approval_views import _expression
+    from .evidence_views import traffic_evidence_available
+    from .learning import TRAFFIC_PURPOSE
+    from .traffic_capture import batch_peaks, public as capture_public
     with store.flow_lock, store.read_traffic() as db:
         batches = [dict(row) for row in db.execute("SELECT * FROM batches WHERE processed=1 AND evidence_processed=0 ORDER BY received_at,batch_key LIMIT ?", (limit,)).fetchall()]
+    if not batches:
+        return 0
+    session_ids = sorted({batch["session_id"] for batch in batches})
+    with store.read_meta() as db:
+        purpose = _expression(db, ("purpose",))
+        markers = ",".join("?" for _ in session_ids)
+        traffic_sessions = {row[0] for row in db.execute(f"SELECT id FROM sessions WHERE id IN ({markers}) AND {purpose}=?", (*session_ids, TRAFFIC_PURPOSE))}
+    with store.flow_lock, store.read_traffic() as db:
         for batch in batches:
             batch["accepted_capture_ids"]={row[0] for row in db.execute("SELECT event_id FROM flows WHERE batch_key=? AND event_id<>'' AND capture_processed=1",(batch["batch_key"],))}
+            batch["peaks"] = batch_peaks(db, batch) if batch["session_id"] in traffic_sessions else {}
     for batch in batches:
         receipt_id = digest(batch["batch_key"])
         with store.lock, store.meta() as db:
+            if getattr(db, "dialect", "sqlite") == "sqlite":
+                db.execute("BEGIN IMMEDIATE")
             if store._get(db, "learning_evidence_receipts", receipt_id) is None:
                 session = store._get(db, "sessions", batch["session_id"])
                 server = store._get(db, "servers", batch["server_id"])
-                if session and server:
+                available = not session or traffic_evidence_available(session)
+                if session and server and available:
                     frozen = session.get("discovery_results", {}).get(server["id"], {}).get("listeners", server.get("listeners", []))
                     for event in json.loads(batch["data"]):
                         if event.get("capture_kind") in ("accepted_connection","denied_packet") and event["event_id"] not in batch["accepted_capture_ids"]:
                             continue
-                        from .traffic_capture import public as capture_public
                         captured = capture_public(event)
                         source, cidr, source_error = _source(event["source_ip"])
                         identity=[session["id"], server["id"], source, event["protocol"], event["port"]]
@@ -276,9 +300,14 @@ def reconcile(store, limit=100):
                             listener = next((listener for listener in matches if listener.get("service") or listener.get("process")), matches[0] if matches else {})
                             row = {"id": identifier, "session_id": session["id"], "server_id": server["id"], "hostname": server.get("hostname", server["id"]), "source_ip": source, "source_cidr": cidr, "source_error": source_error, "port": event["port"], "protocol": event["protocol"], "service": listener.get("service", listener.get("application", "")), "process": listener.get("process", ""), "count": 0, "verdicts": [], "first_seen": event["first_seen"], "last_seen": event["last_seen"], **{key:captured[key] for key in ("capture_kind","capture_backend","count_unit","address_family")}}
                         row.update({"count": row["count"] + event["count"], "verdicts": sorted(set(row["verdicts"]) | {event["verdict"]}), "first_seen": min(row["first_seen"], event["first_seen"]), "last_seen": max(row["last_seen"], event["last_seen"])})
+                        peak = batch["peaks"].get((source, event["protocol"], event["port"], captured["capture_kind"]))
+                        if peak and (peak[0] > row.get("peak_observed_per_second", 0) or (peak[0] == row.get("peak_observed_per_second") and peak[1] < row["peak_observed_at"])):
+                            row.update(peak_observed_per_second=peak[0], rate_window_seconds=1,
+                                       peak_observed_at=peak[1], rate_is_lower_bound=True)
                         _put_evidence(db, row)
-                    session["evidence_revision"] = session.get("evidence_revision", 0) + 1
-                    store._put(db, "sessions", session)
+                    if session.get("purpose") != TRAFFIC_PURPOSE:
+                        session["evidence_revision"] = session.get("evidence_revision", 0) + 1
+                        store._put(db, "sessions", session)
                     if session.get("policy_action")=="auto_allow":
                         count=db.execute("SELECT COUNT(*) FROM learning_evidence WHERE session_id=? AND server_id=?",(session["id"],server["id"])).fetchone()[0]
                         overflow=count>3*MAX_IPSET_SOURCES
@@ -288,7 +317,8 @@ def reconcile(store, limit=100):
                             tuples=db.execute('SELECT COUNT(*) FROM (SELECT '+fields+' FROM learning_evidence WHERE session_id=? AND server_id=? GROUP BY '+fields+') evidence_tuples',(session['id'],server['id'])).fetchone()[0]
                             overflow=tuples>MAX_IPSET_SOURCES
                         _automatic(store, db, session, server, [] if overflow else _evidence(db, session["id"], server["id"]), evidence_overflow=overflow)
-                store._put(db, "learning_evidence_receipts", {"id": receipt_id, "batch_key": batch["batch_key"], "session_id": batch["session_id"], "server_id": batch["server_id"], "processed_at": stamp()})
+                if available:
+                    store._put(db, "learning_evidence_receipts", {"id": receipt_id, "batch_key": batch["batch_key"], "session_id": batch["session_id"], "server_id": batch["server_id"], "processed_at": stamp()})
         # If this write fails, the committed metadata receipt makes a retry safe.
         with store.flow_lock, store.traffic() as db:
             db.execute("UPDATE batches SET evidence_processed=1 WHERE batch_key=?", (batch["batch_key"],))
@@ -487,16 +517,17 @@ def recommendations(store, session_id, limit=200, offset=0, server_id=None):
             db.execute('BEGIN')
         from .session_views import header, discovery_statuses
         session = header(db, session_id)
-        from .evidence_views import clause,server_filter,server_view,evidence_rows,policy_summaries,pending_summaries,pending_summary
+        from .evidence_views import clause,server_filter,server_view,evidence_rows,policy_summaries,pending_summaries,pending_summary,traffic_evidence_available
         server_filter(session,server_id)
         where,args=clause(session_id,server_id)
-        total=int(db.execute("SELECT COUNT(*) FROM learning_evidence WHERE "+where,args).fetchone()[0])
-        page=list(evidence_rows(db,session_id,server_id,limit,offset))
+        available = traffic_evidence_available(session)
+        total = int(db.execute("SELECT COUNT(*) FROM learning_evidence WHERE " + where, args).fetchone()[0]) if available else 0
+        page = list(evidence_rows(db, session_id, server_id, limit, offset)) if available else []
         coverage_all=[server_id] if server_id is not None else session['server_ids']
         coverage_ids=coverage_all[:100]
         servers={identifier:server_view(db,identifier,ssh=False) for identifier in coverage_ids}
         for identifier in {row['server_id'] for row in page}:servers[identifier]=server_view(db,identifier)
-        rows=[_row_public(row,servers.get(row['server_id'],{})) for row in page]
+        rows=[_row_public(row,servers.get(row['server_id'],{}), purpose=session['purpose']) for row in page]
         policies,policy_total=policy_summaries(db,session_id)
         statuses=discovery_statuses(db,session_id,coverage_ids)
         coverage = [{"server_id": identifier, "hostname": servers.get(identifier, {}).get("hostname", identifier), "learning_coverage": servers.get(identifier, {}).get("learning_coverage"), "collector_state": servers.get(identifier, {}).get("collector_state", "unknown"), "discovery_status": statuses.get(identifier,"manual")} for identifier in coverage_ids]
@@ -505,7 +536,7 @@ def recommendations(store, session_id, limit=200, offset=0, server_id=None):
         pending,pending_total=pending_summaries(db,session_id,99 if initial_pending else 100)
         if initial_pending:
             pending.append(pending_summary({**initial, "kind": "initial_learning"}));pending_total+=1
-        return {"session_id": session_id, "policy_action": session.get("policy_action", "observe"), "observation_kinds":session.get("observation_kinds",[]), "evidence_revision": session.get("evidence_revision", 0), "rows": rows, "total_rows": total, "limit": limit, "offset": offset, "has_more": offset + limit < total, "order": "server_id,id", "server_id": server_id, "coverage": {"servers": coverage, "total_servers":len(coverage_all),"limit":100,"offset":0,"has_more":len(coverage_all)>100,"rate_limited": any((row["learning_coverage"] or {}).get("rate_limited", True) for row in coverage), "message": "Transport connections, denied packets and legacy sampled logs have separate count units. Backend support, loss and gaps limit coverage; empty evidence does not prove no hits or application success. Coverage status lists up to 100 hosts; use server_id for another exact member."}, "generated_policies": policies, "generated_policy_total": policy_total, "pending_approvals": pending,"pending_approval_total":pending_total}
+        return {"session_id": session_id, "purpose": session["purpose"], "evidence_expires_at": session["evidence_expires_at"], "evidence_expired": not available, "policy_action": session.get("policy_action", "observe"), "observation_kinds":session.get("observation_kinds",[]), "evidence_revision": session.get("evidence_revision", 0), "rows": rows, "total_rows": total, "limit": limit, "offset": offset, "has_more": offset + limit < total, "order": "server_id,id", "server_id": server_id, "coverage": {"servers": coverage, "total_servers":len(coverage_all),"limit":100,"offset":0,"has_more":len(coverage_all)>100,"rate_limited": any((row["learning_coverage"] or {}).get("rate_limited", True) for row in coverage), "message": "Transport connections, denied packets and legacy sampled logs have separate count units. Backend support, loss and gaps limit coverage; empty evidence does not prove no hits or application success. Coverage status lists up to 100 hosts; use server_id for another exact member."}, "generated_policies": policies, "generated_policy_total": policy_total, "pending_approvals": pending,"pending_approval_total":pending_total}
 
 
 
@@ -548,6 +579,12 @@ def _target_fingerprint(server):
     return digest({"id": server["id"], "ips": sorted(server.get("ips", [])), "protection": server.get("protection", {}), "listeners": server.get("listeners", []), "capabilities": server.get("capabilities", []), "tags": server.get("tags", {}), "location_id": server.get("location_id")})
 
 
+def _require_policy_session(session):
+    from .learning import TRAFFIC_PURPOSE
+    if session.get("purpose") == TRAFFIC_PURPOSE:
+        raise PermissionError("Discover traffic evidence cannot create firewall policy")
+
+
 def preview(store, session_id, value, actor, *, principal=None):
     from .review_limits import MAX_REVIEW_BYTES, encoded_size
     if not isinstance(value, dict):
@@ -562,6 +599,7 @@ def preview(store, session_id, value, actor, *, principal=None):
         session = store._get(db, "sessions", session_id)
         if session is None:
             raise KeyError(session_id)
+        _require_policy_session(session)
         if isinstance(value.get("expected_evidence_revision"), bool) or not isinstance(value.get("expected_evidence_revision"), int) or value.get("expected_evidence_revision") != session.get("evidence_revision", 0):
             raise WorkflowConflict("Observed evidence changed; reload and review again", {})
         chosen_ids=sorted(set(rows))
@@ -610,11 +648,14 @@ def apply(store, session_id, value, actor, *, principal=None):
         plan = store._get(db, "learning_policy_previews", value.get("preview_id"))
         if plan is None or plan["session_id"] != session_id or plan["digest"] != value.get("digest"):
             raise WorkflowConflict("Suggestion preview is missing or does not match", {})
+        session = store._get(db, "sessions", session_id)
+        if session is None:
+            raise KeyError(session_id)
+        _require_policy_session(session)
         if plan.get("kind") == "policy_change":
             raise ValueError("Use the learned-policy change confirmation route for this preview")
         if plan["status"] == "applied":
             return {"policies": [store._get(db, "learning_allow_policies", identifier) for identifier in plan["policy_ids"]], "target_server_ids": plan["target_server_ids"], "duplicate": True}
-        session = store._get(db, "sessions", session_id)
         targets, group_state = _selection(store, db, plan["selection"])
         from .host_default_deny import guarded
         if any(guarded(target) for target in targets):raise ValueError("Learning mutations are held while whole-server deny is enabled or being removed")

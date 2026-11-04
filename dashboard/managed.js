@@ -28,7 +28,7 @@
   function policyConfiguration(record={}) {
     const value=policy(record);
     if(record.summary_only===true || value.summary_only===true) throw new Error('Load the exact immutable policy revision before reviewing its configuration.');
-    return {name:value.name || '',mode:value.mode || 'monitor',selector:normalized(value.selector || {}),group_ids:normalized(value.group_ids || []),services:normalized(value.services || [])};
+    return {name:value.name || '',mode:value.mode || 'monitor',selector:normalized(value.selector || {}),group_ids:normalized(value.group_ids || []),endpoint_ids:normalized(value.endpoint_ids || []),services:normalized(value.services || [])};
   }
   function exactPolicy(record,id,number) {
     const value=policy(record || {});

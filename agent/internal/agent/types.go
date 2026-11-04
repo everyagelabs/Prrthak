@@ -5,6 +5,7 @@ import "time"
 const Version = "0.18.3"
 
 const LearningDiscoveryCapability = "learning_discovery_v1"
+const TrafficDiscoveryCapability = "traffic_discovery_30d_v1"
 const HostDefaultDenyCapability = "host_default_deny_v1"
 
 type Port struct {
@@ -20,6 +21,7 @@ type Service struct {
 type Session struct {
 	ObservationKinds []string   `json:"observation_kinds,omitempty"`
 	PolicyAction     string     `json:"policy_action,omitempty"`
+	Purpose          string     `json:"purpose,omitempty"`
 	ID               string     `json:"id"`
 	SelectionMode    string     `json:"selection_mode,omitempty"`
 	DiscoveryPending bool       `json:"discovery_pending,omitempty"`

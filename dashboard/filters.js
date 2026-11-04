@@ -145,6 +145,10 @@
     return servers.filter(server => belongsToGroup(server, group));
   }
   function policyTargets(policy, servers, groups) {
+    if (policy.endpoint_ids?.length) {
+      const ids = new Set(policy.endpoint_ids);
+      return servers.filter(server => ids.has(server.id));
+    }
     if (policy.group_ids?.length) {
       const ids = new Set(groups.filter(group => policy.group_ids.includes(group.id)).flatMap(group => groupMembers(group, servers).map(server => server.id)));
       return servers.filter(server => ids.has(server.id));

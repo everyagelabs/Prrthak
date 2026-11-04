@@ -143,9 +143,9 @@ flowchart TD
 
 **Monitor is the installation default.** On ordinary per-port hosts, an authorized Admin's Save/Apply publishes the desired change directly; opted-in endpoints pull and apply it through the checks above. Whole-server default-deny hosts require a fresh dedicated review and manually ticked downtime acknowledgement for each changed deny-bearing bundle. Applied receipts show the actual outcome. Security opt-ins remain explicit local configuration, supplied through a GUI-generated signed kit; saving an ordinary policy does not silently enable them. Explicit imported deny/restrictive changes, restrictive learned edits/removal and destructive recovery retain extra same-actor confirmations.
 
-### How learning becomes a policy
+### Discover policy and target individual endpoints
 
-1. Select hosts/groups and optionally a port such as `443/tcp`.
+1. In **Policies → Discover policy**, select endpoints by name, IP, tag or location. Optionally limit discovery to a port such as `443/tcp`.
 2. Request fresh per-host discovery and freeze only eligible selected ports.
 3. Capture temporarily; show exact observed source, destination host, port, protocol, counts, times and coverage.
 4. Review recommendations for selected targets, or enable the exact initial auto-allow scope and expiry as an authorized Admin.
@@ -153,6 +153,12 @@ flowchart TD
 6. Stop/expiry removes owned capture rules and ends new automation. Committed learned grants remain until reviewed edit/removal.
 
 An additive learned allow does **not** restrict other sources while a broad existing firewall opening remains. Observed clients are not automatically trustworthy. New scopes separate conntrack connections from verified NFLOG denied packets, with explicit coverage gaps; historical journal records keep their legacy label. See [traffic capture](docs/traffic-capture.md).
+
+For a manual rule, choose **Specific endpoints** as the policy target and search by reported IP or name. A saved policy follows the selected enrollment identity even if its address changes. Tags and saved server groups remain available for policies that should follow group membership. Protected SSH ports are visible in traffic evidence and require the protected policy workflow to change access.
+
+### Discover traffic for up to 30 days
+
+In **Traffic → Discover traffic**, choose endpoints using their reported IP, name, tags or location and set the duration. Agents discover listening services and can restrict collection to selected ports. Open the session's evidence to filter or export source IP, endpoint, destination port/protocol, count and timestamps. The peak column shows the highest observed count in a fixed one-second bucket for each source and destination port. Accepted connections and denied packets have separate counts. Collection is metadata only and does not create policies. Session evidence remains available for 30 days after collection ends; sessions longer than seven days require an upgraded agent.
 
 ### Optional ongoing port hit monitoring
 

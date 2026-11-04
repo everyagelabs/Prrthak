@@ -1,4 +1,4 @@
-# Traffic capture in 0.9
+# Traffic capture
 
 Prṛthak distinguishes **accepted transport connections**, **denied packets** and
 **historical sampled journal logs**. Their counts have different units and are
@@ -15,8 +15,9 @@ Temporary learning and continuous monitoring are separate workflows:
 
 | Workflow | Duration | Access-policy behavior |
 |---|---|---|
+| Traffic → Discover traffic | 1 minute to 30 days; aggregated evidence retained 30 days after collection ends | Metadata only; no suggestions or grants |
 | Learning · observe | Finite selected window | Evidence and recommendations; no automatic grants |
-| Learning · auto-allow | Finite selected window | Adds exact eligible source/port grants within the initiating Admin's authorized scope and local endpoint opt-ins |
+| Policies → Discover policy | 1 minute to 7 days | Adds exact eligible source/port grants within the initiating Admin's authorized scope and local endpoint opt-ins |
 | Continuous port hit monitoring | Until explicitly stopped, with 1–24-hour retained history | Observation only; never creates learned or access policies |
 
 New reviews require an upgraded endpoint advertising `traffic_capture_v1`.
@@ -24,6 +25,16 @@ Select **Accepted transport connections**, **Denied packets**, or both; both
 start selected to preserve the requested any-hit learning behavior. Fresh
 learning discovery still freezes each host's own eligible selected ports.
 Monitoring freezes its explicit endpoints/ports and current group/tag membership.
+
+For **Discover traffic**, filter endpoint selection by IP, name, tag or location,
+and optionally limit the fresh discovery to selected ports. A session longer
+than seven days requires agents that support extended traffic discovery. The
+session evidence table and CSV report a peak observed rate per source, endpoint,
+destination port and evidence kind. The peak is the highest observed count in
+any fixed one-second bucket; capture loss can make it a lower bound. Accepted
+connections and denied packets have different units. Packet payloads are never
+stored by this workflow. Capture stops at expiry, and traffic discovery cannot
+be turned into automatic policy authority.
 
 **Auto-allow includes denied first-hits when denied-packet capture is selected.**
 A blocked client or scanner can therefore become allowed on the selected port.

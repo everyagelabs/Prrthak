@@ -6,7 +6,7 @@ import re
 
 from .approval_views import _expression
 from .inventory_views import rows
-from .store import digest
+from .store import digest, exact_policy_endpoints
 
 TABLES = {"managed": "policies", "learned": "learning_allow_policies"}
 MAX_DETAIL_BYTES = 8 * 1024 * 1024
@@ -19,6 +19,13 @@ def _json(db, path, data="data"):
     if getattr(db, "dialect", "sqlite") == "postgresql":
         return "(" + data + "::jsonb#>'{" + ",".join(path) + "}')::text"
     return "json_extract(" + data + ",'$." + ".".join(path) + "')"
+
+
+def _endpoint_ids(db):
+    if getattr(db, "dialect", "sqlite") == "postgresql":
+        return _json(db, ("endpoint_ids",))
+    # Distinguish a missing key (legacy) from explicit JSON null (invalid).
+    return "CASE WHEN json_type(data,'$.endpoint_ids') IS NOT NULL THEN json_quote(json_extract(data,'$.endpoint_ids')) END"
 
 
 def initialize(db):
@@ -142,11 +149,14 @@ class Targets:
         self.locations = store._all(db, "locations") if selected else []
         self.valid_locations = {item["id"] for item in self.locations}
 
-    def matches(self, selector, group_ids, selected):
+    def matches(self, selector, group_ids, raw_endpoints, selected):
         if selected is None:
             return True
         if not selected:
             return False
+        if raw_endpoints is not None:
+            endpoints = exact_policy_endpoints({"endpoint_ids": _decoded(raw_endpoints, None), "selector": selector, "group_ids": group_ids})
+            return bool(endpoints & selected)
         if group_ids:
             for identifier in group_ids:
                 if identifier not in self.groups:
@@ -165,7 +175,7 @@ def _summaries(db, table, selected):
     if not selected:
         return
     projection = ["id"] + ["substr(CAST(" + _expression(db, (field,)) + " AS TEXT),1," + ("4096" if field == "error" else "512") + ")" for field in SCALARS]
-    projection += [_json(db, ("selector",)), _json(db, ("group_ids",)), _services(db)]
+    projection += [_json(db, ("selector",)), _json(db, ("group_ids",)), _endpoint_ids(db), _services(db)]
     wanted = ",".join("(?," + str(index) + ")" for index in range(len(selected)))
     sql = "WITH wanted(wanted_id,position) AS (VALUES " + wanted + ") SELECT " + ",".join(projection) + " FROM " + table + " JOIN wanted ON wanted.wanted_id=" + table + ".id ORDER BY wanted.position"
     remaining = MAX_PAGE_BYTES
@@ -178,7 +188,9 @@ def _summaries(db, table, selected):
             return
         item = {"id": row[0], **{field: row[index + 1] for index, field in enumerate(SCALARS)}}
         start = 1 + len(SCALARS)
-        item.update(selector=_decoded(row[start], {}), group_ids=_decoded(row[start + 1], []), services=_decoded(row[start + 2], [], MAX_PAGE_BYTES), summary_only=True, source_count_kind="literal_entries")
+        item.update(selector=_decoded(row[start], {}), group_ids=_decoded(row[start + 1], []), services=_decoded(row[start + 3], [], MAX_PAGE_BYTES), summary_only=True, source_count_kind="literal_entries")
+        if row[start + 2] is not None:
+            item["endpoint_ids"] = sorted(exact_policy_endpoints({**item, "endpoint_ids": _decoded(row[start + 2], None)}))
         if not isinstance(item["services"], list) or len(item["services"]) > 100:
             raise ValueError("Invalid public policy service projection")
         for field in ("revision", "applied_revision"):
@@ -213,7 +225,7 @@ def listing(store, kind="managed", value=None):
         if getattr(db, "dialect", "sqlite") == "sqlite": db.execute("BEGIN")
         where, args = _where(db, kind, value)
         if kind == "managed":
-            projection = "id," + _expression(db, ("name",)) + "," + _json(db, ("selector",)) + "," + _json(db, ("group_ids",))
+            projection = "id," + _expression(db, ("name",)) + "," + _json(db, ("selector",)) + "," + _json(db, ("group_ids",)) + "," + _endpoint_ids(db)
             order = _expression(db, ("name",)) + (" COLLATE \"C\"" if getattr(db, "dialect", "sqlite") == "postgresql" else " COLLATE BINARY") + ",id"
             targets = Targets(store, db, value) if scope is not None or needle else None
         else:
@@ -238,7 +250,7 @@ def listing(store, kind="managed", value=None):
                         if scope is not None or needle and not name_match:
                             selector, groups = _decoded(row[2], {}), _decoded(row[3], [])
                             wanted = scope if not needle or name_match else search_ids
-                            if not targets.matches(selector, groups, wanted): continue
+                            if not targets.matches(selector, groups, row[4], wanted): continue
                     else:
                         if scope is not None and row[1] not in scope: continue
                         if needle and not row[2] and row[1] not in search_ids: continue

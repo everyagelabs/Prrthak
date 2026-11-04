@@ -302,6 +302,25 @@ class TrafficCapturePostgresTests(unittest.TestCase):
         self.assertEqual(lp.recommendations(self.store,session['id'])['rows'][0]['count'],1)
         self.assertEqual({row['count_unit'] for row in self.store.flows()},{'connections','log_records'})
 
+    def test_observe_only_peak_and_scoped_evidence_prune_in_postgres(self):
+        from controller import learning
+        self.fixture.report('a','10.1.0.1',capabilities=['learning_discovery_v1', capture.CAPABILITY, learning.TRAFFIC_DISCOVERY_CAPABILITY])
+        session = self.store.create_session({'purpose':'traffic','server_ids':['a'],'selection_mode':'manual',
+            'ports':[{'port':80}],'duration_seconds':2592000}, 'admin')
+        first = self.event(identity='peak-one')
+        second = {**self.event(identity='peak-two'), 'first_seen':first['first_seen'], 'last_seen':first['last_seen']}
+        self.upload(session, [first], batch='peak-one')
+        self.upload(session, [first, second], batch='peak-two')
+        row = lp.recommendations(self.store, session['id'])['rows'][0]
+        self.assertEqual((row['count'], row['peak_observed_per_second']), (2, 2))
+        self.store.stop_session(session['id'], 'admin')
+        with patch('controller.store.now', return_value=now()+timedelta(days=31)):
+            self.store.prune()
+            self.assertTrue(lp.recommendations(self.store, session['id'])['evidence_expired'])
+        with self.store.read_meta() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM learning_evidence').fetchone()[0], 0)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM learning_evidence_receipts').fetchone()[0], 0)
+
     def test_hit_monitor_typed_ipv6_units_cross_batch_dedup_and_csv_do_not_create_learning(self):
         self.fixture.report('a','10.1.0.1',capabilities=['signed_assignments_v1',hm.CAPABILITY,capture.CAPABILITY])
         plan=hm.preview(self.store,{'name':'PG IPv6 capture','selection':{'server_ids':['a']},'ports':[{'port':80,'protocol':'tcp'}],'retention_hours':1},'admin')
