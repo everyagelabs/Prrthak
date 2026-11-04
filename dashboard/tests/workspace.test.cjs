@@ -1498,7 +1498,7 @@ test('Platform Updates resumes binary chunks, checks the package and applies onl
  await env.click('platform-tab',{tab:'updates'});
  await new Promise(setImmediate);
  assert.match(env.element('#view-content').innerHTML,/Resume upload and check package/);
- assert.match(env.element('#view-content').innerHTML,/Changes to host packages require the host installer/);
+ assert.match(env.element('#view-content').innerHTML,/Changes to RHEL host packages require the host installer/);
  const archive=Object.assign(new Blob(['hello-world']),{name:updateName});
  const signature=Object.assign(new Blob([JSON.stringify(sig)]),{name:updateName+'.signature.json'});
  await submitRendered(env,renderedForm(env,'platform-update-upload-form',{archive,signature}));
