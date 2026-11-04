@@ -87,6 +87,7 @@ FIXED_FILES = (
     'deploy/appliance/Dockerfile.etcd',
     'deploy/appliance/etcd-build-inputs.json',
     'deploy/appliance/node_manager.py',
+    'deploy/appliance/offline_update.py',
     'deploy/appliance/install_prerequisites.py',
     'deploy/appliance/controller_entrypoint.py',
     'deploy/appliance/bootstrap_roles.py',

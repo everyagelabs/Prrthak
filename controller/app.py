@@ -23,6 +23,7 @@ from .auth import AuthConflict, EntraAuth
 from .http_limits import RateLimited
 
 LOG = logging.getLogger("Prṛthak.controller")
+OFFLINE_UPDATE_WRITE_FENCE = Path("/run/prthak-controller-update/pending")
 
 
 class App:
@@ -110,10 +111,10 @@ class App:
         self.store.register_node({"id": self.controller_id, "site": self.site, "last_seen": stamp(), "ready": ready, "role": "active" if ready else "unavailable"})
 
     def start_jobs(self):
-        if self.recovering():
+        if self.recovering() or OFFLINE_UPDATE_WRITE_FENCE.exists():
             def after_recovery():
                 while not self.stop.is_set():
-                    if not self.recovering():
+                    if not self.recovering() and not OFFLINE_UPDATE_WRITE_FENCE.exists():
                         self.start_jobs()
                         return
                     self.stop.wait(.25)
@@ -380,6 +381,10 @@ def handler_for(app):
             if method == "GET" and path == "/readyz":
                 result = app.readiness(self.headers.get("X-Prthak-Recovery-Admission"))
                 self.response(200 if result["status"] == "ready" else 503, result)
+                return
+            if path.startswith("/api/") and OFFLINE_UPDATE_WRITE_FENCE.exists():
+                self.close_connection = True
+                self.response(503, {"error": "A controller update is being verified. Access resumes after the update finishes."}, {"Retry-After": "3"})
                 return
             if app.recovering() and path.startswith("/api/"):
                 self.response(503, {"error": "Reviewed recovery is in progress; business access resumes after verification"}, {"Retry-After": "3"})
@@ -707,6 +712,28 @@ def handler_for(app):
                     return
                 if role != "super_admin":
                     raise PermissionError("Only Super Admin can manage platform storage, backups, cluster installation or joining")
+                if parts[:2] == ["platform", "updates"]:
+                    from .offline_updates import OfflineUpdates, read_chunk
+                    if app.demo or not isinstance(self.connection, ssl.SSLSocket):
+                        raise PermissionError("Controller updates require installed HTTPS")
+                    updates = OfflineUpdates(app.platform, principal)
+                    if len(parts) == 2 and method == "GET":
+                        self.response(200, updates.status())
+                    elif parts[2:] == ["upload"] and method == "POST":
+                        self.response(201, updates.start(self.body()))
+                    elif len(parts) == 5 and parts[3] == "chunks" and method == "PUT" and re.fullmatch(r"[0-9]{1,10}", parts[4]):
+                        chunk = read_chunk(self.headers, self.rfile)
+                        if callback := getattr(self.connection, "_prthak_body_read", None):
+                            callback()
+                        self.response(200, updates.chunk(parts[2], int(parts[4]), chunk))
+                    elif len(parts) == 4 and parts[3] in ("review", "apply") and method == "POST":
+                        action = updates.review if parts[3] == "review" else updates.apply
+                        self.response(202, action(parts[2], self.body()))
+                    elif len(parts) == 3 and method == "DELETE":
+                        self.response(200, updates.cancel(parts[2]))
+                    else:
+                        self.response(404, {"error": "Controller update operation not found"})
+                    return
                 if len(parts) == 3 and parts[:2] == ["platform", "application-port"] and parts[2] in ("preview", "apply") and method == "POST":
                     from .application_port import preview, apply
                     callback = preview if parts[2] == "preview" else apply

@@ -36,7 +36,7 @@ async function workspace(view='overview',options={}) {
  context.apiResponses=options.responses || {};
  context.FormData=class{constructor(form){this.values=form.values || {};}get(key){return this.values[key] ?? null;}getAll(key){const value=this.values[key];return Array.isArray(value)?value:value==null?[]:[value];}};
  vm.createContext(context);
- for(const file of ['locations.js','filters.js','topology.js','routing.js','services.js','firewall.js','firewall-page.js','managed.js','managed-page.js','default-deny-page.js','locations-page.js','metadata-page.js','access-page.js','server-lifecycle-page.js','service-groups-page.js','learning-page.js','hit-monitoring-page.js','recommendations.js','approvals-page.js','recommendations-page.js','platform.js','settings-setup-page.js','settings-page.js','settings-ha-page.js','settings-appliance-page.js','settings-certificates-page.js','settings-agents-page.js','settings-notifications-page.js','settings-siem-page.js','settings-signing-page.js','firewall-counters-page.js','firewall-activation-page.js','network-control-page.js','settings-endpoint-certificates-page.js','settings-recovery-page.js','settings-application-port-page.js','policy-catalogue-page.js','alerts-catalogue-page.js','account-menu.js','risk-page.js','agent-installation.js','traffic-catalogue-page.js','audit-catalogue-page.js','source-banks-page.js','policy-deployments-page.js','app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context,{filename:file});
+ for(const file of ['locations.js','filters.js','topology.js','routing.js','services.js','firewall.js','firewall-page.js','managed.js','managed-page.js','default-deny-page.js','locations-page.js','metadata-page.js','access-page.js','server-lifecycle-page.js','service-groups-page.js','learning-page.js','hit-monitoring-page.js','recommendations.js','approvals-page.js','recommendations-page.js','platform.js','settings-setup-page.js','settings-page.js','settings-ha-page.js','settings-appliance-page.js','settings-certificates-page.js','settings-agents-page.js','settings-notifications-page.js','settings-siem-page.js','settings-signing-page.js','firewall-counters-page.js','firewall-activation-page.js','network-control-page.js','settings-endpoint-certificates-page.js','settings-recovery-page.js','settings-application-port-page.js','settings-updates-page.js','policy-catalogue-page.js','alerts-catalogue-page.js','account-menu.js','risk-page.js','agent-installation.js','traffic-catalogue-page.js','audit-catalogue-page.js','source-banks-page.js','policy-deployments-page.js','app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context,{filename:file});
  await new Promise(setImmediate);
  const run=script=>vm.runInContext(script,context);
  async function click(action,dataset={}){context.testButton={disabled:false,dataset:{action,...dataset}};return run('handleAction({target:{closest:()=>testButton}})');}
@@ -1473,4 +1473,97 @@ test('failed quarantine replacement keeps prior active isolation visible',async(
  const env=await workspace('servers');
  env.run(`state.data.servers[0].network_control={checked_at:new Date().toISOString(),stale:false,egress:{status:"rolled_back",last_operation_status:"rolled_back",active:true},quarantine:{status:"rolled_back",last_operation_status:"rolled_back",active:true,expires_at:new Date(Date.now()+60000).toISOString()}};render();`);
  const html=env.element('#view-content').innerHTML;assert.match(html,/>Quarantined</);assert.match(html,/Quarantine Rolled Back|Quarantine Rolled back|Quarantine rolled back/);assert.match(html,/Outbound applied/);assert.match(html,/Outbound Rolled Back|Outbound Rolled back|Outbound rolled back/);assert.doesNotMatch(html,/Quarantine released/);
+});
+
+const updateAPI = '/api/v1/platform/updates';
+const updatePhrase = 'INSTALL CONTROLLER UPDATE';
+const updateID = 'b'.repeat(32);
+const updateName = 'prthak-controller-0.18.3-offline-rhel9-x86_64.tar.gz';
+const updateStatus = update => ({available:true,blockers:[],max_bytes:1024,chunk_bytes:4,update});
+const updateRecord = (extra={}) => ({id:updateID,name:updateName,status:'uploading',size:11,offset:4,can_cancel:true,...extra});
+
+test('Platform Updates resumes binary chunks, checks the package and applies only after exact confirmation', async () => {
+ let record=updateRecord();
+ const sig={algorithm:'Ed25519',signature:'fixture'};
+ const review={version:'0.18.3',sha256:'a'.repeat(64),expires_at:new Date(Date.now()+60000).toISOString(),host_rpms:'validated_only'};
+ const updatePath=updateAPI+'/'+updateID;
+ const env=await workspace('settings',{mode:'entra',responses:{
+  [updateAPI]:()=>updateStatus(record),
+  ['POST '+updateAPI+'/upload']:()=>record,
+  ['PUT '+updatePath+'/chunks/4']:()=>record=updateRecord({offset:8}),
+  ['PUT '+updatePath+'/chunks/8']:()=>record=updateRecord({offset:11}),
+  ['POST '+updatePath+'/review']:()=>record=updateRecord({status:'ready',offset:11,review,confirmation_phrase:updatePhrase}),
+  ['POST '+updatePath+'/apply']:()=>record=updateRecord({status:'applying',offset:11,can_cancel:false,review})
+ }});
+ await env.click('platform-tab',{tab:'updates'});
+ await new Promise(setImmediate);
+ assert.match(env.element('#view-content').innerHTML,/Resume upload and check package/);
+ assert.match(env.element('#view-content').innerHTML,/Changes to host packages require the host installer/);
+ const archive=Object.assign(new Blob(['hello-world']),{name:updateName});
+ const signature=Object.assign(new Blob([JSON.stringify(sig)]),{name:updateName+'.signature.json'});
+ await submitRendered(env,renderedForm(env,'platform-update-upload-form',{archive,signature}));
+ const writes=mutations(env).filter(request=>request.url.startsWith(updateAPI));
+ assert.deepEqual(writes.map(request=>[request.options.method,request.url]),[
+  ['POST',updateAPI+'/upload'],['PUT',updatePath+'/chunks/4'],['PUT',updatePath+'/chunks/8'],['POST',updatePath+'/review']
+ ]);
+ assert.deepEqual(JSON.parse(writes[0].options.body),{name:updateName,size:11,signature:sig});
+ assert.deepEqual(await Promise.all(writes.slice(1,3).map(request=>request.options.body.text())),['o-wo','rld']);
+ for(const chunk of writes.slice(1,3))assert.equal(chunk.options.headers['Content-Type'],'application/octet-stream');
+ for(const request of writes)assertCookieMutation(request);
+ await env.click('platform-update-open-review');
+ assert.match(env.element('#modal-content').innerHTML,/Verified package SHA-256/);
+ await env.submit('platform-update-review-form',{confirmation:'wrong'});
+ assert.equal(env.requests.some(request=>request.url===updatePath+'/apply'),false);
+ await env.submit('platform-update-review-form',{confirmation:updatePhrase});
+ const apply=env.requests.find(request=>request.url===updatePath+'/apply');
+ assert.deepEqual(JSON.parse(apply.options.body),{confirmation:updatePhrase});
+ assertCookieMutation(apply);
+ assert.match(env.element('#view-content').innerHTML,/Installation in progress/);
+ assert.doesNotMatch(env.element('#view-content').innerHTML,/Update verified/);
+ record=updateRecord({status:'applied',result:{phase:'committed',verified:false}});
+ await env.click('platform-update-refresh');
+ assert.match(env.element('#view-content').innerHTML,/Update verification unavailable/);
+ record=updateRecord({status:'rolled_back',result:{phase:'rolled_back',verified:false,rolled_back:true}});
+ await env.click('platform-update-refresh');
+ assert.match(env.element('#view-content').innerHTML,/Previous controller restored/);
+});
+
+test('Platform Updates keeps uploads disabled without the appliance capability or a Super Admin session',async()=>{
+ const appliance=await workspace('settings',{mode:'entra',responses:{[updateAPI]:{
+  ...updateStatus(null),available:false,blockers:['Install an updater-enabled release']
+ }}});
+ await appliance.click('platform-tab',{tab:'updates'});
+ await new Promise(setImmediate);
+ assert.match(appliance.element('#view-content').innerHTML,/Install an updater-enabled standalone RHEL 9 x86_64 appliance release once/);
+ assert.match(appliance.element('#view-content').innerHTML,/id="platform-update-archive"[^>]+disabled/);
+ const roleToken=await workspace('settings',{mode:'tokens',storage:{'segment-token':'lab-token'}});
+ await roleToken.click('platform-tab',{tab:'updates'});
+ assert.equal(roleToken.requests.some(request=>request.url===updateAPI),false);
+ assert.match(roleToken.element('#view-content').innerHTML,/Sign in with a Super Admin account/);
+ const admin=await workspace('settings',{mode:'entra',role:'admin'});
+ await admin.click('platform-tab',{tab:'updates'});
+ assert.doesNotMatch(admin.element('#view-content').innerHTML,/data-tab="updates"/);
+ assert.equal(admin.requests.some(request=>request.url===updateAPI),false);
+});
+
+test('Platform Updates can resume a durable request after an uncertain host acknowledgment',async()=>{
+ let record=updateRecord({status:'reviewing',can_cancel:false,can_retry:true});
+ const updatePath=updateAPI+'/'+updateID;
+ const env=await workspace('settings',{mode:'entra',responses:{
+  [updateAPI]:()=>updateStatus(record),
+  ['POST '+updatePath+'/review']:()=>record=updateRecord({status:'reviewing',can_cancel:false,can_retry:false}),
+  ['POST '+updatePath+'/apply']:()=>record=updateRecord({status:'applying',can_cancel:false,can_retry:false})
+ }});
+ await env.click('platform-tab',{tab:'updates'});
+ await new Promise(setImmediate);
+ assert.match(env.element('#view-content').innerHTML,/Resume package check/);
+ await env.click('platform-update-retry-review');
+ assert.equal(env.requests.filter(request=>request.url===updatePath+'/review').length,1);
+ record=updateRecord({status:'applying',can_cancel:false,can_retry:true,confirmation_phrase:updatePhrase});
+ await env.click('platform-update-refresh');
+ assert.match(env.element('#view-content').innerHTML,/Resume installation request/);
+ await env.click('platform-update-open-review');
+ await env.submit('platform-update-review-form',{confirmation:updatePhrase});
+ assert.equal(env.requests.filter(request=>request.url===updatePath+'/apply').length,1);
+ assert.doesNotMatch(env.element('#view-content').innerHTML,/Update verified/);
 });

@@ -23,7 +23,8 @@ class CommittedRuntimeManifestTests(unittest.TestCase):
         names = ('controller/__init__.py', 'controller/__main__.py', 'controller/app.py',
                  'controller/runtime_integrity.py', 'dashboard/index.html', 'dashboard/app.js',
                  'deploy/cluster/node_helper.py', 'deploy/verify_runtime_entrypoint.py',
-                 'deploy/appliance/controller_entrypoint.py', 'deploy/appliance/node_manager.py')
+                 'deploy/appliance/controller_entrypoint.py', 'deploy/appliance/node_manager.py',
+                 'deploy/appliance/offline_update.py')
         for name in names:
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -57,7 +58,8 @@ class CommittedRuntimeManifestTests(unittest.TestCase):
         self.assertTrue(checker.check(self.root)['verified'])
 
     def test_changed_host_manager_and_bootstrap_refuse_source_gate(self):
-        for name in ('deploy/appliance/node_manager.py', 'deploy/verify_runtime_entrypoint.py'):
+        for name in ('deploy/appliance/node_manager.py', 'deploy/appliance/offline_update.py',
+                     'deploy/verify_runtime_entrypoint.py'):
             with self.subTest(name=name):
                 target = self.root / name
                 old = target.read_bytes()

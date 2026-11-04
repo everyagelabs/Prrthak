@@ -35,7 +35,7 @@ def _read(path, maximum, owner):
         return value
 
 
-def verify(root, manifest_path, trust_path, *, owner=0, protected_directories=True, component=None, host_manager=None):
+def verify(root, manifest_path, trust_path, *, owner=0, protected_directories=True, component=None, host_manager=None, host_update=None):
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
     def read(path, maximum):
         if protected_directories:
@@ -85,10 +85,12 @@ def verify(root, manifest_path, trust_path, *, owner=0, protected_directories=Tr
                 raw=read(name,1024*1024)
                 if bootstrap.get(name)!={'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest()}:
                     raise IntegrityError('Signed runtime bootstrap bytes changed')
-        if host_manager is not None:
-            raw=read(host_manager,1024*1024)
-            if manifest.get('host_files',{}).get('/opt/prthak-appliance/node_manager.py')!={'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest()}:
-                raise IntegrityError('Signed host-manager bytes changed')
+        for name, path, label in (('node_manager.py', host_manager, 'host-manager'),
+                                  ('offline_update.py', host_update, 'offline updater')):
+            if path is not None:
+                raw=read(path,1024*1024)
+                if manifest.get('host_files',{}).get('/opt/prthak-appliance/'+name)!={'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest()}:
+                    raise IntegrityError('Signed '+label+' bytes changed')
         return {"verified": True, "version": manifest["version"], "files": len(files), "key_id": signed["key_id"]}
     except IntegrityError:
         raise

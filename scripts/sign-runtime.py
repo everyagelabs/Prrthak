@@ -29,7 +29,8 @@ def controller_manifest(root=ROOT):
             "bootstrap_files":{'/opt/prthak-integrity/runtime_verify.py':file_record(root/'controller/runtime_integrity.py'),
                                '/opt/prthak-integrity/launch.py':file_record(root/'deploy/verify_runtime_entrypoint.py'),
                                '/opt/prthak/controller_entrypoint.py':file_record(root/'deploy/appliance/controller_entrypoint.py')},
-            "host_files":{'/opt/prthak-appliance/node_manager.py':file_record(root/'deploy/appliance/node_manager.py')}}
+            "host_files":{'/opt/prthak-appliance/node_manager.py':file_record(root/'deploy/appliance/node_manager.py'),
+                          '/opt/prthak-appliance/offline_update.py':file_record(root/'deploy/appliance/offline_update.py')}}
 
 
 def main():

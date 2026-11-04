@@ -75,6 +75,7 @@ def build_contexts(staging, payload):
         encoding="utf-8",
     )
     copy("host", manager_source)
+    copy("host", "deploy/appliance/offline_update.py")
 
 
 def image_id(docker, name):
@@ -133,12 +134,16 @@ def build(source, output, docker):
         controller = identifiers["controller"]
         subprocess.run([*container, "-i", controller, "--validate-initial-env"],
                        input=b"{}\n", check=True)
-        subprocess.run(
-            [*container, "--entrypoint", "python3",
-             "--mount", f"type=bind,source={staging / 'host/node_manager.py'},target=/prthak-host/node_manager.py,readonly",
-             controller, "/opt/prthak-integrity/launch.py", "--check-host", "/prthak-host/node_manager.py"],
-            check=True,
-        )
+        for filename, check in (("node_manager.py", "--check-host"), ("offline_update.py", "--check-host-update")):
+            # The verifier expects Linux root ownership and a single link, which
+            # a Docker Desktop bind mount may not preserve.
+            subprocess.run(
+                [*container, "-i", "--user", "0", "--tmpfs", "/prthak-host:mode=0755",
+                 "--entrypoint", "sh", controller, "-ec",
+                 'umask 022; cat > "$2"; exec python3 /opt/prthak-integrity/launch.py "$1" "$2"',
+                 "verify-host", check, "/prthak-host/" + filename],
+                input=(staging / "host" / filename).read_bytes(), check=True,
+            )
         digest = save_images(docker, tags.values(), staging / filenames[0])
         manifest = {"platform": PLATFORM, "images": identifiers, "archive_sha256": digest}
         metadata = staging / filenames[1]

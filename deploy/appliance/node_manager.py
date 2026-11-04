@@ -11,10 +11,12 @@ import argparse
 import base64
 import copy
 import fcntl
+import functools
 import grp
 import hashlib
 import hmac
 import http.client
+import importlib.util
 from http.server import BaseHTTPRequestHandler
 import ipaddress
 import json
@@ -41,7 +43,7 @@ import uuid
 from datetime import datetime,timezone
 
 SERVICES = ('controller', 'database', 'etcd', 'router')
-ACTIONS = ('status', 'start', 'stop', 'restart', 'configure', 'controller-config', 'storage-review', 'storage-move', 'rotate-replication', 'web-tls', 'internal-tls', 'restore-databases', 'public-port')
+ACTIONS = ('status', 'start', 'stop', 'restart', 'configure', 'controller-config', 'storage-review', 'storage-move', 'rotate-replication', 'web-tls', 'internal-tls', 'restore-databases', 'public-port', 'controller-update-review', 'controller-update-apply')
 ETCD_IMAGE = 'prthak-etcd:appliance-base'
 ROUTER_IMAGE = 'haproxy:3.2-alpine3.24@sha256:5893840576071e6217cd52ebdcc14f454c6f7a631056fa6f4e0f40d3cac4215b'
 CONTROLLER_IMAGE = 'prthak-controller:appliance'
@@ -73,6 +75,20 @@ NOLOGIN_SHELLS = frozenset(('/usr/sbin/nologin', '/sbin/nologin', '/usr/bin/nolo
 
 class Blocked(ValueError):
     pass
+
+
+@functools.lru_cache(maxsize=1)
+def offline_update_module():
+    path = Path(__file__).resolve().with_name('offline_update.py')
+    spec = importlib.util.spec_from_file_location('prthak_fixed_offline_update', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def active_offline_update(root):
+    record = load(root / 'manager/controller-update/active.json', {})
+    return record if record and record.get('phase') not in ('committed', 'rolled_back', 'blocked') else None
 
 
 def _locked_controller_password():
@@ -624,7 +640,7 @@ def render_patroni(manifest,local_sources=(),recovery_aliases=()):
 
 
 class Manager:
-    def __init__(self,data_root,pointer='/etc/prthak/data-root',engine_factory=Engine,allowed_parent=None):
+    def __init__(self,data_root,pointer='/etc/prthak/data-root',engine_factory=Engine,allowed_parent=None,*,recover=True):
         self.allowed_parent=allowed_parent
         self.root=safe_path(str(data_root),allowed_parent)
         self.pointer=Path(pointer);self.engine_factory=engine_factory
@@ -638,6 +654,8 @@ class Manager:
         self.project='prthak-'+self.installed['appliance_id'][:12]
         self.engine=engine_factory(self.root,self.project)
         self.health_snapshot={'status':'unverified','quorum_healthy':False,'database_ready':False}
+        if not recover:
+            return
         # Commands interrupted by a process/host crash are never blindly
         # repeated. The durable same request ID remains inspectable, and a new
         # review is required (including for a move whose pointer did commit).
@@ -645,6 +663,9 @@ class Manager:
             if not JOB.fullmatch(path.name):continue
             value=load(path)
             if value.get('status')=='running':
+                upgrade = load(self.root / 'manager/controller-update/active.json', {})
+                if upgrade and upgrade.get('job_id') == path.name:
+                    continue
                 value.update(status='error',phase='interrupted',error='Manager restarted during this operation; inspect actual status and submit a fresh reviewed job',updated_at=time.time())
                 atomic(path,value)
         self.recover_controller_configuration()
@@ -728,7 +749,10 @@ class Manager:
             except (OSError,ValueError,Blocked):drift=True
         public=load(self.root/'manager/public-port.json',{})
         committed_port=public.get('previous',{}).get('installed',settings)['controller_port'] if public.get('phase') not in (None,'committed','aborted') else settings['controller_port']
-        return {'schema_version':1,'installed':True,'appliance_id':settings['appliance_id'],'revision':state['revision'],'database_runtime_profile':DATABASE_RUNTIME,'database_storage_compatible':database_compatible,'capabilities':['internal_tls_v1','restore_databases_v1','public_port_v1','controller_config_v1','separated_agent_channels_v1'],'controller_configuration':self.controller_configuration_status(),'agent_channel_ports':self.channel_ports(),'public_port':committed_port,'bind_address':settings['bind_ip'],'public_listener':{'committed_port':committed_port,'candidate_port':public.get('binding',{}).get('new_port') if public.get('phase') not in (None,'committed','aborted') else None,'phase':public.get('phase'),'operation_id':public.get('id'),'binding_digest':public.get('binding_digest'),'container_port':8787,'backend_port':settings['controller_backend_port'],'origin_mode':'preserve','allowed_min':1,'allowed_max':65535},'internal_tls':{'fingerprint':fingerprint,'phase':internal.get('phase'),'desired_fingerprint':internal.get('fingerprint'),'runtime_verified':internal.get('runtime_verified',False) and not drift,'not_after':internal.get('info',{}).get('not_after'),'drift':drift},'identity':{'id':settings['node_id'],'site':settings['site'],'ip':settings['node_ip']},'data_root':str(self.root),
+        capabilities=['internal_tls_v1','restore_databases_v1','public_port_v1','controller_config_v1','separated_agent_channels_v1']
+        if Path(__file__).with_name('offline_update.py').is_file() and offline_update_module().supported(self):
+            capabilities.append('offline_update_v1')
+        return {'schema_version':1,'installed':True,'appliance_id':settings['appliance_id'],'revision':state['revision'],'database_runtime_profile':DATABASE_RUNTIME,'database_storage_compatible':database_compatible,'capabilities':capabilities,'controller_configuration':self.controller_configuration_status(),'agent_channel_ports':self.channel_ports(),'public_port':committed_port,'bind_address':settings['bind_ip'],'public_listener':{'committed_port':committed_port,'candidate_port':public.get('binding',{}).get('new_port') if public.get('phase') not in (None,'committed','aborted') else None,'phase':public.get('phase'),'operation_id':public.get('id'),'binding_digest':public.get('binding_digest'),'container_port':8787,'backend_port':settings['controller_backend_port'],'origin_mode':'preserve','allowed_min':1,'allowed_max':65535},'internal_tls':{'fingerprint':fingerprint,'phase':internal.get('phase'),'desired_fingerprint':internal.get('fingerprint'),'runtime_verified':internal.get('runtime_verified',False) and not drift,'not_after':internal.get('info',{}).get('not_after'),'drift':drift},'identity':{'id':settings['node_id'],'site':settings['site'],'ip':settings['node_ip']},'data_root':str(self.root),
             'cluster':{'configured':bool(manifest),'status':cluster,'deployment_id':(manifest or desired or {}).get('deployment_id'),'generation':(manifest or desired or {}).get('generation'), 'origin':(manifest or desired or {}).get('controller_origin',settings['controller_origin']),'nodes':[{key:m.get(key) for key in ('id','site','ip','role')} for m in (manifest or desired or {}).get('controller_members',[])], 'voters':[{key:m[key] for key in ('id','site','ip')} for m in (manifest or desired or {}).get('voters',[])], 'cluster_password_configured':bool((self.root/'config/controller/cluster-password').exists()),'replication_password_configured':bool((manifest or {}).get('secrets',{}).get('replication'))},
             'services':[{'id':name,'name':{'database':'PostgreSQL 16 / Patroni','etcd':'etcd quorum','router':'TLS router','controller':'Prṛthak controller'}[name],'state':states.get(name,'stopped'),'enabled':name in self.enabled(),'can_restart':True,'can_stop':True} for name in SERVICES],
             'routing':{'mode':'site_affinity','preferred_controller_url':routing.get('preferred_controller_url',settings['controller_origin']),'fallback_controller_url':routing.get('fallback_controller_url'),'site':settings['site'],'failover_state':'unverified','pools':[(m.get('id'),m.get('site')) for m in routing.get('controller_members',[])]},
@@ -1324,7 +1348,7 @@ class Manager:
             record['phase']='committed';atomic(path,record);shutil.rmtree(self.root/'manager/internal-tls-staging'/identifier,ignore_errors=True)
             return {'phase':'committed','fingerprint':fingerprint,'committed':True,'runtime_verified':record['runtime_verified'],'revision':state['revision']}
         raise Blocked('Unsupported internal TLS phase')
-    def _web_probe(self,chain,name,port,fingerprint,path='/readyz'):
+    def _web_probe(self,chain,name,port,fingerprint,path='/readyz',expected=200):
         context=ssl.create_default_context(cadata=chain);context.minimum_version=ssl.TLSVersion.TLSv1_2
         address=self.installed['bind_ip'] if self.installed['bind_ip']!='0.0.0.0' else self.installed['node_ip']
         with socket.create_connection((address,port),timeout=5) as transport:
@@ -1332,7 +1356,7 @@ class Manager:
                 if hashlib.sha256(tls.getpeercert(binary_form=True)).hexdigest()!=fingerprint:raise Blocked('Own HTTPS leaf fingerprint does not match the reviewed public certificate')
                 tls.sendall(('GET '+path+' HTTP/1.1\r\nHost: '+name+'\r\nConnection: close\r\n\r\n').encode())
                 response=http.client.HTTPResponse(tls);response.begin();response.read(65537)
-                if response.status!=200:raise Blocked('Own HTTPS readiness did not succeed through the required route')
+                if response.status!=expected:raise Blocked('Own HTTPS readiness did not succeed through the required route')
     def recover_web_tls(self):
         path=self.root/'manager/web-tls-transaction.json';record=load(path)
         if not record or record['phase'] in ('verified','rolled_back'):return
@@ -1805,6 +1829,8 @@ class Manager:
             if old:
                 if old['request_digest']!=fingerprint:raise Blocked('request_id was already used for a different payload')
                 return self.public_job(old)
+            if active_offline_update(self.root) and body['action'] != 'status':
+                raise Blocked('Wait for the offline controller update to finish')
             value={'id':request_id,'request_digest':fingerprint,'request':body,'status':'queued','phase':'queued','created_at':time.time()}
             atomic(path,value)
         return self.public_job(value)
@@ -1820,6 +1846,8 @@ class Manager:
                 if not JOB.fullmatch(path.name):continue
                 value=load(path)
                 if value.get('status')!='queued':continue
+                if active_offline_update(self.root) and value['request']['action'] != 'status':
+                    continue
                 value.update(status='running',phase=value['request']['action']);atomic(path,value)
                 body=value['request'];action=body['action']
                 try:
@@ -1836,6 +1864,10 @@ class Manager:
                     elif action=='internal-tls':result=self.internal_tls(body)
                     elif action=='restore-databases':result=self.restore_databases(body)
                     elif action=='public-port':result=self.public_port(body)
+                    elif action=='controller-update-review':result=offline_update_module().review(self,body,sys.modules[__name__])
+                    elif action=='controller-update-apply':
+                        offline_update_module().queue(self,body,sys.modules[__name__])
+                        return True  # The independent systemd worker completes the durable job.
                     else:result=self.operate(action,body.get('service','all'))
                     value.update(status='completed',phase=result.get('phase',action),result=result)
                 except Exception as error:
@@ -2007,6 +2039,76 @@ def stage_agent_releases(release, data_root):
         atomic(destination/name, data, 0o644)
 
 
+def write_manager_unit(engine, image):
+    interpreter = str(Path(sys.executable).resolve())
+    command = [engine.docker[0], '--host', 'unix:///var/run/docker.sock', 'run', '--rm', '--network', 'none',
+               '--pull=never', '--read-only', '--security-opt', 'no-new-privileges:true', '--cap-drop', 'ALL',
+               '--security-opt', 'label=disable', '--user', '10001:10001']
+    checks = []
+    for filename, flag in (('node_manager.py', '--check-host'), ('offline_update.py', '--check-host-update')):
+        mount = 'type=bind,source=/opt/prthak-appliance/' + filename + ',target=/prthak-host/' + filename + ',readonly'
+        checks.append('ExecStartPre=' + shlex.join([*command, '--mount', mount, '--entrypoint', 'python3',
+                                                   image, '/opt/prthak-integrity/launch.py', flag, '/prthak-host/' + filename]))
+    unit = '\n'.join([
+        '[Unit]', 'Description=Prthak fixed local appliance manager', 'After=docker.service network-online.target',
+        'Wants=docker.service network-online.target', '[Service]', 'Type=simple', 'User=root', *checks,
+        f'ExecStart={interpreter} -I /opt/prthak-appliance/node_manager.py serve', 'Restart=on-failure',
+        'RestartSec=3', 'UMask=0077', 'NoNewPrivileges=yes', 'ProtectSystem=full', 'ReadWritePaths=/etc/prthak',
+        'ProtectHome=yes', '[Install]', 'WantedBy=multi-user.target', '',
+    ])
+    atomic('/etc/systemd/system/prthak-appliance-manager.service', unit, 0o644)
+
+
+def write_update_unit(interpreter):
+    # On reboot the immutable dispatcher uses the complete pre-update worker
+    # pair, even if the manager and helper replacements were interrupted.
+    bootstrap = '''import json, os, pathlib, re, stat, sys
+
+def protected(path, *, directory=False):
+    info = path.lstat()
+    expected = stat.S_ISDIR if directory else stat.S_ISREG
+    if not expected(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+        raise SystemExit('Offline update recovery paths are not protected')
+
+pointer = pathlib.Path('/etc/prthak/data-root')
+protected(pointer)
+root = pathlib.Path(pointer.read_text().strip())
+if not root.is_absolute() or '..' in root.parts:
+    raise SystemExit('Invalid appliance data root')
+for path in (root, *root.parents):
+    protected(path, directory=True)
+base = root / 'manager/controller-update'
+journal = base / 'active.json'
+if not journal.exists():
+    raise SystemExit(0)
+for path in (base.parent, base):
+    protected(path, directory=True)
+protected(journal)
+record = json.loads(journal.read_text())
+identifier = record.get('review_id', '')
+if not re.fullmatch('[0-9a-f]{32}', identifier):
+    raise SystemExit('Invalid offline update recovery identity')
+if record.get('phase') in ('queued', 'committed', 'rolled_back', 'blocked'):
+    code = pathlib.Path('/opt/prthak-appliance')
+else:
+    code = base / ('backup-' + identifier)
+for path in (code, *code.parents):
+    protected(path, directory=True)
+for filename in ('node_manager.py', 'offline_update.py'):
+    protected(code / filename)
+os.execv(sys.executable, [sys.executable, '-I', str(code / 'node_manager.py'), 'update'])
+'''
+    atomic('/opt/prthak-appliance/update-bootstrap.py', bootstrap, 0o755)
+    unit = '\n'.join([
+        '[Unit]', 'Description=Prthak signed offline appliance update and recovery', 'After=docker.service',
+        'Wants=docker.service', '[Service]', 'Type=oneshot', 'User=root',
+        f'ExecStart={interpreter} -I /opt/prthak-appliance/update-bootstrap.py',
+        'TimeoutStartSec=1h', 'Restart=on-failure', 'RestartSec=15', 'UMask=0077',
+        'NoNewPrivileges=yes', 'ProtectHome=yes', '[Install]', 'WantedBy=multi-user.target', '',
+    ])
+    atomic('/etc/systemd/system/prthak-appliance-update.service', unit, 0o644)
+
+
 def install(args):
     values,local,root=installer_configuration(args)
     if args.validate_only:
@@ -2058,18 +2160,16 @@ def install(args):
     manager=Manager(root);manager.recover_web_tls();manager.recover_public_port();manager.render()
     (root/'config/install-pending.json').unlink(missing_ok=True)
     code=Path('/opt/prthak-appliance');code.mkdir(parents=True,exist_ok=True)
-    shutil.copyfile(release/'deploy/appliance/node_manager.py',code/'node_manager.py');os.chmod(code/'node_manager.py',0o755)
+    for filename in ('node_manager.py', 'offline_update.py'):
+        atomic(code / filename, (release / 'deploy/appliance' / filename).read_bytes(), 0o755)
     atomic('/etc/prthak/data-root',str(root)+'\n')
-    unit='[Unit]\nDescription=Prthak fixed local appliance manager\nAfter=docker.service network-online.target\nWants=docker.service network-online.target\n[Service]\nType=simple\nUser=root\nExecStart='+str(interpreter)+' /opt/prthak-appliance/node_manager.py serve\nRestart=on-failure\nRestartSec=3\nUMask=0077\nNoNewPrivileges=yes\nProtectSystem=full\nReadWritePaths=/etc/prthak\nProtectHome=yes\n[Install]\nWantedBy=multi-user.target\n'
-    verify_command=[engine.docker[0],'--host','unix:///var/run/docker.sock','run','--rm','--network','none','--read-only',
-                    '--security-opt','no-new-privileges:true','--cap-drop','ALL','--user','10001:10001',
-                    '--mount','type=bind,source=/opt/prthak-appliance/node_manager.py,target=/prthak-host/node_manager.py,readonly',
-                    '--entrypoint','python3',images['controller'],'/opt/prthak-integrity/launch.py','--check-host','/prthak-host/node_manager.py']
-    unit=unit.replace('ExecStart=', 'ExecStartPre='+shlex.join(verify_command)+'\nExecStart=',1)
-    atomic('/etc/systemd/system/prthak-appliance-manager.service',unit,0o644)
+    write_manager_unit(engine, images['controller'])
+    write_update_unit(interpreter)
     os.close(lease)
     if not args.no_start:
-        subprocess.run(['systemctl','daemon-reload'],check=True);subprocess.run(['systemctl','enable','--now','prthak-appliance-manager.service'],check=True)
+        subprocess.run(['systemctl','daemon-reload'],check=True)
+        subprocess.run(['systemctl','enable','prthak-appliance-update.service'],check=True)
+        subprocess.run(['systemctl','enable','--now','prthak-appliance-manager.service'],check=True)
         manager.operate('start','controller');manager.operate('start','router')
     print('Prṛthak appliance installed at '+str(root)+'. Initial admin token FILE: '+str(root/'config/controller/initial-admin-token'))
     print('Setup URL: '+local['controller_origin']+'/settings')
@@ -2079,15 +2179,23 @@ def install(args):
 def main():
     parser=argparse.ArgumentParser(description=__doc__);sub=parser.add_subparsers(dest='command',required=True)
     add=sub.add_parser('install');add.add_argument('--env-file');add.add_argument('--gui-setup',action='store_true');add.add_argument('--data-root');add.add_argument('--release-root',required=True);add.add_argument('--no-start',action='store_true');add.add_argument('--validate-only',action='store_true');add.add_argument('--offline',action='store_true')
-    sub.add_parser('serve');args=parser.parse_args()
+    sub.add_parser('serve');sub.add_parser('update');args=parser.parse_args()
     try:
         if sys.version_info<(3,9):raise Blocked('Host manager needs Python3.9+; controller runtime is bundled')
         if args.command=='install':install(args)
+        elif args.command=='update':
+            if os.geteuid() != 0:raise Blocked('The fixed offline update service must run as root')
+            root = Path(Path('/etc/prthak/data-root').read_text().strip())
+            offline_update_module().run(root, sys.modules[__name__])
         else:
             if os.geteuid()!=0:raise Blocked('The fixed local manager must run as root')
             controller_identity()
             lease=acquire_lease()
-            root=Path('/etc/prthak/data-root').read_text().strip();manager=Manager(root)
+            root=Path(Path('/etc/prthak/data-root').read_text().strip())
+            update = active_offline_update(root)
+            if update and load('/run/prthak-appliance/controller-update-start.json', {}) != {'job_id':update['job_id']}:
+                raise Blocked('Wait for the offline update recovery service before starting the manager')
+            manager=Manager(root)
             manager.recover_web_tls()
             serve(manager)
     except (Blocked,OSError,ValueError,subprocess.SubprocessError) as error:

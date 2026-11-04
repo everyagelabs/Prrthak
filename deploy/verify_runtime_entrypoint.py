@@ -14,9 +14,10 @@ def verified_module():
 
 if __name__=='__main__':
     verifier=verified_module()
-    if sys.argv[1:2]==['--check-host']:
-        if len(sys.argv)!=3:raise SystemExit('One fixed host-manager artifact is required')
-        verifier.verify('/app','/opt/prthak-integrity/runtime-integrity.json','/opt/prthak-integrity/public-trust.json',component='base',host_manager=sys.argv[2])
-        print('Signed host-manager runtime bytes verified');raise SystemExit(0)
+    checks={'--check-host':'host_manager','--check-host-update':'host_update'}
+    if len(sys.argv)>1 and sys.argv[1] in checks:
+        if len(sys.argv)!=3:raise SystemExit('One fixed host artifact is required')
+        verifier.verify('/app','/opt/prthak-integrity/runtime-integrity.json','/opt/prthak-integrity/public-trust.json',component='base',**{checks[sys.argv[1]]:sys.argv[2]})
+        print('Signed host runtime bytes verified');raise SystemExit(0)
     verifier.verify('/app','/opt/prthak-integrity/runtime-integrity.json','/opt/prthak-integrity/public-trust.json',component='base')
     os.execvp('python3',['python3','-m','controller',*sys.argv[1:]])
