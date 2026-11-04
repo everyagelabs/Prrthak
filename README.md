@@ -4,7 +4,7 @@
 
 Prṛthak discovers servers and their real listening services, shows permitted source-to-service access, learns observed source/port relationships, and lets administrators review and apply firewalld changes centrally. The selected server is the destination: an access policy specifies **service/port + allowed sources**, without a separate destination field.
 
-**Current pilot candidate: [v0.18.0-pilot.1](https://github.com/everyagelabs/Prrthak/tree/v0.18.0-pilot.1).** Broader agent OS profiles, nightly image scanning, policy impact preview, HTTPS SIEM export, native rule counters and separate reviewed network/firewall maintenance. See the [new workflows](docs/observability-and-network-controls.md) and [release validation](docs/release-0.18.0-pilot.1.md). Native OS/DC acceptance remains deferred.
+**Current pilot candidate is v0.18.7-pilot.1.** It adds filtered workspace CSV exports and SMTP alert subscriptions. Native OS and data-center acceptance remain deferred. [Release downloads](https://github.com/everyagelabs/Prrthak/releases/tag/v0.18.7-pilot.1)
 
 **Prior signed pilot candidate: [v0.17.0-pilot.1](https://github.com/everyagelabs/Prrthak/tree/v0.17.0-pilot.1).** [Installer validation and acceptance limits](docs/release-0.17.0-pilot.1.md). Use one controller command and one agent command across the supported RHEL/Ubuntu hosts. The installers detect the OS and prepare their dependencies automatically; all application settings stay in the GUI. Start from independently verified, protected release files and a GUI-generated private agent setup. Native OS/DC acceptance remains pending.
 
@@ -163,6 +163,12 @@ In **Traffic → Discover traffic**, choose endpoints using their reported IP, n
 ### Optional ongoing port hit monitoring
 
 In **Traffic**, an administrator can review a frozen endpoint/port scope, enable monitoring and inspect source IPs, ports, counts, timestamps and CSV exports for the last hour or another retained window up to 24 hours. Monitoring is disabled by default and separate from temporary learning: it generates no suggestions or access grants. Short signed capture leases, bounded native collectors and explicit backend/family/cleanup receipts expose interrupted or incomplete coverage. Stopping the monitor ends new capture; retained observations age out under the selected retention.
+
+### Workspace CSV exports and email alerts
+
+- **Servers → Export CSV** includes every matching server and its reported IPs, hostname, listening ports and services. **Policies → Export CSV** is available in the discovered, managed and learned policy views. **Traffic** and individual learning-session evidence exports include observed source IP, destination endpoint, destination port and count. Destination IP columns come from the current endpoint inventory.
+- In **Platform settings → Notifications**, add an email channel, enter a TLS SMTP relay and recipients, and select the categories to receive. Review and save the settings, then use **Send test** and check the delivery history. Categories include new services, monitored traffic bursts, administrative changes and endpoint-confirmed inbound allows.
+- Traffic burst alerts use at least 100 native observations from a source to the same endpoint port and protocol in one second. Accepted connections and denied packets count separately. The controller groups repeat alerts by endpoint, port, protocol and observation kind within 15-minute windows. The observed count is a lower bound when capture has gaps.
 
 ## Install and configure through the GUI
 

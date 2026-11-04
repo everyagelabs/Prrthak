@@ -21,6 +21,12 @@ function policyCatalogueQuery(offset){
   const eligible=state.data.servers.filter(server=>(state.flowServer==='all'||server.id===state.flowServer)&&F.matchServer(server,state.filters,{ignorePorts:true})),metadataScope=F.count({...state.filters,ports:[]})>0||state.flowServer!=='all';
   return {server_ids:metadataScope?eligible.map(server=>server.id):null,search_server_ids:state.search?eligible.filter(server=>F.matchServer(server,state.filters,{ignorePorts:true,search:state.search})).map(server=>server.id):[],ports:[...(state.filters.ports || [])],search:state.search,limit:20,offset};
 }
+function downloadPolicyCSV(kind){
+  if(!['managed','learned','discovered'].includes(kind))return;
+  if(kind==='discovered')return downloadWorkspaceCSV('/policies/export.csv','prthak-discovered-policies.csv',{kind,...firewallQueryScope(),zone_usage:state.policyShowUnusedZones?'all':'relevant'},firewallScopeKey);
+  const {limit,offset,...scope}=policyCatalogueQuery(0);
+  return downloadWorkspaceCSV('/policies/export.csv','prthak-'+kind+'-policies.csv',{kind,...scope},policyCatalogueScopeKey);
+}
 let policyCatalogueRequestSequence=0;
 async function loadPolicyCatalogue(kind,offset=0){
   if(!['managed','learned'].includes(kind)||!Number.isSafeInteger(offset)||offset<0)return;
@@ -100,7 +106,7 @@ function managedPoliciesHTML(){
     const {services,targets}=F.policyScope(policy,state.data.servers,state.data.groups || [],state.filters,state.search,state.flowServer);
     return {policy,services,targets:targets.length,status:policy.mode==='enforce'?'Enforcement requested':'Monitor',tone:policy.mode==='enforce'?'warning':'neutral'};
   });
-  return `<section><div class="section-line"><h2>Managed policies<span>${format(entries.length)} ${page.remote?'managed policies on loaded page':'managed policies in scope'}</span></h2></div>
+  return `<section><div class="section-line"><h2>Managed policies<span>${format(entries.length)} ${page.remote?'managed policies on loaded page':'managed policies in scope'}</span></h2><button class="button secondary small" type="button" data-action="policy-catalogue-export" data-kind="managed">Export managed CSV</button></div>
     ${policyTableHTML(entries,'managed',page.loading?'Loading managed policies…':page.error?'Managed policies could not be loaded.':'No managed policies match this scope.')}
     ${policyCataloguePaginationHTML('managed')}</section>`;
 }
@@ -131,6 +137,7 @@ function discoveredPolicyResultsHTML(){
       <td><button class="text-button" data-action="firewall-hosts" data-key="${h(rule.rule_key)}">Details</button></td></tr>`;
   }).join('');
   return `<section><div class="section-line"><h2>Discovered policies<span>Reported by endpoint firewalls</span></h2><div class="inline-actions">
+      <button class="button secondary small" type="button" data-action="policy-catalogue-export" data-kind="discovered">Export discovered CSV</button>
       <button class="button secondary small" type="button" data-action="policy-catalogue-zones" aria-pressed="${showUnused}">${showUnused?'Hide zones without active bindings':'Show zones without active bindings'}</button>
       <button class="button secondary small" type="button" data-action="firewall-refresh" ${loading?'disabled':''}>Refresh</button></div></div>
     <p class="help-text">Zone use comes from reported bindings. It describes firewall configuration and scope.</p>
@@ -178,6 +185,7 @@ async function showPolicyCatalogueDetail(kind,id){
 async function policyCatalogueAction(button){
   const {action,kind,id}=button.dataset;
   if(action?.startsWith('policy-catalogue-impact'))return policyImpactAction(button);
+  if(action==='policy-catalogue-export')return downloadPolicyCSV(kind);
   if(action==='policy-catalogue-page')return loadPolicyCatalogue(kind,Number(button.dataset.offset));
   if(action==='policy-catalogue-detail')return showPolicyCatalogueDetail(kind,id);
   if(action==='policy-catalogue-zones'){

@@ -12,7 +12,7 @@ import re
 import tempfile
 
 from .evidence_views import EXPORT_SLOTS, ExportBusy
-from .inventory_views import rows
+from .inventory_views import endpoint_labels, rows
 from .store import now, parse_time, stamp
 from .traffic_capture import public as capture_public
 
@@ -20,6 +20,7 @@ MAX_EXPORT_ROWS = 250000
 MAX_EXPORT_BYTES = 64 * 1024 * 1024
 DIMENSIONS = ("server_id", "session_id", "source_ip", "port", "protocol", "verdict", "capture_kind", "capture_backend", "count_unit", "address_family")
 FIELDS = (*DIMENSIONS, "count", "first_seen", "last_seen")
+DESTINATION_FIELDS = ("destination_hostname", "destination_reported_ips")
 ORDER = "last_seen DESC," + ",".join(DIMENSIONS)
 COVERAGE = "Filtered over all retained processed learning observations. Connections, denied packets and historical logs have separate units. Collection gaps and limited windows prevent a complete connection-ledger or application-success claim. Each page is a consistent read; late uploads, processing and retention may change later pages. Refresh to see newer data."
 
@@ -141,7 +142,9 @@ def csv_spool(store, value=None, *, max_rows=None, max_bytes=None):
                 if output.tell() + len(raw) > max_bytes:
                     raise ValueError("Complete traffic CSV exceeds its byte bound; narrow the endpoint/time scope")
                 output.write(raw)
-            write(FIELDS)
+            write((*FIELDS, *DESTINATION_FIELDS))
+            with store.read_meta() as db:
+                destinations = endpoint_labels(db)
             with store.read_traffic() as db:
                 if getattr(db, "dialect", "sqlite") == "sqlite":
                     db.execute("BEGIN")
@@ -152,7 +155,7 @@ def csv_spool(store, value=None, *, max_rows=None, max_bytes=None):
                     # Streaming PostgreSQL cursors expose raw tuples, unlike
                     # the adapter's ordinary named SQLite-compatible rows.
                     record = capture_public(dict(zip(FIELDS, row)))
-                    write(record.get(field) for field in FIELDS)
+                    write([*(record.get(field) for field in FIELDS), *destinations.get(record["server_id"], ("", ""))])
             size = output.tell()
             output.flush(); output.seek(0)
             yield output, size

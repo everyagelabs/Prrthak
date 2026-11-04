@@ -9,6 +9,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import re
+from datetime import timedelta
 
 CAPABILITY = "traffic_capture_v1"
 KINDS = ("accepted_connection", "denied_packet")
@@ -29,6 +30,27 @@ FLOW_COLUMNS = (
 )
 HIT_COLUMNS = FLOW_COLUMNS[:4] + (("verdict", "TEXT NOT NULL DEFAULT 'observed'"),)
 _UNSCOPED = object()
+BURST_THRESHOLD = 100
+BURST_FRESHNESS = timedelta(minutes=10)
+
+
+def record_burst(store, db, server, source, protocol, port, kind, second, count):
+    from .store import digest, now, parse_time
+
+    if kind not in TYPED or count < BURST_THRESHOLD:
+        return
+    point = parse_time(second)
+    if point < now() - BURST_FRESHNESS:
+        return
+    window = int(point.timestamp()) // (15 * 60)
+    identifier = "burst:" + digest([server["id"], protocol, port, kind, window])
+    if store._get(db, "alerts", identifier):
+        return
+    unit = TYPED[kind][1]
+    store._event(db, identifier, "traffic_burst", "warning", server["id"],
+                 f"At least {count} {unit} from {source} hit {server['hostname']} on {port}/{protocol} in one second.",
+                 {"source_ip": source, "port": port, "protocol": protocol, "capture_kind": kind,
+                  "count_unit": unit, "count": count, "observed_at": second, "rate_is_lower_bound": True})
 
 
 def observation_kinds(value):
@@ -51,6 +73,7 @@ def initialize(db):
                 db.execute("ALTER TABLE " + table + " ADD COLUMN " + name + " " + definition)
     db.execute("CREATE UNIQUE INDEX IF NOT EXISTS flows_capture_identity ON flows(server_id,session_id,event_id) WHERE event_id<>''")
     db.execute("CREATE INDEX IF NOT EXISTS flows_capture_second ON flows(server_id,session_id,source_ip,protocol,port,capture_kind,first_seen) WHERE capture_processed=1 AND event_id<>''")
+    db.execute("CREATE INDEX IF NOT EXISTS hit_events_burst ON hit_events(server_id,monitor_id,source_ip,protocol,port,capture_kind,event_time) WHERE processed=1")
 
 
 def batch_peaks(db, batch):

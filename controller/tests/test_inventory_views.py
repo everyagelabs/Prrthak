@@ -1,3 +1,5 @@
+import csv
+import io
 import json
 import http.client
 import tempfile
@@ -8,6 +10,7 @@ from unittest.mock import patch
 
 from controller.firewall import fingerprints
 from controller.store import Store,now,stamp
+from controller.workspace_exports import csv_spool
 
 
 class InventoryPayloadTests(unittest.TestCase):
@@ -135,6 +138,10 @@ class DiscoveredAccessViewTests(unittest.TestCase):
             self.assertEqual([row['zone_usage'] for row in all_rows if row['zone'] == 'trusted'],
                              ['unbound', 'unbound'])
             self.assertTrue(any(row['kind'] == 'masquerade' for row in store.firewall_inventory({'node-a'})['common_rules']))
+            with csv_spool(store, 'policies', {'kind': 'discovered', 'server_ids': ['node-a'], 'ports': ['8443/tcp']}) as (file, _):
+                exported = list(csv.DictReader(io.StringIO(file.read().decode('utf-8-sig'))))
+            self.assertEqual([(row['source'], row['destination_reported_ips'], row['destination_port'], row['action'], row['zone_use']) for row in exported],
+                             [('Except 10.1.0.0/16', '10.2.0.1', '8443/tcp', 'deny', 'active')])
 
     def test_access_projection_does_not_infer_zone_bindings_from_stale_or_legacy_evidence(self):
         with tempfile.TemporaryDirectory() as directory:

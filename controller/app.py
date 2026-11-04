@@ -597,7 +597,7 @@ def handler_for(app):
                 if principal.get("auth_type") == "session":
                     app.auth.require_csrf(self.headers, principal)
                 existing_impact_read = bool(re.fullmatch(r"/api/v1/policies/[A-Za-z0-9_.-]{1,100}/impact", path))
-                if not existing_impact_read and path not in ("/api/v1/auth/logout", "/api/v1/auth/password", "/api/v1/firewall/query", "/api/v1/policies/query", "/api/v1/learning-policies/query", "/api/v1/policy-rollouts/query", "/api/v1/host-default-deny/query", "/api/v1/alerts/query", "/api/v1/flows/query", "/api/v1/flows/export.csv", "/api/v1/audit/query", "/api/v1/audit/export.csv", "/api/v1/source-banks/query", "/api/v1/firewall-activation/query") and role not in ("admin", "super_admin"):
+                if not existing_impact_read and path not in ("/api/v1/auth/logout", "/api/v1/auth/password", "/api/v1/firewall/query", "/api/v1/policies/query", "/api/v1/learning-policies/query", "/api/v1/policy-rollouts/query", "/api/v1/host-default-deny/query", "/api/v1/alerts/query", "/api/v1/flows/query", "/api/v1/flows/export.csv", "/api/v1/audit/query", "/api/v1/audit/export.csv", "/api/v1/servers/export.csv", "/api/v1/policies/export.csv", "/api/v1/source-banks/query", "/api/v1/firewall-activation/query") and role not in ("admin", "super_admin"):
                     raise PermissionError("Admin or Super Admin role required")
                 origin = self.headers.get("Origin")
                 scheme = "https" if isinstance(self.connection, ssl.SSLSocket) else "http"
@@ -926,6 +926,28 @@ def handler_for(app):
                     self.response(202, app.platform.join_apply(self.body(), actor))
                 else:
                     self.response(405, {"error": "Unknown platform operation or method"})
+            elif parts[1:] == ["export.csv"] and parts[0] in ("servers", "policies", "flows", "audit") and method == "POST":
+                from . import traffic_views, audit_views, workspace_exports
+                from .evidence_views import ExportBusy
+                resource, value = parts[0], self.body()
+                if resource in ("servers", "policies"):
+                    export = workspace_exports.csv_spool(app.store, resource, value)
+                else:
+                    views = traffic_views if resource == "flows" else audit_views
+                    export = views.csv_spool(app.store, value)
+                try:
+                    with export as (source, size):
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/csv; charset=utf-8")
+                        self.send_header("Content-Disposition", 'attachment; filename="prthak-' + resource + '-history.csv"')
+                        self.send_header("Content-Length", str(size))
+                        self.send_header("Cache-Control", "no-store")
+                        self.security_headers()
+                        self.end_headers()
+                        while chunk := source.read(65536):
+                            self.wfile.write(chunk)
+                except ExportBusy as error:
+                    self.response(503, {"error": str(error)}, {"Retry-After": "2"})
             elif parts == ["servers"] and method == "GET":
                 self.response(200, {"items": app.store.servers()})
             elif parts == ["servers"] and method == "POST":
@@ -1356,22 +1378,6 @@ def handler_for(app):
             elif parts == ["audit", "query"] and method == "POST":
                 from .audit_views import listing
                 self.response(200, listing(app.store, self.body()))
-            elif parts in (["flows", "export.csv"], ["audit", "export.csv"]) and method == "POST":
-                from . import traffic_views, audit_views
-                views = traffic_views if parts[0] == "flows" else audit_views
-                try:
-                    with views.csv_spool(app.store, self.body()) as (source, size):
-                        self.send_response(200)
-                        self.send_header("Content-Type", "text/csv; charset=utf-8")
-                        self.send_header("Content-Disposition", 'attachment; filename="prthak-' + parts[0] + '-history.csv"')
-                        self.send_header("Content-Length", str(size))
-                        self.send_header("Cache-Control", "no-store")
-                        self.security_headers()
-                        self.end_headers()
-                        while chunk := source.read(65536):
-                            self.wfile.write(chunk)
-                except views.ExportBusy as error:
-                    self.response(503, {"error": str(error)}, {"Retry-After": "2"})
             elif parts == ["source-banks", "query"] and method == "POST":
                 from .source_banks import listing
                 self.response(200, listing(app.store, self.body()))

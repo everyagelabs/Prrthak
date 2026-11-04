@@ -187,6 +187,8 @@ class Store:
             initialize_hit_monitoring(db)
             from .notifications import initialize as initialize_notifications
             initialize_notifications(db)
+            from .notification_events import initialize as initialize_notification_events
+            initialize_notification_events(db)
             from .auth import initialize as initialize_auth
             initialize_auth(db)
             from .local_auth import initialize as initialize_local_auth
@@ -337,11 +339,14 @@ class Store:
 
     def audit(self, action, actor, details, db=None):
         value = {"id": str(uuid.uuid4()), "action": action, "actor": actor, "details": details, "created_at": stamp()}
+        from .notification_events import admin_change
         if db is not None:
             self._put(db, "audit", value)
+            admin_change(self, db, value)
         else:
             with self.lock, self.meta() as connection:
                 self._put(connection, "audit", value)
+                admin_change(self, connection, value)
 
     @staticmethod
     def public(server):

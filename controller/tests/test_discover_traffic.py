@@ -87,6 +87,18 @@ class DiscoverTrafficTests(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError, 'cannot create firewall policy'):
             learning_policies.preview(self.store, session['id'], {'row_ids': [observed['connections']['id']]}, 'admin')
 
+    def test_traffic_burst_counts_connections_and_denied_packets_separately(self):
+        session = self.start()
+        self.report(learning_discovery_session_ids=[session["id"]])
+        connections = [self.event(f"connection-{i}", 1) for i in range(99)]
+        self.upload(session, "mixed", [*connections, self.event("denied-1", 1, "denied_packet")])
+        self.assertFalse(any(alert["kind"] == "traffic_burst" for alert in self.store.all("alerts")))
+        self.upload(session, "trigger", [self.event("connection-99", 1)])
+        bursts = [alert for alert in self.store.all("alerts") if alert["kind"] == "traffic_burst"]
+        self.assertEqual(len(bursts), 1)
+        self.assertEqual(bursts[0]["details"]["count"], 100)
+        self.assertEqual(bursts[0]["details"]["count_unit"], "connections")
+
     def test_scoped_evidence_expires_after_stop_and_legacy_retention_is_unchanged(self):
         session = self.start(duration_seconds=3600)
         self.report(learning_discovery_session_ids=[session['id']])

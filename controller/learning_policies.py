@@ -261,7 +261,7 @@ def reconcile(store, limit=100):
     from .approval_views import _expression
     from .evidence_views import traffic_evidence_available
     from .learning import TRAFFIC_PURPOSE
-    from .traffic_capture import batch_peaks, public as capture_public
+    from .traffic_capture import batch_peaks, public as capture_public, record_burst
     with store.flow_lock, store.read_traffic() as db:
         batches = [dict(row) for row in db.execute("SELECT * FROM batches WHERE processed=1 AND evidence_processed=0 ORDER BY received_at,batch_key LIMIT ?", (limit,)).fetchall()]
     if not batches:
@@ -305,6 +305,9 @@ def reconcile(store, limit=100):
                             row.update(peak_observed_per_second=peak[0], rate_window_seconds=1,
                                        peak_observed_at=peak[1], rate_is_lower_bound=True)
                         _put_evidence(db, row)
+                    if session.get("purpose") == TRAFFIC_PURPOSE:
+                        for (source, protocol, port, kind), (count, second) in batch["peaks"].items():
+                            record_burst(store, db, server, source, protocol, port, kind, second, count)
                     if session.get("purpose") != TRAFFIC_PURPOSE:
                         session["evidence_revision"] = session.get("evidence_revision", 0) + 1
                         store._put(db, "sessions", session)
@@ -462,6 +465,12 @@ def report_outcome(store, db, server, value):
         server["learning_allow_outcome"] = result
     host = store._get(db, "learning_allow_hosts", server["id"])
     if host:
+        if value["status"] == "applied" and applied_generation > host.get("applied_generation", 0):
+            from .notification_events import port_allowed, subscribed_revision
+            revision = subscribed_revision(store, db, "port_allowed")
+            if revision is not None:
+                new = _triples(last_good["services"]) - _triples(host.get("applied_services", []))
+                port_allowed(db, revision, server, "learned policy", applied_generation, ((protocol, port) for protocol, port, _ in new))
         if value["status"] in ("rolled_back", "error") and generation >= host.get("applied_generation", 0):
             for policy in _all_policies(store, db, server["id"]):
                 if policy["origin"] == "auto" and policy["id"] in historical["policy_ids"]:

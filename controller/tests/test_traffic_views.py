@@ -161,6 +161,8 @@ class TrafficPageChecks:
 class SQLiteTrafficPages(TrafficPageChecks, unittest.TestCase):
     def test_read_only_api_query_export_authentication_and_mutation_boundaries(self):
         self.flow()
+        self.store.report("billing", {"hostname": "billing-api", "ips": ["10.1.0.7", "2001:db8::7"], "listeners": [{"port": 443, "protocol": "tcp"}, {"port": 8443, "protocol": "tcp"}]})
+        self.store.report("payments", {"hostname": "payments", "ips": ["10.1.0.8"]})
         app = App(self.store, tokens={"read_only": "reader"})
         def request(method, path, body=None, token="reader"):
             handler = object.__new__(handler_for(app))
@@ -186,6 +188,18 @@ class SQLiteTrafficPages(TrafficPageChecks, unittest.TestCase):
         self.assertIn("text/csv", export["headers"]["Content-Type"])
         records = list(csv.DictReader(io.StringIO(export["bytes"].decode("utf-8-sig"))))
         self.assertEqual((len(records), records[0]["source_ip"]), (1, "192.0.2.10"))
+        self.assertEqual(records[0]["destination_hostname"], "billing-api")
+        self.assertEqual(records[0]["destination_reported_ips"], "10.1.0.7; 2001:db8::7")
+        inventory = request("POST", "/api/v1/servers/export.csv", {"server_ids": ["billing"]})
+        self.assertEqual(inventory["status"], 200)
+        self.assertEqual(inventory["headers"]["Cache-Control"], "no-store")
+        servers = list(csv.DictReader(io.StringIO(inventory["bytes"].decode("utf-8-sig"))))
+        self.assertEqual({(row["hostname"], row["listening_port"], row["agent_reported_ips"]) for row in servers},
+                         {("billing-api", "443", "10.1.0.7; 2001:db8::7"), ("billing-api", "8443", "10.1.0.7; 2001:db8::7")})
+        self.assertEqual(request("POST", "/api/v1/servers/export.csv", {"server_ids": []}, token=None)["status"], 401)
+        self.assertEqual(request("POST", "/api/v1/policies/export.csv", {"kind": "managed"})["status"], 200)
+        self.assertEqual(request("POST", "/api/v1/policies/export.csv", {"kind": "managed"}, token=None)["status"], 401)
+        self.assertEqual(request("POST", "/api/v1/policies/export.csv", {"kind": "managed", "limit": 10})["status"], 400)
         self.assertEqual(request("POST", "/api/v1/flows/query", {}, token=None)["status"], 401)
         self.assertEqual(request("POST", "/api/v1/flows/export.csv", {}, token=None)["status"], 401)
         self.assertEqual(request("POST", "/api/v1/flows/query", {"limit": 101})["status"], 400)

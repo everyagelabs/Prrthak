@@ -499,6 +499,7 @@ def _overlay_safety(db, safety, recovery_id):
                 value.update(status="cancelled", cancelled_by="database-recovery")
                 value.pop("confirmation_nonce", None)
                 Store._put(db, table, value)
+    db.execute("DELETE FROM notification_events")
     for value in _json_rows(db, "notification_deliveries"):
         if value.get("status") not in ("sent", "cancelled", "failed"):
             value.update(status="cancelled", error="Pending delivery invalidated by reviewed recovery")

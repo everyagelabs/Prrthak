@@ -11,9 +11,11 @@ import base64
 from contextvars import ContextVar
 from datetime import timedelta
 from email.message import EmailMessage
+from email.utils import format_datetime
 import hashlib
 import hmac
 from functools import wraps
+from html import escape
 import http.client
 import ipaddress
 import json
@@ -31,6 +33,17 @@ from .store import digest, now, parse_time, stamp
 PURPOSE = "notifications-v1"
 KEY_CONTEXT = ContextVar("notification_key", default=None)
 SEVERITY = {"info": 0, "warning": 1, "critical": 2}
+EMAIL_ONLY_EVENTS = {"admin_change", "port_allowed"}
+EXPLICIT_EVENTS = EMAIL_ONLY_EVENTS | {"traffic_burst"}
+EMAIL_PRESET_EVENTS = EXPLICIT_EVENTS | {"service_discovered"}
+EVENT_TITLES = {
+    "admin_change": "Administrator change",
+    "configuration_test": "Email delivery test",
+    "port_allowed": "Port access allowed",
+    "service_discovered": "New service discovered",
+    "traffic_burst": "Monitored traffic burst",
+}
+SEVERITY_TITLES = {"info": "Information", "warning": "Warning", "critical": "Critical"}
 MAX_ATTEMPTS = 5
 LEASE_SECONDS = 120
 TERMINAL = {"delivered", "failed", "uncertain", "cancelled"}
@@ -177,6 +190,19 @@ def _baseline(channel, alerts, configured_at=None):
     return [_occurrence(alert) for alert in alerts if alert["id"] in legacy and (not configured_at or alert.get("created_at", "") <= configured_at)]
 
 
+def _matches_event(channel, event):
+    kind = event["kind"]
+    if kind in EMAIL_ONLY_EVENTS and channel["type"] != "email":
+        return False
+    severity = SEVERITY.get(event.get("severity"), -1)
+    event_types = channel["event_types"]
+    if channel["type"] == "email" and kind in EMAIL_PRESET_EVENTS and kind in event_types:
+        return severity >= 0
+    return severity >= SEVERITY[channel["minimum_severity"]] and (
+        kind in event_types or ("*" in event_types and kind not in EXPLICIT_EVENTS)
+    )
+
+
 def _normalize(manager, body, current, db, resolver=None):
     if not isinstance(body, dict) or set(body) - {"expected_revision", "enabled", "channels"}:
         raise ValueError("Provide expected_revision, enabled and notification channels")
@@ -315,11 +341,22 @@ def apply(manager, body, actor, *, resolver=None):
         if not plan or parse_time(plan["expires_at"]) <= now() or current["revision"] != plan["expected_revision"] or any(body.get(key) != plan[key] for key in ("digest", "confirmation_nonce", "confirmation_phrase")):
             raise WorkflowConflict("Use a fresh exact notification destination review and confirmation phrase", {})
         private = _open(manager, plan["sealed"], "review:" + plan["id"])
+        previous = {channel["id"]: channel for channel in current["channels"]}
+        alerts = None
         for channel in private["channels"]:
             if _addresses(channel["host"], channel["port"], channel["allow_private_network"], resolver) != channel["addresses"]:
                 raise WorkflowConflict(MESSAGES["destination_changed"], {})
-            if channel.pop("start_new_stream", False):
-                channel["baseline_occurrences"] = [_occurrence(alert) for alert in store._all(db, "alerts")]
+            start_new_stream = channel.pop("start_new_stream", False)
+            old = previous.get(channel["id"], {})
+            filters_changed = any(old.get(key) != channel[key] for key in ("event_types", "minimum_severity"))
+            if start_new_stream or filters_changed:
+                if alerts is None:
+                    alerts = store._all(db, "alerts")
+                baseline = set(channel["baseline_occurrences"])
+                for alert in alerts:
+                    if start_new_stream or (_matches_event(channel, alert) and not (old and _matches_event(old, alert))):
+                        baseline.add(_occurrence(alert))
+                channel["baseline_occurrences"] = sorted(baseline)
         config = {"id": "settings", "revision": current["revision"] + 1, "enabled": private["enabled"], "channels": [_public_channel(channel) for channel in private["channels"]],
                   "updated_at": stamp(), "updated_by": actor}
         config["sealed"] = _seal(manager, private, "config:" + str(config["revision"]))
@@ -361,6 +398,21 @@ def _enqueue(store, db, config, channel, event, *, test=False):
     return delivery
 
 
+def _drain_projected_events(store, db, config, channels, hosts):
+    rows = db.execute("SELECT id,data FROM notification_events ORDER BY created_at,id LIMIT 100").fetchall()
+    count = 0
+    for row in rows:
+        identifier, raw = row[0], row[1]
+        value = json.loads(raw)
+        if channels and value.get("configuration_revision") == config["revision"]:
+            event = _event({**value, "hostname": value.get("hostname") or hosts.get(value.get("server_id"), "")})
+            for channel in channels:
+                if _matches_event(channel, event):
+                    count += int(_enqueue(store, db, config, channel, event) is not None)
+        db.execute("DELETE FROM notification_events WHERE id=?", (identifier,))
+    return count
+
+
 def enqueue_alerts(manager):
     store = _store(manager)
     with store.read_meta() as db:
@@ -377,21 +429,22 @@ def _enqueue_alerts(manager):
     count = 0
     with store.lock, store.meta() as db:
         config = _settings(store, db)
-        if not config["enabled"]:
-            return 0
-        private = _private(manager, config)
+        channels = [channel for channel in _private(manager, config)["channels"] if channel["enabled"]] if config["enabled"] else []
+        if not channels:
+            return _drain_projected_events(store, db, config, [], {})
         hosts = {server["id"]: server.get("hostname", "") for server in store._all(db, "servers")}
         alerts = store._all(db, "alerts")
-        baselines = {channel["id"]: set(_baseline(channel, alerts, config.get("updated_at"))) for channel in private["channels"]}
+        baselines = {channel["id"]: set(_baseline(channel, alerts, config.get("updated_at"))) for channel in channels}
         for alert in alerts:
             recovery = alert.get("kind") == "recovered" and alert.get("status") == "resolved"
             if (alert.get("status") not in ("open", "acknowledged") and not recovery) or alert.get("severity") not in SEVERITY:
                 continue
             occurrence = _occurrence(alert)
             event = _event({**alert, "id": "alert:" + occurrence, "alert_id": alert["id"], "hostname": hosts.get(alert.get("server_id"), "")})
-            for channel in private["channels"]:
-                if channel["enabled"] and occurrence not in baselines[channel["id"]] and SEVERITY[event["severity"]] >= SEVERITY[channel["minimum_severity"]] and ("*" in channel["event_types"] or event["kind"] in channel["event_types"]):
+            for channel in channels:
+                if occurrence not in baselines[channel["id"]] and _matches_event(channel, event):
                     count += int(_enqueue(store, db, config, channel, event) is not None)
+        count += _drain_projected_events(store, db, config, channels, hosts)
     return count
 
 
@@ -526,6 +579,50 @@ def _http(channel, delivery):
         connection.close()
 
 
+def _email_message(channel, delivery):
+    event = delivery["event"]
+    kind = event["kind"]
+    title = EVENT_TITLES.get(kind) or kind.replace("_", " ").replace("-", " ").capitalize()
+    severity = SEVERITY_TITLES[event["severity"]]
+    fields = [("Severity", severity)]
+    endpoint = event.get("hostname") or event.get("server_id")
+    if endpoint:
+        fields.append(("Endpoint", endpoint))
+    try:
+        occurred = parse_time(event["created_at"])
+    except (KeyError, ValueError):
+        occurred = None
+    if occurred:
+        fields.append(("Time (UTC)", occurred.strftime("%d %b %Y, %H:%M:%S")))
+    fields.append(("Reference", event.get("alert_id") or event["id"]))
+    summary = event["message"]
+
+    message = EmailMessage()
+    message["From"], message["To"] = channel["from_address"], ", ".join(channel["to_addresses"])
+    message["Subject"] = f"Prṛthak · {title} ({severity})"
+    message["Date"] = format_datetime(occurred or now())
+    message["Message-ID"] = "<" + delivery["id"] + "@prthak.invalid>"
+    plain = "\n".join(f"{label}: {value}" for label, value in fields)
+    message.set_content(f"Prṛthak alert\n\n{title}\n\n{summary}\n\n{plain}\n")
+    rows = "".join(
+        '<tr><th scope="row" style="text-align:left;vertical-align:top;padding:8px 16px 8px 0;color:#52525b">'
+        f'{escape(label)}</th><td style="padding:8px 0;overflow-wrap:anywhere">{escape(value)}</td></tr>'
+        for label, value in fields
+    )
+    message.add_alternative(
+        '<!doctype html><html lang="en"><body style="margin:0;padding:24px;background:#f5f5f6">'
+        '<div style="max-width:600px;margin:auto;padding:24px;background:#fff;border-top:4px solid #c8102e;'
+        'font-family:Arial,sans-serif;color:#18181b">'
+        '<p style="margin:0;color:#b20f29;font-weight:bold">Prṛthak alert</p>'
+        f'<h1 style="font-size:24px;margin:12px 0">{escape(title)}</h1>'
+        f'<p style="line-height:1.5;white-space:pre-line;overflow-wrap:anywhere">{escape(summary)}</p>'
+        f'<table style="border-collapse:collapse;font-size:14px">{rows}</table>'
+        '</div></body></html>',
+        subtype="html",
+    )
+    return message
+
+
 def _smtp(channel, delivery):
     address = channel["addresses"][(delivery["attempts"] - 1) % len(channel["addresses"])]
     context = _tls(channel)
@@ -554,11 +651,7 @@ def _smtp(channel, delivery):
             client.ehlo()
         if channel["username"]:
             client.login(channel["username"], channel["password"])
-        message = EmailMessage()
-        message["From"], message["To"] = channel["from_address"], ", ".join(channel["to_addresses"])
-        message["Subject"] = "Prṛthak " + delivery["event"]["severity"].upper() + " · " + delivery["event"]["kind"].replace("\n", " ")[:80]
-        message["Message-ID"] = "<" + delivery["id"] + "@prthak.invalid>"
-        message.set_content(json.dumps(delivery["event"], ensure_ascii=False, indent=2))
+        message = _email_message(channel, delivery)
         transmitting = True
         rejected = client.send_message(message)
         if rejected:

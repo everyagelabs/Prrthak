@@ -210,7 +210,7 @@ def _summaries(db, table, selected):
         yield item
 
 
-def listing(store, kind="managed", value=None):
+def scope_options(kind, value):
     if kind not in TABLES: raise ValueError("Invalid policy catalogue")
     value = options(value)
     if kind=="managed" and any(value[field] is not None for field in ("session_id","status")) or kind=="learned" and value["mode"] is not None:
@@ -220,42 +220,58 @@ def listing(store, kind="managed", value=None):
     scope = set(value["server_ids"]) if value["server_ids"] is not None else None
     search_ids = set(value["search_server_ids"] or [])
     if scope is not None: search_ids &= scope
+    return value, scope, search_ids
+
+
+def policy_order(db, kind):
+    if kind == "managed":
+        collation = " COLLATE \"C\"" if getattr(db, "dialect", "sqlite") == "postgresql" else " COLLATE BINARY"
+        return _expression(db, ("name",)) + collation + ",id"
+    return _expression(db, ("created_at",)) + " DESC,id DESC"
+
+
+def matching_headers(store, db, kind, value, scope, search_ids):
+    """Stream matching exact policy IDs in catalogue order."""
+    needle = value["search"].lower()
+    where, args = _where(db, kind, value)
+    if kind == "managed":
+        projection = "id," + _expression(db, ("name",)) + "," + _json(db, ("selector",)) + "," + _json(db, ("group_ids",)) + "," + _endpoint_ids(db)
+        targets = Targets(store, db, value) if scope is not None or needle else None
+    else:
+        search_text = "COALESCE(" + _expression(db, ("name",)) + ",'')||' '||COALESCE(" + _expression(db, ("hostname",)) + ",'')||' '||COALESCE(" + _json(db, ("services",)) + ",'')"
+        projection = "id,server_id,CASE WHEN instr(lower(" + search_text + "),?)>0 THEN 1 ELSE 0 END" if getattr(db, "dialect", "sqlite") == "sqlite" else "id,server_id,CASE WHEN strpos(lower(" + search_text + "),?)>0 THEN 1 ELSE 0 END"
+        args = (needle,) + args
+    with closing(rows(db, "SELECT " + projection + " FROM " + TABLES[kind] + " WHERE " + where + " ORDER BY " + policy_order(db, kind), args)) as headers:
+        for row in headers:
+            if kind == "managed":
+                name_match = bool(needle) and needle in (row[1] or "").lower()
+                if scope is not None or needle and not name_match:
+                    selector, groups = _decoded(row[2], {}), _decoded(row[3], [])
+                    wanted = scope if not needle or name_match else search_ids
+                    if not targets.matches(selector, groups, row[4], wanted): continue
+            else:
+                if scope is not None and row[1] not in scope: continue
+                if needle and not row[2] and row[1] not in search_ids: continue
+            yield row[0]
+
+
+def listing(store, kind="managed", value=None):
+    value, scope, search_ids = scope_options(kind, value)
     needle = value["search"].lower()
     with store.read_meta() as db:
         if getattr(db, "dialect", "sqlite") == "sqlite": db.execute("BEGIN")
-        where, args = _where(db, kind, value)
-        if kind == "managed":
-            projection = "id," + _expression(db, ("name",)) + "," + _json(db, ("selector",)) + "," + _json(db, ("group_ids",)) + "," + _endpoint_ids(db)
-            order = _expression(db, ("name",)) + (" COLLATE \"C\"" if getattr(db, "dialect", "sqlite") == "postgresql" else " COLLATE BINARY") + ",id"
-            targets = Targets(store, db, value) if scope is not None or needle else None
-        else:
-            # Source search occurs in the DB; source values never enter a list
-            # header. A scalar boolean is all the count/filter loop receives.
-            search_text = "COALESCE(" + _expression(db, ("name",)) + ",'')||' '||COALESCE(" + _expression(db, ("hostname",)) + ",'')||' '||COALESCE(" + _json(db, ("services",)) + ",'')"
-            projection = "id,server_id,CASE WHEN instr(lower(" + search_text + "),?)>0 THEN 1 ELSE 0 END" if getattr(db, "dialect", "sqlite") == "sqlite" else "id,server_id,CASE WHEN strpos(lower(" + search_text + "),?)>0 THEN 1 ELSE 0 END"
-            args = (needle,) + args
-            order = _expression(db, ("created_at",)) + " DESC,id DESC"
         selected, total = [], 0
         if scope is None and not needle:
             # The common overview/unfiltered page has an indexed count/key
             # query; it does not stream every target selector unnecessarily.
-            count_args = args[1:] if kind == "learned" else args
-            total = int(db.execute("SELECT COUNT(*) FROM " + TABLES[kind] + " WHERE " + where, count_args).fetchone()[0])
-            selected = [row[0] for row in db.execute("SELECT id FROM " + TABLES[kind] + " WHERE " + where + " ORDER BY " + order + " LIMIT ? OFFSET ?", count_args + (value["limit"], value["offset"]))]
+            where, args = _where(db, kind, value)
+            order = policy_order(db, kind)
+            total = int(db.execute("SELECT COUNT(*) FROM " + TABLES[kind] + " WHERE " + where, args).fetchone()[0])
+            selected = [row[0] for row in db.execute("SELECT id FROM " + TABLES[kind] + " WHERE " + where + " ORDER BY " + order + " LIMIT ? OFFSET ?", args + (value["limit"], value["offset"]))]
         else:
-            with closing(rows(db, "SELECT " + projection + " FROM " + TABLES[kind] + " WHERE " + where + " ORDER BY " + order, args)) as headers:
-                for row in headers:
-                    if kind == "managed":
-                        name_match = bool(needle) and needle in (row[1] or "").lower()
-                        if scope is not None or needle and not name_match:
-                            selector, groups = _decoded(row[2], {}), _decoded(row[3], [])
-                            wanted = scope if not needle or name_match else search_ids
-                            if not targets.matches(selector, groups, row[4], wanted): continue
-                    else:
-                        if scope is not None and row[1] not in scope: continue
-                        if needle and not row[2] and row[1] not in search_ids: continue
-                    if value["offset"] <= total < value["offset"] + value["limit"]: selected.append(row[0])
-                    total += 1
+            for identifier in matching_headers(store, db, kind, value, scope, search_ids):
+                if value["offset"] <= total < value["offset"] + value["limit"]: selected.append(identifier)
+                total += 1
         items, byte_limited = [], False
         with closing(_summaries(db, TABLES[kind], selected)) as summaries:
             for item in summaries:
@@ -267,21 +283,25 @@ def listing(store, kind="managed", value=None):
         return {"items": items, "total": total, "limit": value["limit"], "offset": value["offset"], "next_offset": value["offset"] + len(items), "has_more": value["offset"] + len(items) < total, "summary_only": True, "scope_digest": digest({key: val for key, val in value.items() if key not in ("limit", "offset")}), "filters": scoped, "byte_limited": byte_limited}
 
 
+def exact_detail(db, kind, identifier):
+    size = "octet_length(data)" if getattr(db, "dialect", "sqlite") == "postgresql" else "length(CAST(data AS BLOB))"
+    row = db.execute("SELECT " + size + " FROM " + TABLES[kind] + " WHERE id=?", (identifier,)).fetchone()
+    if row is None: raise KeyError(identifier)
+    if row[0] > MAX_DETAIL_BYTES: raise ValueError("Exact policy exceeds the 8 MiB detail limit; use a smaller policy")
+    raw = db.execute("SELECT data FROM " + TABLES[kind] + " WHERE id=?", (identifier,)).fetchone()[0]
+    if len(raw.encode("utf-8")) > MAX_DETAIL_BYTES: raise ValueError("Exact policy exceeds the 8 MiB detail limit")
+    policy = json.loads(raw)
+    if policy.get("id") != identifier or policy.get("summary_only") or any(service.get("sources_omitted") or not isinstance(service.get("sources"), list) for service in policy.get("services", [])):
+        raise ValueError("Exact canonical policy source data is unavailable; navigation cannot authorize an edit")
+    return policy
+
+
 def detail(store, kind, identifier):
     if kind not in TABLES or not isinstance(identifier, str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", identifier):
         raise ValueError("Invalid exact policy identity")
     with store.read_meta() as db:
         if getattr(db, "dialect", "sqlite") == "sqlite": db.execute("BEGIN")
-        size = "octet_length(data)" if getattr(db, "dialect", "sqlite") == "postgresql" else "length(CAST(data AS BLOB))"
-        row = db.execute("SELECT " + size + " FROM " + TABLES[kind] + " WHERE id=?", (identifier,)).fetchone()
-        if row is None: raise KeyError(identifier)
-        if row[0] > MAX_DETAIL_BYTES: raise ValueError("Exact policy exceeds the 8 MiB detail limit; use a smaller policy")
-        raw = db.execute("SELECT data FROM " + TABLES[kind] + " WHERE id=?", (identifier,)).fetchone()[0]
-        if len(raw.encode("utf-8")) > MAX_DETAIL_BYTES: raise ValueError("Exact policy exceeds the 8 MiB detail limit")
-        policy = json.loads(raw)
-        if policy.get("id") != identifier or policy.get("summary_only") or any(service.get("sources_omitted") or not isinstance(service.get("sources"), list) for service in policy.get("services", [])):
-            raise ValueError("Exact canonical policy source data is unavailable; navigation cannot authorize an edit")
-        return policy
+        return exact_detail(db, kind, identifier)
 
 
 def _service_group_refs(db, identifier):

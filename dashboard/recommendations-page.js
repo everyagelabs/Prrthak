@@ -165,7 +165,7 @@ function learnedPoliciesHTML() {
     const services=(policy.services || []).filter(service=>F.matchesPorts(service.port,service.protocol,state.filters.ports || []));
     return {policy,services,status,tone};
   });
-  return `<section class="learned-policies-section"><div class="section-line"><h2>Learned allow policies<span>${entries.length} ${page.remote?'on loaded page':'in scope'}</span></h2></div>
+  return `<section class="learned-policies-section"><div class="section-line"><h2>Learned allow policies<span>${entries.length} ${page.remote?'on loaded page':'in scope'}</span></h2><button class="button secondary small" type="button" data-action="policy-catalogue-export" data-kind="learned">Export learned CSV</button></div>
     ${policyTableHTML(entries,'learned',page.loading?'Loading learned policies…':page.error?'Learned policies could not be loaded.':'No learned allow policies in this scope.')}
     ${policyCataloguePaginationHTML('learned')}</section>`;
 }

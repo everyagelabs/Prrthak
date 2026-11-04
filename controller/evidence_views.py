@@ -12,6 +12,7 @@ from .inventory_views import rows
 MAX_EXPORT_BYTES=64*1024*1024
 EXPORT_SLOTS=threading.BoundedSemaphore(2)
 RATE_FIELDS = ('peak_observed_per_second', 'rate_window_seconds', 'peak_observed_at', 'rate_is_lower_bound')
+DESTINATION_FIELDS = ('destination_reported_ips',)
 FIELDS=('session_id','server_id','hostname','source_ip','source_cidr','port','protocol','service','process','count','verdicts','first_seen','last_seen','eligible_for_auto','excluded_reason','count_unit','capture_kind','capture_backend','address_family')
 
 
@@ -141,12 +142,14 @@ def csv_spool(store,session_id,server_id=None,*,max_bytes=None):
                 session=header(db,session_id)
                 server_filter(session,server_id)
                 from .learning import TRAFFIC_PURPOSE
-                fields = FIELDS + RATE_FIELDS if session.get("purpose") == TRAFFIC_PURPOSE else FIELDS
+                fields = FIELDS + (RATE_FIELDS if session.get("purpose") == TRAFFIC_PURPOSE else ()) + DESTINATION_FIELDS
                 write(fields)
                 current_id,current_server=None,None
                 for row in evidence_rows(db,session_id,server_id) if traffic_evidence_available(session) else ():
                     if row['server_id']!=current_id:current_id=row['server_id'];current_server=server_view(db,current_id)
-                    write(csv_values(_row_public(row,current_server, purpose=session.get("purpose")), fields))
+                    public = _row_public(row, current_server, purpose=session.get("purpose"))
+                    public['destination_reported_ips'] = '; '.join(current_server.get('ips', []))
+                    write(csv_values(public, fields))
             output.flush();output.seek(0)
             yield output,size
     finally:EXPORT_SLOTS.release()

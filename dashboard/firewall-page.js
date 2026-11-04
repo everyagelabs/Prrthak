@@ -13,12 +13,16 @@ function firewallResultBadge(result){const status=result?.status;return badge(W.
 function firewallPlanTargets(plan){return (plan.server_ids||[]).filter(id=>state.flowServer==='all'||state.flowServer===id);}
 function firewallPlans(){if(state.firewallData?.scoped_query&&state.firewallScopeKey!==firewallScopeKey())return [];if(state.firewallData?.scoped_query)return state.firewallData.changes||[];return W.scopedPlans(state.firewallData?.changes||[],state.data?.servers||[],state.firewallData?.servers||[],state.filters,state.search,state.flowServer);}
 
+function firewallQueryScope(){
+  const eligible=(state.data?.servers||[]).filter(server=>(state.flowServer==='all'||state.flowServer===server.id)&&F.matchServer(server,state.filters,{ignorePorts:true}));
+  return {server_ids:eligible.map(server=>server.id),search_server_ids:eligible.filter(server=>F.matchServer(server,state.filters,{ignorePorts:true,search:state.search})).map(server=>server.id),search:state.search,ports:[...(state.filters.ports||[])]};
+}
+
 async function refreshFirewallData(){
   if(state.firewallLoading){state.firewallQueryPending=true;return;}state.firewallLoading=true;state.firewallQueryPending=false;
   const key=firewallScopeKey();if(state.firewallScopeKey!==key){state.firewallCursor='';state.firewallCursorHistory=[];}
   state.firewallRequestedScopeKey=key;
-  const eligible=(state.data?.servers||[]).filter(server=>(state.flowServer==='all'||state.flowServer===server.id)&&F.matchServer(server,state.filters,{ignorePorts:true}));
-  const body={server_ids:eligible.map(server=>server.id),search_server_ids:eligible.filter(server=>F.matchServer(server,state.filters,{ignorePorts:true,search:state.search})).map(server=>server.id),search:state.search,ports:[...(state.filters.ports||[])],after:state.firewallCursor||'',limit:50};
+  const body={...firewallQueryScope(),after:state.firewallCursor||'',limit:50};
   if(state.view==='policies'){
     body.view='access';
     if(state.policyShowUnusedZones)body.zone_usage='all';

@@ -198,3 +198,9 @@ td,.mono,.host-name,.policy-service strong,.alert-title,.activity-item h3,.detai
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.notification-add-actions{display:flex;flex-wrap:wrap;gap:10px}
+.notification-event-filters{min-width:0;margin:16px 0;padding:12px 14px;border:1px solid var(--line);border-radius:8px}
+.notification-event-filters legend{padding:0 5px;font-weight:600;color:var(--ink)}
+.notification-event-filters details summary{cursor:pointer;margin:12px 0 6px;color:var(--muted)}
+.notification-event-choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:2px 12px}
+.notification-event-choices .host-check{border:0;padding:6px 0;color:var(--ink)}

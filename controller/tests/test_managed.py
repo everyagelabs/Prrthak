@@ -199,6 +199,20 @@ class ManagedPolicyTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self.report("target", "10.0.0.1", managed_enforcement={**outcome, "digest": "a" * 64})
 
+    def test_confirmed_managed_allow_queues_once_after_apply(self):
+        with self.store.meta() as db:
+            self.store._put(db, "notification_settings", {"id": "settings", "enabled": True, "revision": 1,
+                            "channels": [{"type": "email", "enabled": True, "event_types": ["port_allowed"]}]})
+        self.approve()
+        self.assertEqual(self.store.all("notification_events"), [])
+        outcome = self.outcome()
+        for _ in range(2):
+            self.report("target", "10.0.0.1", managed_enforcement=outcome)
+        events = self.store.all("notification_events")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["server_id"], "target")
+        self.assertIn("8080/tcp", events[0]["message"])
+
     def test_last_policy_removal_requires_reviewed_cleanup_and_reports_deactivation_intent(self):
         _, old = self.mark_enforced()
         self.store.delete_policy(self.policy["id"], "admin")

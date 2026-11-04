@@ -555,5 +555,16 @@ def ingest_results(store, db, identifier, values):
             plan["status"] = "completed_with_errors" if statuses & {"failed", "conflict"} else (next(iter(statuses)) if len(statuses) == 1 else "completed")
         store._put(db, "firewall_changes", plan)
         store.audit("firewall_change.result", "agent:" + identifier, {"change_id": plan["id"], "status": status}, db)
+        if status == "applied":
+            from .notification_events import port_allowed, subscribed_revision
+            revision = subscribed_revision(store, db, "port_allowed")
+            if revision is not None:
+                ports = [(port["protocol"], port["port"]) for row in plan.get("preview", {}).get("after", [])
+                         if row["server_id"] == identifier and row["scope"] == "runtime"
+                         and classify(row["kind"], row["value"])[0] == "accept" for port in row["ports"]]
+                if ports:
+                    server = store._get(db, "servers", identifier)
+                    if server:
+                        port_allowed(db, revision, server, "discovered firewall rule", plan["id"], ports)
         acknowledged.append(plan["id"])
     return acknowledged

@@ -63,3 +63,15 @@ def canonical_servers(db, selected=None):
     ids=tuple(sorted(selected)) if selected is not None else ()
     sql="SELECT data FROM servers"+(" WHERE id IN ("+",".join("?" for _ in ids)+")" if selected is not None else "")
     for row in rows(db,sql,ids): yield json.loads(row[0])
+
+
+def endpoint_labels(db):
+    """Read only current agent-reported identities for traffic export labels."""
+    if getattr(db, "dialect", "sqlite") == "postgresql":
+        fields = "data::jsonb->>'hostname',(data::jsonb->'ips')::text"
+    else:
+        fields = "json_extract(data,'$.hostname'),json_extract(data,'$.ips')"
+    return {
+        identifier: (hostname or identifier, "; ".join(json.loads(ips) or []) if ips else "")
+        for identifier, hostname, ips in rows(db, "SELECT id," + fields + " FROM servers", batch_size=128)
+    }

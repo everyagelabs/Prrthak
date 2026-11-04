@@ -4,6 +4,8 @@ from contextlib import contextmanager
 from controller.tests import private_pg as pg_fixture
 
 import copy
+import csv
+import io
 import json
 import os
 from pathlib import Path
@@ -16,6 +18,7 @@ from unittest.mock import Mock, patch
 from controller import learning_policies as lp
 from controller import policy_views as views
 from controller import service_groups
+from controller import workspace_exports
 from controller.firewall import WorkflowConflict
 from controller.store import Store, stamp
 
@@ -87,6 +90,27 @@ class PolicyViewChecks:
         self.assertEqual(snapshot["ports"], self.grouped["services"][0]["service_group_snapshot"]["ports"])
         for port in ("9999/tcp", "9443/tcp"):
             self.assertEqual(views.listing(self.store, "managed", {**value, "ports": [port]})["total"], 0)
+
+    def test_exports_match_policy_scope_and_include_complete_exact_sources(self):
+        def records(kind, **scope):
+            with workspace_exports.csv_spool(self.store, "policies", {"kind": kind, **scope}) as (file, _):
+                return list(csv.DictReader(io.StringIO(file.read().decode("utf-8-sig"))))
+
+        unfiltered = records("managed", ports=["8443/tcp"])
+        self.assertEqual(len(unfiltered), 52)
+        self.assertEqual({row["source"] for row in unfiltered}, set(self.sources))
+        self.assertEqual({row["destination_port"] for row in unfiltered}, {"8443"})
+
+        grouped = records("managed", ports=["9443/udp"], server_ids=["billing-a"])
+        self.assertEqual(len(grouped), 2)
+        self.assertEqual({row["policy_id"] for row in grouped}, {"managed-grouped"})
+        self.assertEqual(grouped[0]["service_group"], "Frozen application ports")
+        self.assertEqual(grouped[0]["destination_group_ids"], "billing-group")
+
+        learned = records("learned", server_ids=["billing-a"], ports=["8443/tcp"])
+        self.assertNotIn("learned-other", {row["policy_id"] for row in learned})
+        self.assertNotIn("learned-removed", {row["policy_id"] for row in learned})
+        self.assertEqual({row["destination_reported_ips"] for row in learned}, {"10.70.0.1"})
 
     def test_managed_search_is_name_or_matching_target_but_never_escapes_scope(self):
         base = {"server_ids": ["billing-a"], "ports": ["8443/tcp"]}

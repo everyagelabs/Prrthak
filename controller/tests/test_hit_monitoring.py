@@ -106,6 +106,19 @@ class HitMonitorTests(unittest.TestCase):
         self.assertFalse(stopped['enabled'])
         self.assertEqual(hm.target_page(self.store, monitor['id'])['items'][0]['last_outcome']['status'], 'off')
 
+    def test_burst_uses_native_observations_across_batches_once_per_window(self):
+        monitor = self.make()
+        point = now()
+        for batch, begin, end in (("one", 0, 60), ("two", 60, 101), ("three", 101, 102)):
+            body = self.batch(monitor, identity=batch, at=point)
+            body["events"] = [typed_event("2001:db8::12", 443, identity=f"burst-{i}", at=point) for i in range(begin, end)]
+            hm.enqueue(self.store, "one", body)
+            hm.process(self.store)
+            alerts = [item for item in self.store.all("alerts") if item["kind"] == "traffic_burst"]
+            self.assertEqual(len(alerts), 0 if begin == 0 else 1)
+        self.assertEqual(alerts[0]["details"]["count"], 101)
+        self.assertEqual(alerts[0]["details"]["count_unit"], "connections")
+
     def test_frozen_group_and_metadata_change_reject_review(self):
         with self.store.meta() as db:
             self.store._put(db, 'groups', {'id': 'billing', 'name': 'Billing', 'type': 'dynamic', 'selector': {'application': 'Billing'}})

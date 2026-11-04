@@ -193,6 +193,36 @@ def plan_summaries(store,db,selected=None,ports=(),search='',search_ids=None,lim
     return result
 
 
+def matching_rules(snapshot, server_id, ports, search, search_ids, describe, zone_usage):
+    local = {}
+    for rule in snapshot.get('rules', []):
+        local.setdefault(rule['logical_key'], []).append(rule)
+    usage_evidence = zone_usage_evidence(snapshot) if describe else None
+    needle = search.casefold()
+    for key, host_rules in local.items():
+        rule = host_rules[0]
+        usage = None
+        if describe:
+            if rule['kind'] not in ('service', 'port', 'rich_rule', 'target', 'zone_target', 'direct') or rule['action'] not in ('accept', 'drop', 'reject'):
+                continue
+            usage = access_zone_usage(rule, usage_evidence)
+            if usage == 'unbound' and zone_usage != 'all':
+                continue
+        direct = not needle or needle in json.dumps([rule.get(field) for field in ('zone', 'kind', 'value', 'action', 'risk')], ensure_ascii=False).casefold()
+        if describe and not direct:
+            fields = describe(rule['kind'], rule['value'])
+            direct = any(needle in value.casefold() for value in (*fields, 'allow' if rule['action'] == 'accept' else 'deny', usage))
+        if not direct and (not search_ids or server_id not in search_ids):
+            continue
+        if describe and ports:
+            fields = describe(rule['kind'], rule['value'])
+            matched = [item for item in host_rules if matches_access_ports(item, ports, fields)]
+        else:
+            matched = [item for item in host_rules if matches_ports(item, ports)]
+        if matched:
+            yield key, host_rules, matched, usage
+
+
 def inventory(store,selected=None,*,after='',limit=50,ports=(),search='',search_server_ids=None,include_snapshots=None,view='raw',zone_usage='relevant'):
     from .firewall import snapshot_view
     checked=options({'server_ids':list(selected) if selected is not None else None,'after':after,'limit':limit,'ports':list(ports),'search':search,'search_server_ids':list(search_server_ids) if search_server_ids is not None else None,'view':view,'zone_usage':zone_usage})
@@ -208,28 +238,8 @@ def inventory(store,selected=None,*,after='',limit=50,ports=(),search='',search_
         for server in canonical_servers(db,selected):
             snapshot=snapshot_view(server)
             snapshots.append({'server_id':server['id'],'hostname':server['hostname'],'snapshot':snapshot if include_snapshots else snapshot_summary(snapshot)})
-            local={}
-            for rule in snapshot.get('rules',[]): local.setdefault(rule['logical_key'],[]).append(rule)
-            usage_evidence = zone_usage_evidence(snapshot) if access else None
-            for key,host_rules in local.items():
+            for key,host_rules,matched,usage in matching_rules(snapshot, server['id'], ports, search, search_ids, describe, zone_usage):
                 rule=host_rules[0]
-                if access:
-                    if rule['kind'] not in ('service','port','rich_rule','target','zone_target','direct') or rule['action'] not in ('accept','drop','reject'):
-                        continue
-                    usage=access_zone_usage(rule,usage_evidence)
-                    if usage=='unbound' and zone_usage!='all':
-                        continue
-                direct=not search or search.casefold() in json.dumps([rule.get(field) for field in ('zone','kind','value','action','risk')],ensure_ascii=False).casefold()
-                if access and not direct:
-                    fields=describe(rule['kind'],rule['value'])
-                    direct=any(search.casefold() in value.casefold() for value in (*fields,'allow' if rule['action']=='accept' else 'deny',usage))
-                if not direct and server['id'] not in (search_ids or set()): continue
-                if access and ports:
-                    fields=describe(rule['kind'],rule['value'])
-                    matched=[item for item in host_rules if matches_access_ports(item,ports,fields)]
-                else:
-                    matched=[item for item in host_rules if matches_ports(item,ports)]
-                if not matched: continue
                 matching_hosts.add(server['id'])
                 if any(item.get('risk')=='high' for item in host_rules): high_hosts.add(server['id'])
                 if after and key<=after: continue

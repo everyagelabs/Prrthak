@@ -618,6 +618,34 @@ test('Read Only can inspect and export evidence but cannot preview, apply or edi
 test('CSV export carries bearer auth only in explicit token mode and never exports the visible page alone',async()=>{
  const env=await workspace('traffic',{mode:'tokens',role:'admin',storage:{'segment-token':'role-token'}});await env.click('recommendation-export',{id:'session/one'});const request=env.requests.find(request=>request.url.includes('/export.csv'));assert.equal(request.url,'/api/v1/learning/session%2Fone/export.csv');assert.equal(request.options.headers.Authorization,'Bearer role-token');assert.equal(request.url.includes('limit='),false);assert.equal(mutations(env).length,0);
 });
+test('read-only inventory and policy exports send complete current scopes with CSRF',async()=>{
+ const csv={headers:{'Content-Type':'text/csv; charset=utf-8'},csvText:'hostname,listening_port\r\nlab-api,8443\r\n'};
+ const env=await workspace('servers',{mode:'entra',role:'read_only',responses:{
+  'POST /api/v1/servers/export.csv':csv,
+  'POST /api/v1/policies/export.csv':csv
+ }});
+ env.run('state.filters.application=["billing"];state.filters.ports=["8443/tcp"];render()');
+ assert.match(env.element('#view-content').innerHTML,/data-action="inventory-export"/);
+ await env.click('inventory-export');
+ let request=env.requests.findLast(({url})=>url==='/api/v1/servers/export.csv');
+ assert.deepEqual(JSON.parse(request.options.body),{server_ids:['host-1']});
+ assert.equal(request.options.headers['X-CSRF-Token'],'session-csrf-fixture');
+ assert.equal(env.element('created:a').download,'prthak-servers.csv');
+ env.run('navigate("policies");state.policyShowUnusedZones=true;render()');
+ for(const kind of ['discovered','managed','learned']){
+  assert.match(env.element('#view-content').innerHTML,new RegExp('data-action="policy-catalogue-export" data-kind="'+kind+'"'));
+  await env.click('policy-catalogue-export',{kind});
+  request=env.requests.findLast(({url})=>url==='/api/v1/policies/export.csv');
+  const body=JSON.parse(request.options.body);
+  assert.deepEqual(body.server_ids,['host-1']);
+  assert.deepEqual(body.ports,['8443/tcp']);
+  assert.equal(body.kind,kind);
+  assert.equal(body.limit,undefined);
+  assert.equal(body.offset,undefined);
+  if(kind==='discovered')assert.equal(body.zone_usage,'all');
+  assert.equal(env.element('created:a').download,'prthak-'+kind+'-policies.csv');
+ }
+});
 function compactSession(id,extra={}){return {id,name:'Window '+id,status:'active',summary_only:true,server_ids:['host-1'],server_count:1,selection_mode:'discovered',policy_action:'observe',starts_at:new Date(Date.now()-60000).toISOString(),expires_at:new Date(Date.now()+600000).toISOString(),discovery_pending_count:0,discovery_error_count:0,discovery_no_listeners_count:0,...extra};}
 function compactSessionPage(items,extra={}){return {items,total:14,active_total:9,offset:0,limit:6,has_more:true,...extra};}
 function compactOverview(items,extra={}){const page=compactSessionPage(items,extra);return {...fixture,learning_sessions:items,learning_session_pagination:{...page,items:undefined},stats:{active_learning:page.active_total}};}
@@ -961,7 +989,7 @@ test('PKCS12 files are read locally for one review and private archive/password 
 
 const notificationConfig={revision:4,enabled:false,channels:[{id:'security-hooks',name:'Security webhooks',type:'webhook',enabled:true,minimum_severity:'warning',event_types:['*'],host:'alerts.example.test',port:443,addresses:['8.8.8.8'],destination:'https://alerts.example.test/…',credential_flags:{url_configured:true,signing_secret_configured:true}}]};
 const notificationDelivery={id:'delivery-one',channel_id:'security-hooks',channel_name:'Security webhooks',channel_type:'webhook',destination:'https://alerts.example.test/…',event:{kind:'port_scan'},status:'uncertain',attempts:2,error:'Acknowledgement unknown',created_at:'2026-10-31T00:00:00Z'};
-function notificationFixtureRow(values={}){const defaults={name:'Security webhooks',type:'webhook',enabled:{checked:true},minimum_severity:'warning',event_types:'*',allow_private_network:{checked:false},idempotency_supported:{checked:false},url:'',signing_secret:'',auth_token:'',smtp_host:'',smtp_port:'587',smtp_security:'starttls',username:'',password:'',from_address:'',to_addresses:'',custom_ca_pem:''},controls=new Map(Object.entries({...defaults,...values}).map(([name,value])=>['channel_'+name,typeof value==='object'?value:{value}]));return {dataset:{id:'security-hooks'},querySelector:selector=>controls.get(selector.match(/name="([^"]+)"/)?.[1])};}
+function notificationFixtureRow(values={},choices=['*']){const defaults={name:'Security webhooks',type:'webhook',enabled:{checked:true},minimum_severity:'warning',event_types:'',allow_private_network:{checked:false},idempotency_supported:{checked:false},url:'',signing_secret:'',auth_token:'',smtp_host:'',smtp_port:'587',smtp_security:'starttls',username:'',password:'',from_address:'',to_addresses:'',custom_ca_pem:''},controls=new Map(Object.entries({...defaults,...values}).map(([name,value])=>['channel_'+name,typeof value==='object'?value:{value}]));return {dataset:{id:'security-hooks'},querySelector:selector=>controls.get(selector.match(/name="([^"]+)"/)?.[1]),querySelectorAll:selector=>selector==='input[name="channel_event_choice"]:checked'?choices.map(value=>({value})):[]};}
 async function notificationWorkspace(extra={}){return applianceWorkspace({'/api/v1/platform/notifications':notificationConfig,'/api/v1/platform/notifications/deliveries?limit=50&offset=0':{items:[notificationDelivery],total:1,limit:50,offset:0,has_more:false},...extra});}
 test('notification forms require an exact destination review and never display or store submitted credentials',async()=>{
  const plan=applianceReview({id:'notification-review',summary:{enabled:true,channels:notificationConfig.channels},confirmation_phrase:'ENABLE REVIEWED NOTIFICATIONS'}),env=await notificationWorkspace({'POST /api/v1/platform/notifications/preview':plan,'POST /api/v1/platform/notifications/apply':{...notificationConfig,revision:5}});await env.click('platform-tab',{tab:'notifications'});await new Promise(setImmediate);let html=env.element('#view-content').innerHTML;assert.match(html,/Credentials stay encrypted/);assert.match(html,/Acknowledgement unknown/);assert.match(html,/name="channel_url" type="password"/);assert.doesNotMatch(html,/private-notification-token/);
@@ -971,6 +999,56 @@ test('notification forms require an exact destination review and never display o
 test('actual notification test and uncertain retry each require explicit saved-destination confirmation',async()=>{
  const env=await notificationWorkspace({'POST /api/v1/platform/notifications/channels/security-hooks/test':{id:'test-delivery',status:'pending'},'POST /api/v1/platform/notifications/deliveries/delivery-one/retry':{...notificationDelivery,status:'retry'}});await env.click('platform-tab',{tab:'notifications'});await new Promise(setImmediate);await env.click('platform-notification-test',{id:'security-hooks'});assert.equal(mutations(env).length,0);assert.match(env.element('#modal-content').innerHTML,/real configuration-test message/);let form=renderedForm(env,'platform-notification-send-form',{});await submitRendered(env,form);let request=mutations(env)[0],body=JSON.parse(request.options.body);assert.equal(request.url,'/api/v1/platform/notifications/channels/security-hooks/test');assert.equal(body.confirm,true);assert.equal(body.expected_revision,4);assert.ok(body.request_id);assertCookieMutation(request);
  await env.click('platform-notification-retry',{id:'delivery-one'});form=renderedForm(env,'platform-notification-send-form',{});await submitRendered(env,form);assert.equal(mutations(env).length,1);form.values.confirm_duplicate='on';await submitRendered(env,form);request=mutations(env)[1];assert.deepEqual(JSON.parse(request.options.body),{expected_revision:4,expected_attempts:2,confirm_possible_duplicate:true});assertCookieMutation(request);assert.match(env.element('#view-content').innerHTML,/Acknowledgement unknown/);
+});
+test('SMTP channels start with no alerts selected and submit only chosen event types',async()=>{
+ const email={id:'security-email',name:'Security email',type:'email',enabled:true,minimum_severity:'info',event_types:['service_discovered','traffic_burst','admin_change','port_allowed','agent_offline'],destination:'smtp.example.test:587',addresses:['192.0.2.23'],to_addresses:['oncall@example.test']};
+ const plan=applianceReview({summary:{enabled:true,channels:[email]},confirmation_phrase:'ENABLE REVIEWED NOTIFICATIONS'});
+ const env=await notificationWorkspace({'POST /api/v1/platform/notifications/preview':plan});
+ await env.click('platform-tab',{tab:'notifications'});
+ await new Promise(setImmediate);
+ assert.match(env.element('#view-content').innerHTML,/Add email channel/);
+ const channels=env.element('#notification-channels');
+ channels.insertAdjacentHTML=(_,html)=>{channels.innerHTML=html;};
+ await env.click('platform-notification-add-email');
+ assert.match(channels.innerHTML,/<option value="email" selected>/);
+ assert.match(channels.innerHTML,/<option value="warning" selected>/);
+ assert.match(channels.innerHTML,/SMTP hostname/);
+ assert.match(channels.innerHTML,/100 observed connections or denied packets/);
+ assert.doesNotMatch(channels.innerHTML,/name="channel_event_choice"[^>]*checked/);
+ const form=renderedForm(env,'platform-notification-form',{enabled:'on'});
+ const fields={type:'email',name:'Security email',minimum_severity:'info',smtp_host:'smtp.example.test',from_address:'alerts@example.test',to_addresses:'oncall@example.test',password:'smtp-private-pass'};
+ form.querySelectorAll=selector=>selector==='.notification-channel'?[notificationFixtureRow(fields,[])]:[];
+ await submitRendered(env,form);
+ assert.equal(mutations(env).length,0);
+ assert.match(env.element('#platform-notification-error').textContent,/Select at least one alert type/);
+ const choices=['service_discovered','traffic_burst','admin_change','port_allowed'];
+ const row=notificationFixtureRow({...fields,event_types:'agent_offline, traffic_burst'},choices);
+ delete row.dataset.id;
+ form.querySelectorAll=selector=>selector==='.notification-channel'?[row]:[];
+ await submitRendered(env,form);
+ const request=mutations(env)[0];
+ assert.equal(request.url,'/api/v1/platform/notifications/preview');
+ const channel=JSON.parse(request.options.body).channels[0];
+ assert.deepEqual(channel.event_types,email.event_types);
+ assert.equal(channel.minimum_severity,'info');
+ assert.equal(channel.smtp_host,'smtp.example.test');
+ assert.equal(channel.password,'smtp-private-pass');
+ assert.match(env.element('#modal-content').innerHTML,/Monitored traffic bursts, Admin changes, Confirmed port allowances/);
+ assert.doesNotMatch(env.element('#modal-content').innerHTML,/smtp-private-pass/);
+});
+test('saved SMTP filters preserve standard alerts, explicit categories and custom event codes',async()=>{
+ const channel={...notificationConfig.channels[0],type:'email',minimum_severity:'info',event_types:['*','port_allowed','recovered']};
+ const env=await notificationWorkspace({'/api/v1/platform/notifications':{...notificationConfig,channels:[channel]}});
+ await env.click('platform-tab',{tab:'notifications'});
+ await new Promise(setImmediate);
+ const html=env.element('#view-content').innerHTML;
+ assert.match(html,/value="\*" checked>All standard alerts \(includes new services\)/);
+ assert.match(html,/value="port_allowed" checked>Confirmed port allowances/);
+ assert.match(html,/name="channel_event_types" value="recovered"/);
+ const row=notificationFixtureRow({type:'email',event_types:'recovered'},['*','port_allowed']);
+ env.context.testNotificationRow=row;
+ assert.deepEqual(Array.from(env.run('notificationEventTypes(testNotificationRow,"email")')),channel.event_types);
+ assert.deepEqual(Array.from(env.run('notificationEventTypes(testNotificationRow,"webhook")')),['*','recovered']);
 });
 test('notification send actions are blocked in demo and all notification forms stay Super Admin only',async()=>{
  for(const role of ['read_only','admin']){const env=await workspace('settings',{mode:'entra',role});await env.click('platform-tab',{tab:'notifications'});assert.equal(env.run('state.platformTab'),'overview');await env.click('platform-notification-test',{id:'security-hooks'});await env.listeners.submit.at(-1)({preventDefault(){},target:{id:'platform-notification-form',values:{}}});assert.equal(mutations(env).length,0);}

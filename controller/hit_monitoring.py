@@ -397,13 +397,46 @@ def enqueue(store, identifier, value):
 def process(store, limit=100):
     if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
         raise ValueError("Choose a bounded ingestion batch count")
+    from .traffic_capture import BURST_FRESHNESS, BURST_THRESHOLD, record_burst
+
+    alerts = []
+    cutoff = stamp(now() - BURST_FRESHNESS)
     with store.flow_lock, store.traffic() as db:
         _write(db)
-        batches = db.execute("SELECT batch_key FROM hit_batches WHERE processed=0 ORDER BY received_at,batch_key LIMIT ?", (limit,)).fetchall()
+        batches = db.execute("SELECT batch_key,server_id,monitor_id FROM hit_batches WHERE processed=0 ORDER BY received_at,batch_key LIMIT ?", (limit,)).fetchall()
         for batch in batches:
-            db.execute("UPDATE hit_events SET processed=1 WHERE batch_key=?", (batch[0],))
-            db.execute("UPDATE hit_batches SET processed=1 WHERE batch_key=?", (batch[0],))
-        return len(batches)
+            db.execute("UPDATE hit_events SET processed=1 WHERE batch_key=? AND processed=0", (batch[0],))
+        for batch in batches:
+            key, server, monitor = batch[0], batch[1], batch[2]
+            rows = db.execute("""WITH changed AS (
+              SELECT DISTINCT source_ip,protocol,port,capture_kind,event_time FROM hit_events
+              WHERE batch_key=? AND event_time>=? AND capture_kind IN ('accepted_connection','denied_packet')
+            ) SELECT f.source_ip,f.protocol,f.port,f.capture_kind,f.event_time,COUNT(*) AS count
+              FROM changed JOIN hit_events f ON f.source_ip=changed.source_ip AND f.protocol=changed.protocol
+                AND f.port=changed.port AND f.capture_kind=changed.capture_kind AND f.event_time=changed.event_time
+              WHERE f.server_id=? AND f.monitor_id=? AND f.processed=1
+              GROUP BY f.source_ip,f.protocol,f.port,f.capture_kind,f.event_time HAVING COUNT(*)>=?
+              ORDER BY count DESC,f.event_time,f.source_ip,f.protocol,f.port,f.capture_kind""",
+                              (key, cutoff, server, monitor, BURST_THRESHOLD)).fetchall()
+            if rows:
+                alerts.append((key, server, rows))
+            else:
+                db.execute("UPDATE hit_batches SET processed=1 WHERE batch_key=?", (key,))
+    if alerts:
+        # Persist alerts after committing validated traffic. A metadata failure leaves
+        # the affected batches pending and the alert IDs make retries idempotent.
+        with store.lock, store.meta() as db:
+            _write(db)
+            for _, identifier, rows in alerts:
+                server = store._get(db, "servers", identifier)
+                if server and not server.get("retired_at"):
+                    for row in rows:
+                        record_burst(store, db, server, row[0], row[1], row[2], row[3], row[4], row[5])
+        with store.flow_lock, store.traffic() as db:
+            _write(db)
+            for key, _, _ in alerts:
+                db.execute("UPDATE hit_batches SET processed=1 WHERE batch_key=?", (key,))
+    return len(batches)
 
 
 def prune(store):

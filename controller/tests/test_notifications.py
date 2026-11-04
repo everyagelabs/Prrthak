@@ -36,6 +36,11 @@ class NotificationTests(unittest.TestCase):
                 "url": "https://alerts.example.test/private-token?key=private-url-credential", "signing_secret": self.secret,
                 "minimum_severity": "warning", "event_types": ["*"], **extra}
 
+    def email_channel(self, **extra):
+        return {"id": "mail", "name": "Email alerts", "type": "email", "enabled": True, "minimum_severity": "info", "event_types": ["*"],
+                "smtp_host": "smtp.example.test", "smtp_port": 587, "smtp_security": "starttls", "from_address": "alerts@example.test",
+                "to_addresses": ["operator@example.test"], **extra}
+
     def body(self, channels=None, enabled=True):
         return {"expected_revision": n.get(self.manager)["revision"], "enabled": enabled,
                 "channels": [self.channel()] if channels is None else channels}
@@ -64,6 +69,20 @@ class NotificationTests(unittest.TestCase):
         self.assertEqual(n.enqueue_alerts(self.manager), 0)
         with patch.object(n, "dispatch", side_effect=AssertionError("No unconfigured network sends")):
             self.assertEqual(n.run_once(self.manager)["processed"], 0)
+
+    def test_named_admin_change_queues_only_a_safe_summary_for_email(self):
+        self.configure(self.body([self.email_channel(event_types=["admin_change"]), self.channel(event_types=["admin_change"])]))
+        with self.store.meta() as db:
+            self.store._put(db, "auth_users", {"id": "administrator-1", "role": "admin", "display_name": "Pilot Administrator"})
+            self.store.audit("policy.created", "local:administrator-1", {"credential": self.secret}, db)
+            self.store.audit("policy.created", "agent:administrator-1", {}, db)
+            self.store.audit("firewall_change.confirmed", "local:administrator-1", {"status": "awaiting_second_confirmation"}, db)
+        self.assertEqual(n.enqueue_alerts(self.manager), 1)
+        delivery = n.deliveries(self.store)["items"][0]
+        self.assertEqual(delivery["channel_type"], "email")
+        self.assertIn("Pilot Administrator", delivery["event"]["message"])
+        self.assertNotIn(self.secret, json.dumps(delivery))
+        self.assertEqual(n.enqueue_alerts(self.manager), 0)
 
     def test_wrong_length_encryption_key_fails_closed_without_saving_settings(self):
         previous = self.manager.shared_secret_key
@@ -151,6 +170,39 @@ class NotificationTests(unittest.TestCase):
         self.alert("eligible", severity="critical")
         self.assertEqual(n.enqueue_alerts(self.manager), 1)
         self.assertEqual(n.deliveries(self.store)["items"][0]["event"]["alert_id"], "eligible")
+
+    def test_traffic_burst_requires_explicit_selection_and_only_new_occurrences_are_sent(self):
+        self.configure(self.body([self.email_channel()]))
+        self.alert("existing-burst", kind="traffic_burst")
+        self.assertEqual(n.enqueue_alerts(self.manager), 0)
+        plan = self.review(self.body([self.email_channel(event_types=["*", "traffic_burst"])]))
+        self.alert("burst-during-review", kind="traffic_burst")
+        n.apply(self.manager, self.confirm(plan), "named-super-admin", resolver=self.resolver)
+        self.alert("fresh-burst", kind="traffic_burst")
+        self.alert("service", kind="service_discovered", severity="info")
+        self.assertEqual(n.enqueue_alerts(self.manager), 2)
+        self.assertEqual({row["event"]["alert_id"] for row in n.deliveries(self.store)["items"]}, {"fresh-burst", "service"})
+
+    def test_projected_events_only_reach_explicit_email_on_their_original_revision(self):
+        settings = self.configure(self.body([
+            self.email_channel(id="selected", minimum_severity="warning", event_types=["admin_change", "port_allowed"]),
+            self.email_channel(),
+            self.channel(event_types=["admin_change", "port_allowed"]),
+        ]))
+        with self.store.meta() as db:
+            for identifier, kind, revision in (
+                ("admin", "admin_change", settings["revision"]),
+                ("port", "port_allowed", settings["revision"]),
+                ("stale", "admin_change", settings["revision"] - 1),
+            ):
+                event = {"id": identifier, "kind": kind, "severity": "info", "message": "Reviewed action",
+                         "configuration_revision": revision, "created_at": stamp()}
+                db.execute("INSERT INTO notification_events(id,created_at,data) VALUES(?,?,?)", (identifier, event["created_at"], json.dumps(event)))
+        self.assertEqual(n.enqueue_alerts(self.manager), 2)
+        self.assertEqual(n.enqueue_alerts(self.manager), 0)
+        self.assertEqual({(row["event_id"], row["channel_id"]) for row in n.deliveries(self.store)["items"]},
+                         {("admin", "selected"), ("port", "selected")})
+        self.assertEqual(self.store.all("notification_events"), [])
 
     def test_retry_then_provider_acknowledgement_is_durable_with_stable_delivery_id(self):
         self.configure()
@@ -287,6 +339,21 @@ class NotificationTests(unittest.TestCase):
         self.assertTrue(sequence[5].endswith("@prthak.invalid>"))
         self.assertEqual(n.deliveries(self.store)["items"][0]["status"], "delivered")
         self.assertNotIn("private-smtp-password", json.dumps(self.store.all("audit")))
+
+    def test_email_has_readable_plain_and_escaped_html_alternatives(self):
+        channel = self.email_channel()
+        event = n._event({"id": "event-123", "alert_id": "alert-123", "kind": "service_discovered", "severity": "info",
+                          "hostname": "billing<&>", "message": "New service <script> on 8443/tcp & ready",
+                          "created_at": "2026-11-04T10:00:00Z"})
+        mail = n._email_message(channel, {"id": "delivery-123", "event": event})
+        self.assertEqual(mail["Subject"], "Prṛthak · New service discovered (Information)")
+        self.assertEqual(mail["Message-ID"], "<delivery-123@prthak.invalid>")
+        self.assertIn("Time (UTC): 04 Nov 2026, 10:00:00", mail.get_body(preferencelist=("plain",)).get_content())
+        html = mail.get_body(preferencelist=("html",)).get_content()
+        self.assertIn("billing&lt;&amp;&gt;", html)
+        self.assertIn("New service &lt;script&gt; on 8443/tcp &amp; ready", html)
+        self.assertNotIn("<script>", html)
+        self.assertIn("alert-123", html)
 
     def test_concurrent_workers_claim_only_once_and_another_controller_can_use_shared_encryption(self):
         self.configure()

@@ -328,6 +328,15 @@ def report_outcome(store, db, server, value):
     _record_outcome(store,db,server,result,current)
     if not current:return False
     if status=="enforced":
+        prior_version = server.get("_last_managed_applied_version", 0)
+        if version != prior_version and result.get("managed_rules_present", True) and not result.get("already_present") and result["intent"] == "enforce":
+            from .notification_events import allow_entries, port_allowed, subscribed_revision
+            revision = subscribed_revision(store, db, "port_allowed")
+            if revision is not None:
+                prior = db.execute("SELECT data FROM bundle_history WHERE server_id=? AND version=?", (server["id"], prior_version)).fetchone() if prior_version else None
+                previous = allow_entries(json.loads(prior[0]).get("services", ())) if prior else set()
+                new = allow_entries(applied_bundle.get("services", ())) - previous
+                port_allowed(db, revision, server, "managed policy", version, ((protocol, port) for protocol, port, _ in new))
         server["_managed_rules_active"]=result.get("managed_rules_present",result["intent"]!="remove_managed_rules")
         server["_last_managed_applied_version"]=version
         server["last_good_version"]=version;server["last_good_digest"]=result["digest"]

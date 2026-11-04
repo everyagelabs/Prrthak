@@ -314,6 +314,8 @@ class PostgresStore(Store):
             initialize_hit_monitoring(db)
             from .notifications import initialize as initialize_notifications
             initialize_notifications(db)
+            from .notification_events import initialize as initialize_notification_events
+            initialize_notification_events(db)
             from .auth import initialize as initialize_auth
             initialize_auth(db)
             from .local_auth import initialize as initialize_local_auth
