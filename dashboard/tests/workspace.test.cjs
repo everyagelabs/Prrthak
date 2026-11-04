@@ -2094,6 +2094,72 @@ test('Platform Updates resumes binary chunks, checks the package and applies onl
  assert.match(env.element('#view-content').innerHTML,/Verify candidate HTTPS/);
 });
 
+test('Platform Updates caps chunks at 1 MiB and replays the same bytes after a network failure and lost 500 response', async () => {
+ const oneMiB=1024*1024, priorOffset=4*oneMiB, nextOffset=priorOffset+oneMiB;
+ const archive=Object.assign(new Blob([Buffer.alloc(priorOffset),Buffer.alloc(oneMiB,3),'tail']),{name:updateName});
+ const signature=Object.assign(new Blob(['{"algorithm":"Ed25519","signature":"fixture"}']),{name:updateName+'.signature.json'});
+ const path=updateAPI+'/'+updateID, firstChunk=path+'/chunks/'+priorOffset;
+ let record=updateRecord({size:archive.size,offset:priorOffset}), attempts=0;
+ const env=await workspace('settings',{mode:'entra',responses:{
+  [updateAPI]:()=>({...updateStatus(record),max_bytes:8*oneMiB,chunk_bytes:4*oneMiB}),
+  ['POST '+updateAPI+'/upload']:()=>record,
+  ['PUT '+firstChunk]:()=>{
+   attempts++;
+   if(attempts===1)throw new TypeError('Network request failed');
+   if(attempts===2){record={...record,offset:nextOffset};return {responseStatus:500,data:{}};}
+   return record;
+  },
+  ['PUT '+path+'/chunks/'+nextOffset]:()=>record={...record,offset:archive.size},
+  ['POST '+path+'/review']:()=>record={...record,status:'ready'}
+ }});
+ await env.click('platform-tab',{tab:'updates'});
+ await new Promise(setImmediate);
+ const delays=[];
+ env.context.setTimeout=(callback,delay)=>{if(delay<3500){delays.push(delay);queueMicrotask(callback);}return 1;};
+ await submitRendered(env,renderedForm(env,'platform-update-upload-form',{archive,signature}));
+ const writes=mutations(env).filter(request=>request.url.startsWith(updateAPI));
+ assert.deepEqual(writes.map(request=>request.url),[updateAPI+'/upload',firstChunk,firstChunk,firstChunk,path+'/chunks/'+nextOffset,path+'/review']);
+ assert.deepEqual(delays,[1000,2000]);
+ assert.equal(writes[1].options.body.size,oneMiB);
+ assert.equal(writes[1].options.body,writes[2].options.body);
+ assert.equal(writes[2].options.body,writes[3].options.body);
+ assert.equal(await writes[4].options.body.text(),'tail');
+ for(const request of writes)assertCookieMutation(request);
+});
+
+test('Platform Updates pauses after bounded timeouts and resumes from refreshed progress with the same files', async () => {
+ const archive=Object.assign(new Blob(['hello-world']),{name:updateName});
+ const signature=Object.assign(new Blob(['{"algorithm":"Ed25519","signature":"fixture"}']),{name:updateName+'.signature.json'});
+ const path=updateAPI+'/'+updateID;
+ let record=updateRecord(), recovered=false;
+ const env=await workspace('settings',{mode:'entra',responses:{
+  [updateAPI]:()=>updateStatus(record),
+  ['POST '+updateAPI+'/upload']:()=>record,
+  ['PUT '+path+'/chunks/4']:()=>record={...record,offset:8},
+  ['PUT '+path+'/chunks/8']:()=>{
+   if(!recovered)throw new DOMException('Request aborted','AbortError');
+   return record={...record,offset:11};
+  },
+  ['POST '+path+'/review']:()=>record={...record,status:'ready'}
+ }});
+ await env.click('platform-tab',{tab:'updates'});
+ await new Promise(setImmediate);
+ const delays=[];
+ env.context.setTimeout=(callback,delay)=>{if([1000,2000,4000].includes(delay)){delays.push(delay);queueMicrotask(callback);}return 1;};
+ await submitRendered(env,renderedForm(env,'platform-update-upload-form',{archive,signature}));
+ assert.deepEqual(delays,[1000,2000,4000]);
+ assert.equal(env.requests.filter(request=>request.url===path+'/chunks/8').length,4);
+ assert.equal(env.run('state.platformUpdates.update.offset'),8);
+ assert.match(env.element('#platform-update-upload-error').textContent,/Upload paused.*same package and signature/);
+ assert.equal(env.requests.some(request=>request.url===path+'/review'),false);
+ recovered=true;
+ await submitRendered(env,renderedForm(env,'platform-update-upload-form',{archive,signature}));
+ const writes=mutations(env).filter(request=>request.url.startsWith(updateAPI));
+ assert.deepEqual(writes.slice(-3).map(request=>request.url),[updateAPI+'/upload',path+'/chunks/8',path+'/review']);
+ assert.equal(writes[0].options.body,writes.at(-3).options.body);
+ assert.equal(env.element('#platform-update-upload-error').hidden,true);
+});
+
 test('Platform Updates keeps uploads disabled without the appliance capability or a Super Admin session',async()=>{
  const appliance=await workspace('settings',{mode:'entra',responses:{[updateAPI]:{
   ...updateStatus(null),available:false,blockers:['Install an updater-enabled release']

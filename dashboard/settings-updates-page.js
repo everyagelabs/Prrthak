@@ -2,6 +2,8 @@
 
 let platformUpdateTimer;
 let platformUpdateGeneration = 0;
+const platformUpdateChunkLimit = 1024 * 1024;
+const platformUpdateRetryDelays = [1000, 2000, 4000];
 
 function platformClearUpdateState() {
   clearTimeout(platformUpdateTimer);
@@ -43,6 +45,10 @@ function platformUpdateNotice() {
 
 function platformUpdateProgressLabel(record) {
   return `${platformUI.bytes(record.offset)} of ${platformUI.bytes(record.size)} uploaded`;
+}
+
+function platformUpdateUploadLabel(record) {
+  return record?.status === 'uploading' ? 'Resume upload and check package' : 'Upload and check package';
 }
 
 function platformUpdateProgressHTML(record) {
@@ -108,7 +114,7 @@ function platformUpdatesHTML() {
         <label for="platform-update-signature">Detached release signature (.signature.json)</label>
         <input id="platform-update-signature" name="signature" type="file" accept=".json,application/json" required ${disabled}>
       </div>
-      <button type="submit" class="button primary" ${disabled}>${status.update?.status === 'uploading' ? 'Resume upload and check package' : 'Upload and check package'}</button>
+      <button type="submit" class="button primary" ${disabled}>${platformUpdateUploadLabel(status.update)}</button>
     </form>
   </section>`;
 }
@@ -218,6 +224,11 @@ function platformUpdateInput(event) {
   return true;
 }
 
+function platformUpdateRetryable(error) {
+  if (error.status) return [408, 429, 500, 502, 503, 504].includes(error.status);
+  return ['AbortError', 'TimeoutError', 'TypeError'].includes(error.name);
+}
+
 async function platformUploadUpdate(values, generation) {
   const archive = values.get('archive');
   const signatureFile = values.get('signature');
@@ -243,27 +254,37 @@ async function platformUploadUpdate(values, generation) {
   });
   if (generation !== platformUpdateGeneration) return;
   const path = platformUpdateRecordPath(record?.id);
-  if (record.status !== 'uploading') return;
-  if (record.size !== archive.size || !Number.isSafeInteger(record.offset) || record.offset < 0 || record.offset > archive.size) {
+  if (record.status !== 'uploading' || record.name !== archive.name || record.size !== archive.size ||
+      !Number.isSafeInteger(record.offset) || record.offset < 0 || record.offset > archive.size) {
     throw new Error('The update manager did not return a valid upload position.');
   }
   platformUpdateSetRecord(record);
+  const chunkSize = Math.min(chunk_bytes, platformUpdateChunkLimit);
   while (record.offset < archive.size) {
     const offset = record.offset;
-    const end = Math.min(offset + chunk_bytes, archive.size);
+    const end = Math.min(offset + chunkSize, archive.size);
     const chunk = archive.slice(offset, end);
     let next;
     for (let attempts = 0; generation === platformUpdateGeneration; attempts++) {
       try {
+        // The controller accepts an exact byte-for-byte replay at this offset.
         next = await api(path + '/chunks/' + offset, {method: 'PUT', rawBody: chunk});
         break;
       } catch (error) {
-        if (error.status !== 429 || attempts === 2) throw error;
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        if (generation !== platformUpdateGeneration) return;
+        if (!platformUpdateRetryable(error)) throw error;
+        const delay = platformUpdateRetryDelays[attempts];
+        if (delay === undefined) {
+          throw new Error('Upload paused. Resume with the same package and signature.');
+        }
+        const label = platformUpdateOnPage() && $('#platform-update-transfer-label');
+        if (label) label.textContent = `${platformUpdateProgressLabel(record)} · Retrying…`;
+        await new Promise(resolve => setTimeout(resolve, error.status === 429 ? Math.max(2000, delay) : delay));
       }
     }
     if (generation !== platformUpdateGeneration) return;
-    if (next?.id !== record.id || next.offset !== end || next.size !== archive.size) {
+    if (next?.id !== record.id || next.status !== 'uploading' || next.name !== archive.name ||
+        next.offset !== end || next.size !== archive.size) {
       throw new Error('The upload position changed. Refresh status and resume with the same files.');
     }
     record = next;
@@ -287,7 +308,11 @@ async function platformUpdateSubmit(event) {
   button.disabled = true;
   for (const input of fileInputs) input.disabled = true;
   state.platformUpdateBusy = true;
-  if (uploading) platformMarkDraft(form);
+  if (uploading) {
+    platformMarkDraft(form);
+    const error = $('#platform-update-upload-error');
+    if (error) error.hidden = true;
+  }
   let completed = false;
   try {
     if (uploading) await platformUploadUpdate(values, generation);
@@ -311,6 +336,7 @@ async function platformUpdateSubmit(event) {
       await loadPlatformUpdates();
       if (generation !== platformUpdateGeneration) return;
       button.disabled = uploading ? !platformUpdateCanUpload() : completed || !platformUpdateCanApply(state.platformUpdates?.update, phrase);
+      if (uploading) button.textContent = platformUpdateUploadLabel(state.platformUpdates?.update);
       for (const input of fileInputs) input.disabled = !platformUpdateCanUpload();
     }
   }
