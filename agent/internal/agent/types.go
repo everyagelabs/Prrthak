@@ -2,7 +2,7 @@ package agent
 
 import "time"
 
-const Version = "0.18.9"
+const Version = "0.18.10"
 
 const LearningDiscoveryCapability = "learning_discovery_v1"
 const TrafficDiscoveryCapability = "traffic_discovery_30d_v1"
@@ -33,6 +33,7 @@ type Session struct {
 	StoppedAt        *time.Time `json:"stopped_at,omitempty"`
 }
 type Policy struct {
+	CertificateRenewal    *CertificateRenewalAssignment    `json:"certificate_renewal,omitempty"`
 	AgentUpgrade          *AgentUpgradeAssignment          `json:"agent_upgrade,omitempty"`
 	EgressBundle          *EgressAssignment                `json:"egress_bundle,omitempty"`
 	Quarantine            *QuarantineAssignment            `json:"quarantine,omitempty"`
@@ -78,6 +79,7 @@ type Coverage struct {
 	Error         string     `json:"error,omitempty"`
 }
 type Report struct {
+	ResourceUsage               *agentResourceUsage          `json:"resource_usage,omitempty"`
 	AgentUpgrade                *AgentUpgradeReport          `json:"agent_upgrade,omitempty"`
 	AgentArchitecture           string                       `json:"agent_architecture,omitempty"`
 	NetworkControl              *NetworkControlReport        `json:"network_control,omitempty"`

@@ -33,12 +33,14 @@ from .store import digest, now, parse_time, stamp
 PURPOSE = "notifications-v1"
 KEY_CONTEXT = ContextVar("notification_key", default=None)
 SEVERITY = {"info": 0, "warning": 1, "critical": 2}
-EMAIL_ONLY_EVENTS = {"admin_change", "port_allowed"}
+EMAIL_ONLY_EVENTS = {"admin_change", "port_allowed", "controller_resource_pressure", "agent_resource_pressure"}
 EXPLICIT_EVENTS = EMAIL_ONLY_EVENTS | {"traffic_burst"}
 EMAIL_PRESET_EVENTS = EXPLICIT_EVENTS | {"service_discovered"}
 EVENT_TITLES = {
     "admin_change": "Administrator change",
+    "agent_resource_pressure": "Endpoint agent resource pressure",
     "configuration_test": "Email delivery test",
+    "controller_resource_pressure": "Controller resource pressure",
     "port_allowed": "Port access allowed",
     "service_discovered": "New service discovered",
     "traffic_burst": "Monitored traffic burst",

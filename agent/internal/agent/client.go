@@ -24,14 +24,16 @@ import (
 )
 
 type Client struct {
-	identity     *atomic.Pointer[tls.Certificate]
-	renewMu      sync.Mutex
-	renewRetry   time.Time
-	config       Config
-	simulate     bool
-	HTTP         *http.Client
-	SecurityAcks []string
-	FirewallAcks []string
+	identity       *atomic.Pointer[tls.Certificate]
+	renewMu        sync.Mutex
+	renewRetry     time.Time
+	renewBulkID    string
+	renewBulkRetry time.Time
+	config         Config
+	simulate       bool
+	HTTP           *http.Client
+	SecurityAcks   []string
+	FirewallAcks   []string
 }
 type HTTPError struct {
 	Status int

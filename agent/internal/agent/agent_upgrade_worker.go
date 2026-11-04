@@ -98,12 +98,28 @@ func agentUpgradeSystemctl(ctx context.Context, action string) error {
 }
 
 func checkAgentUpgradeUnitProperties(output string) error {
+	return checkLoadedAgentUnit(output, false, func() error {
+		_, err := configuredAgentResourceLimits()
+		return err
+	})
+}
+
+func checkLoadedAgentUnit(output string, requireResource bool, verifyResource func() error) error {
 	expected := map[string]string{"FragmentPath": upgradeUnit, "DropInPaths": "", "NeedDaemonReload": "no"}
+	if requireResource {
+		expected["DropInPaths"] = agentResourceDropIn
+	}
 	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 		name, value, present := strings.Cut(line, "=")
 		want, known := expected[name]
+		if known && name == "DropInPaths" && value == agentResourceDropIn {
+			if err := verifyResource(); err != nil {
+				return fmt.Errorf("the loaded agent resource drop-in failed verification: %w", err)
+			}
+			value = want
+		}
 		if !present || !known || value != want {
-			return errors.New("managed agent upgrades require the loaded stock systemd unit without drop-ins")
+			return errors.New("the loaded stock systemd unit may use only the exact Prthak resource drop-in")
 		}
 		delete(expected, name)
 	}
@@ -113,14 +129,35 @@ func checkAgentUpgradeUnitProperties(output string) error {
 	return nil
 }
 
-func checkAgentUpgradeSystemd(ctx context.Context) error {
+func loadedAgentUnitProperties(ctx context.Context) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	output, err := exec.CommandContext(ctx, "/usr/bin/systemctl", "show", "--all", "--property=FragmentPath", "--property=DropInPaths", "--property=NeedDaemonReload", upgradeUnitName).Output()
 	if err != nil {
-		return fmt.Errorf("could not verify the loaded agent systemd unit: %w", err)
+		return "", fmt.Errorf("could not verify the loaded agent systemd unit: %w", err)
 	}
-	return checkAgentUpgradeUnitProperties(string(output))
+	return string(output), nil
+}
+
+func checkAgentUpgradeSystemd(ctx context.Context) error {
+	output, err := loadedAgentUnitProperties(ctx)
+	if err != nil {
+		return err
+	}
+	return checkAgentUpgradeUnitProperties(output)
+}
+
+// VerifyAgentResourceUnit verifies the loaded drop-in identity before a
+// resource-limited installation may start the agent.
+func VerifyAgentResourceUnit(ctx context.Context) error {
+	output, err := loadedAgentUnitProperties(ctx)
+	if err != nil {
+		return err
+	}
+	return checkLoadedAgentUnit(output, true, func() error {
+		_, err := configuredAgentResourceLimits()
+		return err
+	})
 }
 
 func (j *agentUpgradeJournal) restore(c Config, trust, unit []byte) error {

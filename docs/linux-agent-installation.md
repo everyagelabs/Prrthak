@@ -39,6 +39,26 @@ In **Platform settings → Agent upgrades**, a Super Admin selects a signed vers
 
 Each eligible agent uses its existing authenticated control connection, verifies the package with its pinned release key, and restarts under its local supervisor. The upgrade replaces the signed binary and runtime manifest while retaining endpoint enrollment and configuration. The worker verifies a fresh report from the requested version and restores the previous runtime when startup verification fails. Use the outcome list to check each endpoint. A rollout requires the stock signed systemd service. Use the local installer for releases that change that unit.
 
+## Optional hard agent limits
+
+On a native Linux systemd host with working CPU and memory cgroup controllers, run the same signed agent installer with the resource option:
+
+```sh
+sudo ./scripts/install-agent-auto.sh --setup-file /root/prthak-agent-setup.json --resource-limits
+```
+
+For an already enrolled agent, enter the verified, extracted agent release and use its existing configuration:
+
+```sh
+sudo ./scripts/install-agent.sh --resource-limits ./seg-agent /etc/seg-agent/config.json
+```
+
+The installer validates the existing mTLS identity and keeps the certificate, private key and enrollment record. This path needs no new token or setup file.
+
+The installer sets a service-wide CPU quota of 5% of the host's online logical CPU capacity and a memory cap at or below 2,000,000,000 bytes. For example, eight online logical CPUs give the agent 40% of one logical CPU. Memory is rounded down to the host page size. The signed startup helper checks the effective kernel limits before the agent starts. The guard accepts cgroup v2 or legacy cgroup v1 with verified CPU and hierarchical memory controls. An unrelated agent systemd override or unavailable kernel control blocks the resource-limited start. If the host's online CPU count changes, reapply the limits through the installer. Subsequent managed upgrades preserve the verified drop-in.
+
+For a hard storage bound, provision a dedicated ext4 or XFS filesystem of at most 10,000,000,000 bytes at `/var/lib/seg-agent` first. On an enrolled host, move the existing agent state and identity to that filesystem during planned maintenance before running the installer. Add `--require-state-volume` next to `--resource-limits` in either command. The installer and startup guard verify the mount and its size. Provisioning the volume and arranging its boot-time mount are host administration tasks. This caps the agent state filesystem, including its traffic retry files. Package files, configuration and OS-managed journal logs are on their own filesystems.
+
 ## Prepare the endpoint and release
 
 1. In **Install agent**, choose the CPU package and the common URLs/polling in the GUI. OS detection and required dependency preparation are automatic; no Linux-family choice or dependency checkbox is needed. Optional **Assess UFW and export migration data** starts off. The automatic command validates the kit and signed binary/unit before bounded native apt/dnf operations with journaled service-start suppression. It also accepts older schema-1/2 kits without rewriting them; the explicit local automatic command authorizes dependency preparation only, never enforcement. UFW and existing firewalld activity are preserved. Unsafe/uncertain overrides block preparation. RHEL needs approved repository/subscription access; UFW cutover remains separate. See [preparation safeguards and private receipt](endpoint-discovery-and-preparation.md).

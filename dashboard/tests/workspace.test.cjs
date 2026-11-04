@@ -161,7 +161,7 @@ test('all eleven direct page components render with the actual shared shell and 
   assert.doesNotMatch(html,/\bNaN\b/);assert.equal(env.run('state.view'),view);
   if(view==='overview')assert.doesNotMatch(html,/id="server-table-body"/);
   if(view==='locations'){assert.match(html,/Mumbai primary/);assert.match(html,/manually/);assert.doesNotMatch(html,/Legacy only/);}
-  if(view==='services'){assert.match(html,/Web application/);assert.match(html,/443\/tcp/);assert.match(html,/Server groups select endpoints/);}
+  if(view==='services'){assert.match(html,/Web application/);assert.match(html,/443\/tcp/);assert.match(html,/Discovered services/);}
   if(view==='policies'){assert.match(html,/Discovered policies/);assert.match(html,/Managed policies/);assert.match(html,/Changes & history/);assert.doesNotMatch(html,/role="tablist"/);}
  }
 });
@@ -464,6 +464,32 @@ function renderedForm(env,id,values={}) {
 }
 function submitRendered(env,form) {return env.listeners.submit.at(-1)({preventDefault(){},target:form});}
 function servicePreview(overrides={}) {return {before:serviceGroup,after:{...serviceGroup,revision:3,ports:[{port:443,protocol:'tcp'},{port:9443,protocol:'tcp'}]},ports_changed:true,effective_change_count:2,target_server_count:3,affected_policies:[{id:'policy-1',name:'Billing policy',revision:4}],affected_servers:[{id:'host-1',hostname:'api <one>'},{id:'host-2',hostname:'api-two'}],requires_managed_review:true,...overrides};}
+test('Service groups shows different discovered services on one port and only prefills a draft',async()=>{
+ const listeners=[{port:443,protocol:'tcp',service:'HTTPS',application:'Payments <web>'},{port:443,protocol:'tcp',process:'sshd'},{port:53,protocol:'udp',service:'DNS',process:'named'}];
+ const responses={'/api/v1/overview':{...fixture,servers:[{...host,listeners}],meta:{...fixture.meta,demo:false}}};
+ const env=await workspace('services',{mode:'entra',role:'admin',responses}),html=env.element('#view-content').innerHTML;
+ assert.match(html,/Discovered services/);
+ assert.match(html,/HTTPS.*Payments &lt;web&gt;.*443\/tcp/);
+ assert.match(html,/SSH.*sshd.*443\/tcp/);
+ assert.equal((html.match(/data-port="443" data-protocol="tcp"/g)||[]).length,2);
+ env.run('serviceGroupInput({target:{id:"service-group-discovered-search",value:"sshd"}})');
+ assert.match(env.element('#service-group-discovered-results').innerHTML,/SSH/);
+ assert.doesNotMatch(env.element('#service-group-discovered-results').innerHTML,/HTTPS/);
+ await env.click('service-group-use-discovered',{port:'443',protocol:'tcp'});
+ assert.match(env.element('#modal-content').innerHTML,/name="ports"[^>]*>443\/tcp<\/textarea>/);
+ assert.match(env.element('#modal-content').innerHTML,/Add discovered services/);
+ const ports=env.element('#service-group-ports');ports.value='443/tcp';
+ await env.click('service-group-add-discovered',{port:'443',protocol:'tcp'});
+ assert.equal(ports.value,'443/tcp');
+ await env.click('service-group-add-discovered',{port:'53',protocol:'udp'});
+ assert.equal(ports.value,'443/tcp, 53/udp');
+ assert.match(env.element('#service-group-impact').innerHTML,/Changes need a new impact preview/);
+ assert.match(env.element('#modal-content').innerHTML,/Preview impact/);
+ assert.equal(mutations(env).length,0);
+ const readOnly=await workspace('services',{mode:'entra',role:'read_only',responses});
+ assert.match(readOnly.element('#view-content').innerHTML,/Payments &lt;web&gt;/);
+ assert.doesNotMatch(readOnly.element('#view-content').innerHTML,/Use port in new group/);
+});
 test('service group changes require an impact preview of exact ports, policies and hosts before saving',async()=>{
  for(const role of ['admin','super_admin']) {
   const env=await workspace('services',{mode:'entra',role,responses:{'POST /api/v1/service-groups/preview':servicePreview()}});
@@ -1093,6 +1119,8 @@ test('SMTP channels start with no alerts selected and submit only chosen event t
  assert.match(channels.innerHTML,/<option value="warning" selected>/);
  assert.match(channels.innerHTML,/SMTP hostname/);
  assert.match(channels.innerHTML,/value="service_down" >Service down/);
+ assert.match(channels.innerHTML,/value="controller_resource_pressure" >Controller CPU, memory and storage/);
+ assert.match(channels.innerHTML,/value="agent_resource_pressure" >Endpoint agent CPU, memory and storage/);
  assert.match(channels.innerHTML,/100 observed connections or denied packets/);
  assert.doesNotMatch(channels.innerHTML,/name="channel_event_choice"[^>]*checked/);
  const form=renderedForm(env,'platform-notification-form',{enabled:'on'});
@@ -1135,6 +1163,57 @@ test('notification send actions are blocked in demo and all notification forms s
  const demo=await workspace('settings',{responses:{'/api/v1/platform/notifications':notificationConfig}});await demo.click('platform-tab',{tab:'notifications'});await new Promise(setImmediate);await demo.click('platform-notification-test',{id:'security-hooks'});assert.equal(mutations(demo).length,0);assert.match(demo.element('#view-content').innerHTML,/External notification sends are blocked/);
 });
 const endpointCertificate={id:'endpoint_certificate:one',server_id:'host-1',hostname:'lab-api',fingerprint_sha256:'c'.repeat(64),serial_number:'abcd',status:'active',not_after:'2027-10-31T00:00:00Z'};
+test('bulk endpoint certificate renewal requires a reviewed phrase and distinguishes confirmation from scheduling',async()=>{
+ const endpointAPI='/api/v1/platform/endpoint-certificates';
+ const certificateListing={items:[endpointCertificate],renewal_available:true,renewal_eligible:2,renewal_rollout:null};
+ const plan={id:'endpoint_renewal_review:fixture',digest:'a'.repeat(64),confirmation_nonce:'renewal-nonce',confirmation_phrase:'RENEW ENDPOINT CERTIFICATES',expires_at:new Date(Date.now()+60000).toISOString(),target_count:2,skipped_count:1,batch_size:20,interval_seconds:60};
+ const running={id:'rollout-1',status:'running',target_count:2,counts:{issued:1,confirmed:1,expired:0,superseded:0}};
+ const env=await applianceWorkspace({[endpointAPI]:certificateListing,['POST '+endpointAPI+'/renewal-preview']:plan,['POST '+endpointAPI+'/renewal-apply']:running});
+ await env.click('platform-tab',{tab:'certificates'});
+ await new Promise(setImmediate);
+ assert.match(env.element('#view-content').innerHTML,/2 eligible endpoints · No agent restart/);
+ env.listeners.toggle.at(-1)({target:{id:'platform-certificate-operations',open:true}});
+ await env.click('platform-endpoint-renewal-preview');
+ assert.equal(env.element('#modal-title').textContent,'Review bulk certificate renewal');
+ assert.match(env.element('#modal-content').innerHTML,/2 eligible endpoints<\/strong> · 1 skipped/);
+ assert.match(env.element('#modal-content').innerHTML,/20 endpoints per 60 seconds/);
+ assert.deepEqual(JSON.parse(mutations(env)[0].options.body),{});
+ const form=renderedForm(env,'platform-endpoint-renewal-form',{confirmation_phrase:'renew endpoint certificates'});
+ await submitRendered(env,form);
+ assert.equal(mutations(env).length,1);
+ env.context.apiResponses[endpointAPI]={...certificateListing,renewal_rollout:running,items:[{...endpointCertificate,renewal_status:'issued'}]};
+ form.values.confirmation_phrase=plan.confirmation_phrase;
+ await submitRendered(env,form);
+ const request=mutations(env)[1];
+ assert.equal(request.url,endpointAPI+'/renewal-apply');
+ assert.deepEqual(JSON.parse(request.options.body),{preview_id:plan.id,digest:plan.digest,confirmation_nonce:plan.confirmation_nonce,confirmation_phrase:plan.confirmation_phrase});
+ assertCookieMutation(request);
+ const html=env.element('#view-content').innerHTML;
+ assert.match(html,/id="platform-certificate-operations"[^>]* open>/);
+ assert.match(html,/1 confirmed of 2 · 1 waiting/);
+ assert.match(html,/Awaiting confirmation/);
+ assert.match(html,/data-action="platform-endpoint-renewal-preview" disabled/);
+});
+test('bulk endpoint renewal hides on old controllers and blocks unavailable, empty, and non-Super Admin requests',async()=>{
+ const endpointAPI='/api/v1/platform/endpoint-certificates';
+ for(const listing of [{items:[]},{items:[],renewal_available:false,renewal_eligible:2},{items:[],renewal_available:true,renewal_eligible:0}]){
+  const env=await applianceWorkspace({[endpointAPI]:listing});
+  await env.click('platform-tab',{tab:'certificates'});
+  await new Promise(setImmediate);
+  const html=env.element('#view-content').innerHTML;
+  if('renewal_available' in listing)assert.match(html,/data-action="platform-endpoint-renewal-preview" disabled/);
+  else assert.doesNotMatch(html,/Bulk certificate renewal/);
+  await env.click('platform-endpoint-renewal-preview');
+  assert.equal(mutations(env).length,0);
+ }
+ for(const role of ['read_only','admin']){
+  const env=await workspace('settings',{mode:'entra',role});
+  env.run('state.platformEndpointCertificates={renewal_available:true,renewal_eligible:2}');
+  await env.click('platform-endpoint-renewal-preview');
+  await env.listeners.submit.at(-1)({preventDefault(){},target:{id:'platform-endpoint-renewal-form'}});
+  assert.equal(mutations(env).length,0);
+ }
+});
 test('endpoint revocation is typed and exact while recovery credentials are shown once without browser storage',async()=>{
  const plan={id:'endpoint_revoke:one',digest:'d'.repeat(64),confirmation_nonce:'endpoint-revoke-nonce',confirmation_phrase:'REVOKE lab-api',certificate_ids:[endpointCertificate.id],expires_at:new Date(Date.now()+60000).toISOString(),message:'Registered identities will stop authenticating; existing firewall rules remain.'},env=await applianceWorkspace({'/api/v1/platform/endpoint-certificates':{items:[endpointCertificate],renewal_window_days:30,old_certificate_overlap_hours:24},'POST /api/v1/platform/endpoint-certificates/revoke-preview':plan,'POST /api/v1/platform/endpoint-certificates/revoke-apply':{status:'revoked'},'POST /api/v1/platform/endpoint-certificates/recovery-token':{token:'private-one-time-recovery-token',server_id:'host-1',expires_at:new Date(Date.now()+900000).toISOString(),one_time:true}});await env.click('platform-tab',{tab:'certificates'});await new Promise(setImmediate);assert.match(env.element('#view-content').innerHTML,/Endpoint certificate identities/);assert.match(env.element('#view-content').innerHTML,/old|Previous-credential overlap/);await env.click('platform-endpoint-revoke',{id:'host-1'});assert.equal(mutations(env)[0].url,'/api/v1/platform/endpoint-certificates/revoke-preview');const form=renderedForm(env,'platform-endpoint-revoke-form',{confirmation_phrase:'REVOKE somebody-else'});await submitRendered(env,form);assert.equal(mutations(env).length,1);form.values.confirmation_phrase=plan.confirmation_phrase;await submitRendered(env,form);const request=mutations(env)[1];assert.equal(request.url,'/api/v1/platform/endpoint-certificates/revoke-apply');assert.deepEqual(JSON.parse(request.options.body),{preview_id:plan.id,digest:plan.digest,confirmation_nonce:plan.confirmation_nonce,confirmation_phrase:plan.confirmation_phrase});assertCookieMutation(request);
  await env.click('platform-endpoint-recovery',{id:'host-1'});assert.match(env.element('#modal-content').innerHTML,/private-one-time-recovery-token/);assert.equal(env.storageChanges.some(change=>String(change.value).includes('private-one-time-recovery-token')),false);env.run('closeModal()');assert.doesNotMatch(env.element('#modal-content').innerHTML,/private-one-time-recovery-token/);

@@ -1,8 +1,9 @@
 from datetime import timedelta
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -10,8 +11,12 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
 
 from controller import endpoint_certificates as lifecycle
+from controller import endpoint_renewal as rollout
+from controller.auth import AuthDenied, EntraAuth, EntraConfig
+from controller.authentication import Authentication
+from controller.firewall import WorkflowConflict
 from controller.pki import Signer, init_ca
-from controller.store import Store, now
+from controller.store import Store, now, stamp
 
 
 class EndpointCertificateTests(unittest.TestCase):
@@ -38,6 +43,100 @@ class EndpointCertificateTests(unittest.TestCase):
 
     def csr(self, key=None):
         return x509.CertificateSigningRequestBuilder().subject_name(self.cert.subject).sign(key or self.key, hashes.SHA256()).public_bytes(serialization.Encoding.PEM).decode()
+
+    def schedule(self):
+        with self.store.meta() as db:
+            server = self.store._get(db, "servers", self.server_id)
+            server["capabilities"] = [rollout.CAPABILITY]
+            self.store._put(db, "servers", server)
+            self.store._put(db, "maintenance_settings", {"id": rollout.REVIEW_PREFIX + "expired", "expires_at": stamp(now() - timedelta(minutes=1))})
+        app = SimpleNamespace(store=self.store, platform=True, signer=self.signer, demo=False, auth=Mock())
+        owner = {"role": "super_admin", "auth_type": "session", "actor": "owner"}
+        with self.assertRaises(PermissionError):
+            rollout.preview(app, {}, {**owner, "auth_type": "token"})
+        preview = rollout.preview(app, {}, owner)
+        with self.store.read_meta() as db:
+            self.assertIsNone(self.store._get(db, "maintenance_settings", rollout.REVIEW_PREFIX + "expired"))
+        body = {"preview_id": preview["id"], **{key: preview[key] for key in ("digest", "confirmation_nonce", "confirmation_phrase")}}
+        with self.assertRaises(WorkflowConflict):
+            rollout.apply(app, body, {**owner, "actor": "another-admin"})
+        result = rollout.apply(app, body, owner)
+        self.assertEqual(result["counts"]["pending"], 1)
+        with self.assertRaises(WorkflowConflict):
+            rollout.apply(app, body, owner)
+        return result["id"]
+
+    def test_scheduled_renewal_uses_exact_same_key_and_retires_only_after_candidate_proof(self):
+        der = self.cert.public_bytes(serialization.Encoding.DER)
+        identifier = self.schedule()
+        descriptor = self.store.assignment(self.server_id)[0]["certificate_renewal"]
+        self.assertEqual(descriptor["id"], identifier)
+        self.assertEqual(descriptor["new_fingerprint"], "")
+        with self.assertRaises(PermissionError):
+            lifecycle.renew(self.store, self.server_id, der, {"renewal_id": identifier, "csr": self.csr(ec.generate_private_key(ec.SECP256R1()))}, self.signer)
+        self.assertFalse(lifecycle.renew(self.store, self.server_id, der, {"csr": self.csr()}, self.signer)["renewed"])
+        response = lifecycle.renew(self.store, self.server_id, der, {"renewal_id": identifier, "csr": self.csr()}, self.signer)
+        self.assertEqual(lifecycle.renew(self.store, self.server_id, der, {"renewal_id": identifier, "csr": self.csr()}, self.signer), response)
+        newer = x509.load_pem_x509_certificate(response["certificate"].encode())
+        new_der = newer.public_bytes(serialization.Encoding.DER)
+        self.assertEqual(lifecycle.authorize(self.store, self.server_id, der)["status"], "active")
+        self.assertEqual(lifecycle.listing(self.store)["renewal_rollout"]["counts"]["issued"], 1)
+        action = {"renewal_id": identifier, "action": "confirm"}
+        with self.assertRaises(PermissionError):
+            lifecycle.renew(self.store, self.server_id, der, action, self.signer)
+        with self.assertRaises(PermissionError):
+            lifecycle.renew(self.store, self.server_id, new_der, action, self.signer)
+        lifecycle.renew(self.store, self.server_id, new_der, {**action, "action": "probe", "split_channels": "true"}, self.signer)
+        with self.assertRaises(PermissionError):
+            lifecycle.renew(self.store, self.server_id, new_der, action, self.signer)
+        with self.assertRaises(PermissionError):
+            lifecycle.probe_discovery(self.store, self.server_id, der, {"certificate_renewal_probe": identifier})
+        self.assertEqual(lifecycle.probe_discovery(self.store, self.server_id, new_der, {"certificate_renewal_probe": identifier})["action"], "probe-discovery")
+        self.assertEqual(lifecycle.authorize(self.store, self.server_id, der)["status"], "active")
+        restarted = Store(self.root / "db")
+        self.assertEqual(lifecycle.renew(restarted, self.server_id, new_der, action, self.signer)["action"], "confirm")
+        self.assertEqual(lifecycle.renew(restarted, self.server_id, new_der, action, self.signer)["action"], "confirm")
+        self.assertEqual(lifecycle.authorize(restarted, self.server_id, der)["status"], "retiring")
+        self.assertEqual(lifecycle.listing(restarted)["renewal_rollout"]["counts"]["confirmed"], 1)
+        self.assertNotIn("certificate_renewal", restarted.assignment(self.server_id)[0])
+
+    def test_scheduled_renewal_rejects_early_and_stale_assignments(self):
+        der = self.cert.public_bytes(serialization.Encoding.DER)
+        identifier = self.schedule()
+        with self.store.meta() as db:
+            job = rollout.job(self.store, db, self.server_id)
+            job["not_before"] = stamp(now() + timedelta(minutes=1))
+            self.store._put(db, "maintenance_settings", job)
+        self.assertNotIn("certificate_renewal", self.store.assignment(self.server_id)[0])
+        self.assertEqual(lifecycle.listing(self.store)["renewal_rollout"]["counts"]["scheduled"], 1)
+        with self.assertRaises(PermissionError):
+            lifecycle.renew(self.store, self.server_id, der, {"renewal_id": identifier, "csr": self.csr()}, self.signer)
+        ordinary = lifecycle.renew(self.store, self.server_id, der, {"csr": self.csr()}, self.signer)
+        self.assertTrue(ordinary["renewed"])
+        self.assertEqual(lifecycle.listing(self.store)["renewal_rollout"]["counts"]["superseded"], 1)
+
+    def test_bulk_renewal_revalidates_named_session_inside_confirmation(self):
+        origin = "https://prthak.example.internal"
+        headers = {"Host": "prthak.example.internal", "Origin": origin}
+        auth = Authentication(self.store, entra=EntraAuth(self.store, EntraConfig()), origin=origin)
+        app = SimpleNamespace(store=self.store, platform=True, signer=self.signer, demo=False, auth=auth)
+        with self.store.meta() as db:
+            server = self.store._get(db, "servers", self.server_id)
+            server["capabilities"] = [rollout.CAPABILITY]
+            self.store._put(db, "servers", server)
+        limited = auth.local_login({"username": "admin", "password": "admin"}, headers)["principal"]
+        with self.assertRaises(AuthDenied):
+            rollout.preview(app, {}, limited)
+        password = "Endpoint renewal test phrase 2026"
+        actor = auth.change_password({"current_password": "admin", "new_password": password, "confirm_password": password},
+                                     limited, {**headers, "X-CSRF-Token": limited["csrf_token"]})["principal"]
+        review = rollout.preview(app, {}, actor)
+        with self.store.meta() as db:
+            db.execute("DELETE FROM auth_sessions WHERE id=?", (actor["_session_id"],))
+        body = {"preview_id": review["id"], **{key: review[key] for key in ("digest", "confirmation_nonce", "confirmation_phrase")}}
+        with self.assertRaises(AuthDenied):
+            rollout.apply(app, body, actor)
+        self.assertIsNone(lifecycle.listing(self.store)["renewal_rollout"])
 
     def test_renewal_replay_overlap_and_new_identity_survive_restart(self):
         der = self.cert.public_bytes(serialization.Encoding.DER)

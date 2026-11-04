@@ -20,5 +20,21 @@
   function application(listener = {}) {
     return value(listener.application) || value(listener.process) || value(listener.systemd_unit).replace(/\.service$/, '') || 'Application not reported';
   }
-  return {name, label, application};
+  function catalogue(servers) {
+    const rows = new Map();
+    for (const server of servers) {
+      for (const listener of server.listeners || []) {
+        const port = Number(listener.port);
+        const protocol = value(listener.protocol).toLowerCase();
+        if (!Number.isInteger(port) || port < 1 || port > 65535 || !['tcp','udp'].includes(protocol)) continue;
+        const service = name(listener), app = application(listener);
+        const key = JSON.stringify([port, protocol, service.toLowerCase(), app.toLowerCase()]);
+        if (!rows.has(key)) rows.set(key, {port, protocol, service, application:app, endpoints:new Set()});
+        rows.get(key).endpoints.add(server.id);
+      }
+    }
+    return [...rows.values()].map(({endpoints, ...row}) => ({...row, endpointCount:endpoints.size}))
+      .sort((a,b) => a.port-b.port || a.protocol.localeCompare(b.protocol) || a.service.localeCompare(b.service) || a.application.localeCompare(b.application));
+  }
+  return {name, label, application, catalogue};
 }));

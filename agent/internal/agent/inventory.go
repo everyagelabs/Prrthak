@@ -84,9 +84,13 @@ func (a *Agent) inventoryReport(ctx context.Context, now time.Time) Report {
 		report.ConfigurationState = configurationState(a.Config)
 		report.AgentArchitecture = runtime.GOARCH
 		report.AgentUpgrade = agentUpgradeOutcome(a.Config)
+		report.ResourceUsage = a.resourceSampler.sample(a.Config.StateDir, time.Now())
 	}
 	report.Capabilities = []string{LearningDiscoveryCapability, LearningAutoAllowCapability, PollingSettingsCapability, "managed_ipsets_v1", "signed_assignments_v1", LearningIPSetCapability}
 	report.Capabilities = append(report.Capabilities, FirewallCountersCapability)
+	if report.ResourceUsage != nil {
+		report.Capabilities = append(report.Capabilities, AgentResourceCapability)
+	}
 	if a.fastDiscoveryEnabled && !a.Simulate {
 		report.Capabilities = append(report.Capabilities, FastDiscoveryCapability)
 	}
@@ -97,6 +101,9 @@ func (a *Agent) inventoryReport(ctx context.Context, now time.Time) Report {
 		report.Capabilities = append(report.Capabilities, SourceBankPreparationCapability)
 		report.Capabilities = append(report.Capabilities, PolicyVerificationCapability)
 		report.Capabilities = append(report.Capabilities, "endpoint_configuration_v1", "approval_mode_proof_v1", HostDefaultDenyCapability)
+		if policySigningRequired(a.Config) {
+			report.Capabilities = append(report.Capabilities, EndpointCertificateRenewalCapability)
+		}
 		if agentUpgradeAvailable(a.Config, false) {
 			report.Capabilities = append(report.Capabilities, AgentUpgradeCapability)
 		}

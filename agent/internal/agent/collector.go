@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -15,6 +16,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+)
+
+const (
+	maxLearningSpoolBytes  = 32 * 1024 * 1024
+	maxLearningBatchBytes  = 2 * 1024 * 1024
+	trafficFlushBatchLimit = 8
+	trafficUploadBudget    = 2 * time.Second
+	rejectedSpoolLimit     = 20
 )
 
 type JournalEntry struct {
@@ -36,7 +45,7 @@ type DiscardedBatchError struct {
 }
 
 func (e *DiscardedBatchError) Error() string {
-	msg := fmt.Sprintf("quarantined/discarded %d undeliverable observed events across %d batch/session diagnostics: %s", e.Count, len(e.Losses), e.Reason)
+	msg := fmt.Sprintf("quarantined/discarded %d known undeliverable observed events across %d batch/session diagnostics: %s", e.Count, len(e.Losses), e.Reason)
 	if e.Retryable != nil {
 		msg += "; remaining delivery retryable: " + e.Retryable.Error()
 	}
@@ -55,35 +64,69 @@ func batchEventCount(batch Batch) int {
 	return n
 }
 func quarantineBatch(path string) error {
-	dir := filepath.Join(filepath.Dir(path), "quarantine")
-	if e := os.MkdirAll(dir, 0700); e != nil {
-		return e
+	return quarantineTrafficBatch(path, maxLearningBatchBytes)
+}
+
+func pruneTrafficQuarantine(dir string, maxBytes int64, retain int) error {
+	info, err := os.Lstat(dir)
+	if os.IsNotExist(err) {
+		return nil
 	}
-	// Bound diagnostic disk usage: keep only the newest20 rejected payloads.
-	entries, e := os.ReadDir(dir)
-	if e != nil {
-		return e
+	if err != nil {
+		return err
+	}
+	if _, err = setupPath(dir, true); err != nil || info.Mode().Perm()&0077 != 0 {
+		return errors.New("traffic quarantine directory must be private")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
 	}
 	type retained struct {
-		name string
+		path string
 		when time.Time
 	}
 	files := []retained{}
 	for _, entry := range entries {
-		if !entry.IsDir() {
-			info, e := entry.Info()
-			if e != nil {
-				return e
-			}
-			files = append(files, retained{entry.Name(), info.ModTime()})
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".rejected") {
+			continue
 		}
+		path := filepath.Join(dir, entry.Name())
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() > maxBytes {
+			if err := os.Remove(path); err != nil {
+				return err
+			}
+			continue
+		}
+		files = append(files, retained{path, info.ModTime()})
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].when.Before(files[j].when) })
-	for len(files) >= 20 {
-		if e = os.Remove(filepath.Join(dir, files[0].name)); e != nil {
-			return e
+	for _, file := range files[:max(0, len(files)-retain)] {
+		if err := os.Remove(file.path); err != nil {
+			return err
 		}
-		files = files[1:]
+	}
+	return nil
+}
+
+func quarantineTrafficBatch(path string, maxBytes int64) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() > maxBytes {
+		return os.Remove(path)
+	}
+	dir := filepath.Join(filepath.Dir(path), "quarantine")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	if err := pruneTrafficQuarantine(dir, maxBytes, rejectedSpoolLimit-1); err != nil {
+		return err
 	}
 	return os.Rename(path, filepath.Join(dir, filepath.Base(path)+".rejected"))
 }
@@ -152,21 +195,145 @@ func spoolFiles(dir string) ([]string, error) {
 	sort.Strings(out)
 	return out, nil
 }
+
+func trafficSpoolFiles(dir string) ([]string, error) {
+	files, err := spoolFiles(dir)
+	if err != nil || len(files) < 2 {
+		return files, err
+	}
+	times := make(map[string]time.Time, len(files))
+	present := files[:0]
+	for _, path := range files {
+		info, err := os.Lstat(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		times[path] = info.ModTime()
+		present = append(present, path)
+	}
+	// Keep the original filename order for equal timestamps.
+	sort.SliceStable(present, func(i, j int) bool {
+		return times[present[i]].Before(times[present[j]])
+	})
+	return present, nil
+}
+
+func trafficSpoolDir(dir string, create bool) (string, error) {
+	// Resolve an approved state-directory alias while still rejecting a symlink
+	// in the spool directory itself.
+	parent, err := filepath.EvalSymlinks(filepath.Dir(dir))
+	if err != nil {
+		return "", err
+	}
+	dir = filepath.Join(parent, filepath.Base(dir))
+	if create {
+		if err = os.MkdirAll(dir, 0700); err != nil {
+			return "", err
+		}
+	}
+	if _, err = os.Lstat(dir); err != nil {
+		return "", err
+	}
+	info, err := setupPath(dir, true)
+	if err != nil || info.Mode().Perm()&0022 != 0 {
+		return "", errors.New("traffic spool directory must be protected")
+	}
+	return dir, nil
+}
+
+func spoolCanAppend(dir string, maxFiles int, maxBytes int64, size int) (bool, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false, err
+	}
+	count, remaining := 0, maxBytes-int64(size)
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() {
+			continue
+		}
+		isBatch := strings.HasSuffix(name, ".json")
+		if !isBatch && !strings.HasPrefix(name, ".seg-tmp-") && !strings.HasPrefix(name, ".prthak-configuration-") {
+			continue
+		}
+		if isBatch {
+			count++
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return false, err
+		}
+		if info.Mode().IsRegular() {
+			// Interrupted atomic writes have no replay identity. Let any live
+			// writer finish before removing a stale temporary file.
+			if !isBatch && time.Since(info.ModTime()) > 10*time.Minute {
+				if err := os.Remove(filepath.Join(dir, name)); err != nil {
+					return false, err
+				}
+				continue
+			}
+			if info.Size() > remaining {
+				return false, nil
+			}
+			remaining -= info.Size()
+		}
+	}
+	return count < maxFiles && remaining >= 0, nil
+}
+
 func SpoolBatch(dir string, max int, b Batch) error {
 	if len(b.Events) == 0 {
 		return nil
 	}
-	files, e := spoolFiles(dir)
+	if b.BatchID == "" || filepath.Base(b.BatchID) != b.BatchID {
+		return errors.New("invalid traffic batch ID")
+	}
+	data, e := json.Marshal(b)
+	if e != nil || len(data) > maxLearningBatchBytes {
+		return errors.New("traffic batch exceeds byte limit; observation events dropped")
+	}
+	dir, e = trafficSpoolDir(dir, true)
 	if e != nil {
 		return e
 	}
-	if len(files) >= max {
+	path := filepath.Join(dir, b.BatchID+".json")
+	if _, e = os.Lstat(path); e == nil {
+		existing, e := readPrivateSetupBound(path, maxLearningBatchBytes)
+		if e != nil {
+			return e
+		}
+		var compact bytes.Buffer
+		if json.Compact(&compact, existing) != nil || !bytes.Equal(compact.Bytes(), data) {
+			return errors.New("traffic batch ID was reused with different content")
+		}
+		return nil
+	} else if !os.IsNotExist(e) {
+		return e
+	}
+	allowed, e := spoolCanAppend(dir, max, maxLearningSpoolBytes, len(data))
+	if e != nil {
+		return e
+	}
+	if !allowed {
 		return errors.New("traffic spool full; observation events dropped")
 	}
-	return atomicJSON(filepath.Join(dir, b.BatchID+".json"), b)
+	return atomicPrivateFile(path, data)
 }
 func FlushSpool(ctx context.Context, c *Client, dir string, now time.Time) (int, error) {
-	files, e := spoolFiles(dir)
+	dir, e := trafficSpoolDir(dir, false)
+	if os.IsNotExist(e) {
+		return 0, nil
+	}
+	if e != nil {
+		return 0, e
+	}
+	if e = pruneTrafficQuarantine(filepath.Join(dir, "quarantine"), maxLearningBatchBytes, rejectedSpoolLimit); e != nil {
+		return 0, e
+	}
+	files, e := trafficSpoolFiles(dir)
 	if e != nil {
 		return 0, e
 	}
@@ -182,17 +349,17 @@ func FlushSpool(ctx context.Context, c *Client, dir string, now time.Time) (int,
 		}
 		return sent, dropped
 	}
-	for _, path := range files {
-		data, e := os.ReadFile(path)
-		if e != nil {
+	for _, path := range files[:min(len(files), trafficFlushBatchLimit)] {
+		if e = ctx.Err(); e != nil {
 			return finish(e)
 		}
+		data, readErr := readPrivateSetupBound(path, maxLearningBatchBytes)
 		var batch Batch
-		if e = json.Unmarshal(data, &batch); e != nil {
+		if readErr != nil || json.Unmarshal(data, &batch) != nil {
 			if e = quarantineBatch(path); e != nil {
 				return finish(e)
 			}
-			losses = append(losses, BatchLoss{Reason: "corrupt spool JSON quarantined (" + filepath.Base(path) + "); session and event count unknown"})
+			losses = append(losses, BatchLoss{Reason: "invalid private spool batch discarded (" + filepath.Base(path) + "); session and event count unknown"})
 			continue
 		}
 		count := batchEventCount(batch)

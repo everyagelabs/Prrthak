@@ -29,3 +29,14 @@ test('service identity comes from process or unit and works on a nonstandard SSH
   assert.equal(services.name({port:80,process:'nginx'}), 'nginx');
   assert.equal(services.application({application:'Payments API',process:'java'}), 'Payments API');
 });
+test('discovered services retain distinct applications on the same port and count unique endpoints', () => {
+  const web={port:443,protocol:'tcp',service:'HTTPS',application:'Payments gateway'};
+  const ssh={port:443,protocol:'tcp',process:'sshd'};
+  const rows=services.catalogue([
+    {id:'one',listeners:[web,{...web,address:'::'},ssh]},
+    {id:'two',listeners:[web,{...web,application:'Reporting gateway'}]},
+  ]);
+  assert.deepEqual(rows.map(row=>[row.service,row.application,row.port,row.endpointCount]),[
+    ['HTTPS','Payments gateway',443,2],['HTTPS','Reporting gateway',443,1],['SSH','sshd',443,1],
+  ]);
+});

@@ -7,11 +7,14 @@ usage() {
 Usage: install-agent.sh [--ca-file CA.pem] [--endpoint-ca-file ENDPOINT_CA.pem]
        [--token-file PRIVATE_FILE]
        [--replace-config] [--no-start] [--wait-seconds 10]
+       [--resource-limits [--require-state-volume]]
        [--root STAGING_DIR --no-start] /path/to/seg-agent-linux-ARCH /path/to/agent.json
 
 The token is read from a protected file or SEG_ENROLLMENT_TOKEN/SEG_ENROLLMENT_TOKEN_FILE.
 Token values are never command-line arguments. Configuration uses canonical paths from agent/config.example.json.
 Installation starts/enables the service; enrollment and inventory reporting then create the server automatically.
+--resource-limits applies verified Linux cgroup CPU and memory limits.
+--require-state-volume also verifies the existing dedicated agent filesystem is at most 10 GB.
 USAGE
   exit 2
 }
@@ -22,6 +25,8 @@ CA_SOURCE=
 ENDPOINT_CA_SOURCE=
 TOKEN_SOURCE=
 WAIT_SECONDS=10
+RESOURCE_LIMITS=0
+REQUIRE_STATE_VOLUME=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --no-start) NO_START=1; shift ;;
@@ -31,6 +36,8 @@ while [ "$#" -gt 0 ]; do
     --token-file) [ "$#" -ge 2 ] || usage; TOKEN_SOURCE=$2; shift 2 ;;
     --root) [ "$#" -ge 2 ] || usage; ROOT=$2; shift 2 ;;
     --wait-seconds) [ "$#" -ge 2 ] || usage; WAIT_SECONDS=$2; shift 2 ;;
+    --resource-limits) RESOURCE_LIMITS=1; shift ;;
+    --require-state-volume) REQUIRE_STATE_VOLUME=1; shift ;;
     --) shift; break ;;
     -*) usage ;;
     *) break ;;
@@ -39,6 +46,11 @@ done
 [ "$#" -eq 2 ] || usage
 case "$WAIT_SECONDS" in ''|*[!0-9]*) usage ;; esac
 [ "$WAIT_SECONDS" -le 60 ] || usage
+if [ "$REQUIRE_STATE_VOLUME" -eq 1 ] && [ "$RESOURCE_LIMITS" -ne 1 ]; then usage; fi
+if [ "$RESOURCE_LIMITS" -eq 1 ] && { [ "$NO_START" -eq 1 ] || [ -n "$ROOT" ]; }; then
+  echo 'Resource limits require a live install so the native systemd controls can be verified.' >&2
+  exit 1
+fi
 BINARY_SOURCE=$1
 CONFIG_SOURCE=$2
 [ -f "$BINARY_SOURCE" ] && [ -x "$BINARY_SOURCE" ] || { echo 'Agent binary must be a regular executable file for this host architecture.' >&2; exit 1; }
@@ -63,6 +75,8 @@ ETC_DIR=$ROOT/etc/seg-agent
 STATE_DIR=$ROOT/var/lib/seg-agent
 BIN_DIR=$ROOT/usr/local/bin
 UNIT_DIR=$ROOT/etc/systemd/system
+RESOURCE_DIR=$UNIT_DIR/seg-agent.service.d
+RESOURCE_DROPIN=$RESOURCE_DIR/50-prthak-resource-limits.conf
 ACTIVE_CONFIG=$ETC_DIR/config.json
 RUNTIME_MANIFEST=$PROJECT_ROOT/runtime-integrity.json
 RELEASE_TRUST=$PROJECT_ROOT/deploy/release-public-trust.json
@@ -94,8 +108,35 @@ if [ -z "$ROOT" ]; then
   INSTALLATION_LEASE_FD=9
 fi
 WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/psegra-install.XXXXXX")
-trap 'rm -rf -- "$WORK_DIR"' 0
+RESOURCE_TEMP=
+trap 'rm -rf -- "$WORK_DIR"; if [ -n "$RESOURCE_TEMP" ]; then rm -f -- "$RESOURCE_TEMP"; fi' 0
 trap 'exit 1' 1 2 15
+VERIFY_RESOURCES=0
+if [ -z "$ROOT" ] && { [ "$RESOURCE_LIMITS" -eq 1 ] || [ -e "$RESOURCE_DROPIN" ] || [ -L "$RESOURCE_DROPIN" ]; }; then
+  VERIFY_RESOURCES=1
+  if [ "$RESOURCE_LIMITS" -eq 1 ]; then
+    if [ -e "$RESOURCE_DIR" ] || [ -L "$RESOURCE_DIR" ]; then
+      if [ -L "$RESOURCE_DIR" ] || [ ! -d "$RESOURCE_DIR" ] || [ "$(stat -c %u -- "$RESOURCE_DIR")" != 0 ]; then
+        echo 'Agent resource drop-in directory must be a protected root-owned directory.' >&2; exit 1
+      fi
+      MODE=$(stat -c %a -- "$RESOURCE_DIR")
+      [ "$((0$MODE & 0022))" -eq 0 ] || { echo 'Agent resource drop-in directory must not be group or world writable.' >&2; exit 1; }
+    fi
+    if [ -f "$UNIT_DIR/seg-agent.service" ]; then
+      LOADED_DROPINS=$(systemctl show --property=DropInPaths --value seg-agent.service)
+      if [ -n "$LOADED_DROPINS" ] && [ "$LOADED_DROPINS" != "$RESOURCE_DROPIN" ]; then
+        echo 'Resource limits require the stock agent unit without unrelated systemd overrides. Nothing was replaced.' >&2; exit 1
+      fi
+    fi
+    if [ "$REQUIRE_STATE_VOLUME" -eq 1 ]; then
+      "$BINARY_SOURCE" --prepare-agent-resource-limits --require-state-volume > "$WORK_DIR/resource-limits.conf"
+    else
+      "$BINARY_SOURCE" --prepare-agent-resource-limits > "$WORK_DIR/resource-limits.conf"
+    fi
+  else
+    "$BINARY_SOURCE" --verify-agent-resource-unit
+  fi
+fi
 if [ -n "${SEG_ENROLLMENT_TOKEN:-}" ]; then
   [ -z "$TOKEN_SOURCE" ] || { echo 'Choose either --token-file or SEG_ENROLLMENT_TOKEN.' >&2; exit 1; }
   printf '%s' "$SEG_ENROLLMENT_TOKEN" > "$WORK_DIR/enrollment-token"
@@ -183,7 +224,17 @@ if [ -n "$ROOT" ]; then
   printf '%s\n' 'Prṛthak (पृथक्) staged and enabled for the target boot; no live service was started.' 'At target boot the endpoint enrolls and appears in the dashboard automatically.'
   exit 0
 fi
+if [ "$RESOURCE_LIMITS" -eq 1 ]; then
+  if [ ! -d "$RESOURCE_DIR" ]; then install -d -m 0755 "$RESOURCE_DIR"; fi
+  RESOURCE_TEMP=$(mktemp "$RESOURCE_DIR/.prthak-resource.XXXXXX")
+  install -m 0644 "$WORK_DIR/resource-limits.conf" "$RESOURCE_TEMP"
+  mv -fT -- "$RESOURCE_TEMP" "$RESOURCE_DROPIN"
+  RESOURCE_TEMP=
+fi
 systemctl daemon-reload
+if [ "$VERIFY_RESOURCES" -eq 1 ]; then
+  "$BIN_DIR/seg-agent" --verify-agent-resource-unit
+fi
 systemctl enable seg-agent.service
 if [ "$NO_START" -eq 1 ]; then
   printf '%s\n' 'Prṛthak (पृथक्) installed and enabled. --no-start leaves the service stopped until target boot or an explicit start.'
@@ -193,6 +244,9 @@ fi
 if ! systemctl restart seg-agent.service; then
   echo 'Prṛthak (पृथक्) installed, but systemd could not start it. Inspect: journalctl -u seg-agent.service' >&2
   exit 1
+fi
+if [ "$VERIFY_RESOURCES" -eq 1 ]; then
+  printf '%s\n' 'Prṛthak agent hard CPU and memory controls verified by the systemd startup guard.'
 fi
 ELAPSED=0
 STATUS_OUTPUT='Prṛthak (पृथक्) registration pending; automatic retries are active.'

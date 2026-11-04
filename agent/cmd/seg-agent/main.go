@@ -56,7 +56,45 @@ func main() {
 	restoreQuarantine := flag.String("restore-quarantine", "", "boot reconciliation of the remaining original quarantine lease")
 	runAgentUpgrade := flag.Bool("run-agent-upgrade", false, "fixed independent systemd agent release worker")
 	recoverAgentUpgrade := flag.Bool("recover-agent-upgrade", false, "restore interrupted agent release replacement before service start")
+	prepareAgentLimits := flag.Bool("prepare-agent-resource-limits", false, "prepare the reviewed systemd resource drop-in without changing the host")
+	verifyAgentLimits := flag.Bool("verify-agent-resource-limits", false, "verify hard resource controls in the actual agent systemd cgroup before startup")
+	verifyAgentResourceUnit := flag.Bool("verify-agent-resource-unit", false, "verify systemd loaded only the owned agent resource drop-in")
+	requireStateVolume := flag.Bool("require-state-volume", false, "require an existing dedicated agent state filesystem of at most 10 GB")
 	flag.Parse()
+	if *prepareAgentLimits || *verifyAgentLimits || *verifyAgentResourceUnit || *requireStateVolume {
+		modes := 0
+		for _, mode := range []bool{*prepareAgentLimits, *verifyAgentLimits, *verifyAgentResourceUnit} {
+			if mode {
+				modes++
+			}
+		}
+		expectedFlags := 1
+		if *requireStateVolume {
+			expectedFlags++
+		}
+		if modes != 1 || flag.NFlag() != expectedFlags || flag.NArg() != 0 || (*requireStateVolume && *verifyAgentResourceUnit) {
+			log.Fatal("select one fixed agent resource operation with its optional dedicated storage requirement")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		var err error
+		switch {
+		case *prepareAgentLimits:
+			var raw []byte
+			raw, err = agent.PrepareAgentResourceLimits(ctx, *requireStateVolume)
+			if err == nil {
+				_, err = os.Stdout.Write(raw)
+			}
+		case *verifyAgentLimits:
+			err = agent.VerifyAgentResourceLimits(ctx, *requireStateVolume)
+		case *verifyAgentResourceUnit:
+			err = agent.VerifyAgentResourceUnit(ctx)
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if *runAgentUpgrade || *recoverAgentUpgrade {
 		if flag.NFlag() != 1 || flag.NArg() != 0 {
 			log.Fatal("agent upgrade worker and boot recovery are exclusive fixed operating modes")

@@ -135,7 +135,7 @@ function platformCertificatesHTML() {
         <button class="button secondary" type="submit">Review certificate</button>
       </div>
     </form>
-  </section><details class="card platform-panel"><summary>Endpoint and cluster certificates</summary>${platformEndpointCertificatesHTML()}${platformInternalCertificatesHTML()}</details>`;
+  </section><details id="platform-certificate-operations" class="card platform-panel" ${state.platformCertificateOperationsOpen?'open':''}><summary>Endpoint and cluster certificates</summary>${platformEndpointCertificatesHTML()}${platformInternalCertificatesHTML()}</details>`;
 }
 async function loadPlatformCertificates() {
   if (!canManagePlatform()) return;

@@ -371,6 +371,8 @@ def _overlay_safety(db, safety, recovery_id):
     from .firewall_activation import invalidate_after_recovery as invalidate_firewall_activation
     invalidate_firewall_activation(None, db)
     invalidate_agent_upgrades(Store, db)
+    from .endpoint_renewal import invalidate_after_recovery as invalidate_endpoint_renewals
+    invalidate_endpoint_renewals(db)
     # Counter values are telemetry, not durable enforcement authority. A fresh
     # endpoint sample establishes a new baseline after recovery.
     db.execute("DELETE FROM firewall_counter_samples")
@@ -427,7 +429,7 @@ def _overlay_safety(db, safety, recovery_id):
         if json.loads(row[1]).get("used") is True:
             Store._put(db, "tokens", json.loads(row[1]))
     for value in _json_rows(db, "maintenance_settings"):
-        if value["id"].startswith(("endpoint_recovery:", "recovery_control:", "endpoint_revoke_review:", "source_bank_review:")):
+        if value["id"].startswith(("endpoint_recovery:", "recovery_control:", "endpoint_revoke:", "endpoint_revoke_review:", "source_bank_review:")):
             db.execute("DELETE FROM maintenance_settings WHERE id=?", (value["id"],))
     for key, value in current_settings.items():
         if key.startswith("endpoint_recovery:") and value.get("used") is True:

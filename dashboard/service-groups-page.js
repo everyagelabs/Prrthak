@@ -3,23 +3,60 @@
 function serviceGroupById(id) { return (state.data?.service_groups || []).find(group=>group.id===id); }
 function portList(ports=[]) { return ports.map(port=>`${num(port.port)}/${h(port.protocol)}`).join(', '); }
 function serviceGroupPortsHTML(ports=[]) { return ports.map(port=>`<span class="service-pill">${num(port.port)}/${h(port.protocol)}</span>`).join(''); }
+let discoveredServiceCache;
+function matchingDiscoveredServices(query) {
+  const servers=state.data.servers;
+  if(discoveredServiceCache?.servers!==servers)discoveredServiceCache={servers,rows:D.catalogue(servers)};
+  const search=query.trim().toLowerCase();
+  return discoveredServiceCache.rows.filter(row=>`${row.service} ${row.application} ${row.port}/${row.protocol}`.toLowerCase().includes(search));
+}
+function discoveredServiceResultsHTML() {
+  const matches=matchingDiscoveredServices(state.discoveredServiceSearch || '');
+  const limit=12,offset=Math.min(state.discoveredServiceOffset || 0,Math.max(0,Math.ceil(matches.length/limit)-1)*limit);
+  const rows=matches.slice(offset,offset+limit);
+  return `<div class="table-scroll"><table><thead><tr><th>Service</th><th>Application</th><th>Port</th><th>Endpoints</th>${canWrite()?'<th>Action</th>':''}</tr></thead><tbody>${rows.map(row=>`<tr><td><strong>${h(row.service)}</strong></td><td>${h(row.application)}</td><td>${serviceGroupPortsHTML([row])}</td><td>${format(row.endpointCount)}</td>${canWrite()?`<td><button type="button" class="text-button" data-action="service-group-use-discovered" data-port="${row.port}" data-protocol="${row.protocol}">Use port in new group</button></td>`:''}</tr>`).join('') || `<tr><td colspan="${canWrite()?5:4}">No discovered services match.</td></tr>`}</tbody></table></div>${matches.length>limit?`<div class="table-footer"><span>${format(offset+1)}–${format(offset+rows.length)} of ${format(matches.length)}</span><div><button class="text-button" data-action="service-group-discovered-page" data-offset="${Math.max(0,offset-limit)}" ${!offset?'disabled':''}>Previous</button><button class="text-button" data-action="service-group-discovered-page" data-offset="${offset+limit}" ${offset+limit>=matches.length?'disabled':''}>Next</button></div></div>`:''}`;
+}
+function serviceGroupDiscoveryOptions(query='') {
+  const matches=matchingDiscoveredServices(query);
+  return matches.slice(0,12).map(row=>`<button type="button" class="button secondary small" data-action="service-group-add-discovered" data-port="${row.port}" data-protocol="${row.protocol}">${h(row.service)} · ${h(row.application)} · ${portList([row])}</button>`).join(' ') +
+    (matches.length>12?'<p class="help-text">Search to narrow the list.</p>':matches.length?'':'<p class="help-text">No discovered services match.</p>');
+}
+function discoveredServicesHTML() {
+  return `<section class="card platform-panel"><div class="section-line"><h2>Discovered services</h2><input id="service-group-discovered-search" class="filter-select" type="search" aria-label="Search discovered services by service, application or port" placeholder="Search services" maxlength="120" value="${h(state.discoveredServiceSearch || '')}"></div><p class="help-text">Latest agent reports. Service groups use ports and protocols.</p><div id="service-group-discovered-results">${discoveredServiceResultsHTML()}</div></section>`;
+}
 function serviceGroupsHTML() {
   const groups=state.data.service_groups || [];
-  return `<div class="inline-notice">A service group is a reusable list of exact ports and protocols. Server groups select endpoints. Named firewalld services remain in the Existing firewall view. Editing a service group updates its policy references and publishes affected intent to eligible endpoints.</div><div class="section-line"><h2>Service catalogue<span>${groups.length} reusable groups</span></h2></div><div class="policy-grid">${groups.map(group=>`<article class="card policy-card"><div class="policy-top"><div><h2 class="policy-name">${h(group.name)}</h2><p class="help-text">${h(group.description || 'No description')}</p></div>${badge('r'+num(group.revision),'neutral')}</div><div class="service-pills service-group-port-list">${serviceGroupPortsHTML(group.ports)}</div><div class="policy-footer"><span>${num(group.policy_count)} policy reference${group.policy_count===1?'':'s'}</span><div class="policy-actions"><button class="text-button" data-action="service-group-view" data-id="${h(group.id)}">View</button>${canWrite()?`<button class="text-button" data-action="service-group-edit" data-id="${h(group.id)}">Edit</button><button class="text-button danger-text" data-action="service-group-delete-review" data-id="${h(group.id)}" ${group.policy_count?'disabled':''} title="${group.policy_count?'Remove policy references before deleting':'Delete unused service group'}">Delete</button>`:''}</div></div></article>`).join('') || emptyHTML('No service groups yet','Create a named collection of exact TCP and UDP ports to reuse in policy rules.','services',canWrite()?'Create service group':'','service-group-create')}</div>`;
+  return `${discoveredServicesHTML()}<div class="section-line"><h2>Service groups<span>${groups.length} reusable groups</span></h2></div><div class="policy-grid">${groups.map(group=>`<article class="card policy-card"><div class="policy-top"><div><h2 class="policy-name">${h(group.name)}</h2><p class="help-text">${h(group.description || 'No description')}</p></div>${badge('r'+num(group.revision),'neutral')}</div><div class="service-pills service-group-port-list">${serviceGroupPortsHTML(group.ports)}</div><div class="policy-footer"><span>${num(group.policy_count)} policy reference${group.policy_count===1?'':'s'}</span><div class="policy-actions"><button class="text-button" data-action="service-group-view" data-id="${h(group.id)}">View</button>${canWrite()?`<button class="text-button" data-action="service-group-edit" data-id="${h(group.id)}">Edit</button><button class="text-button danger-text" data-action="service-group-delete-review" data-id="${h(group.id)}" ${group.policy_count?'disabled':''} title="${group.policy_count?'Remove policy references before deleting':'Delete unused service group'}">Delete</button>`:''}</div></div></article>`).join('') || emptyHTML('No service groups yet','Create a named collection of exact TCP and UDP ports to reuse in policy rules.','services',canWrite()?'Create service group':'','service-group-create')}</div>`;
 }
-function showServiceGroupEditor(id,viewOnly=false) {
+function showServiceGroupEditor(id,viewOnly=false,ports=[]) {
   const group=serviceGroupById(id);if(id&&!group)return;if(!viewOnly&&!canWrite())return;
   if(viewOnly){showModal(group.name,`<div class="modal-body"><p>${h(group.description || 'No description')}</p><div class="service-pills service-group-port-list">${serviceGroupPortsHTML(group.ports)}</div><p class="help-text">Revision ${num(group.revision)} · ${num(group.policy_count)} policy references</p>${(group.policy_ids || []).map(policyId=>`<p>${h(policyCatalogueNavigation('managed',policyId)?.name || policyId)}</p>`).join('')}${group.policy_ids_has_more?`<p class="help-text">Showing the first ${format((group.policy_ids || []).length)} of ${format(group.policy_count)} policy references. Browse the paged policy catalogue for other references.</p>`:''}</div>`,'REUSABLE SERVICE GROUP');return;}
-  showModal(id?'Edit service group':'Create service group',`<form id="service-group-form" data-id="${h(id || '')}" data-revision="${num(group?.revision)}"><div class="modal-body">${errorSlot}<div class="field"><label for="service-group-name">Name</label><input id="service-group-name" name="name" value="${h(group?.name || '')}" maxlength="120" required autofocus placeholder="Web application ports"></div><div class="field"><label for="service-group-description">Description</label><textarea id="service-group-description" name="description" maxlength="2000" rows="2">${h(group?.description || '')}</textarea></div><div class="field"><label for="service-group-ports">Exact ports and protocols</label><textarea id="service-group-ports" name="ports" required rows="3" placeholder="443/tcp, 8443/tcp, 53/udp">${portList(group?.ports)}</textarea><small>1–100 distinct port/protocol pairs. Separate entries with commas. Nested groups and port ranges are not supported.</small></div><div id="service-group-impact" aria-live="polite"></div><p class="help-text">Preview the affected policies and endpoints before saving. Saving changes intended configuration; eligible endpoints receive the saved intent automatically.</p></div><div class="modal-footer"><button type="button" class="button secondary" data-action="close-modal">Cancel</button><button type="submit" class="button secondary">Preview impact</button><button type="button" class="button primary" data-action="service-group-save" disabled>Save service group</button></div></form>`,'SERVICE CATALOGUE');
+  showModal(id?'Edit service group':'Create service group',`<form id="service-group-form" data-id="${h(id || '')}" data-revision="${num(group?.revision)}"><div class="modal-body">${errorSlot}<div class="field"><label for="service-group-name">Name</label><input id="service-group-name" name="name" value="${h(group?.name || '')}" maxlength="120" required autofocus placeholder="Web application ports"></div><div class="field"><label for="service-group-description">Description</label><textarea id="service-group-description" name="description" maxlength="2000" rows="2">${h(group?.description || '')}</textarea></div><div class="field"><label for="service-group-ports">Exact ports and protocols</label><textarea id="service-group-ports" name="ports" required rows="3" placeholder="443/tcp, 8443/tcp, 53/udp">${portList(group?.ports || ports)}</textarea><small>1–100 distinct port/protocol pairs. Separate entries with commas. Nested groups and port ranges are not supported.</small></div><details class="platform-advanced"><summary>Add discovered services</summary><div class="field"><label for="service-group-discovery-picker-search">Search by service, application or port</label><input id="service-group-discovery-picker-search" type="search" maxlength="120"></div><div id="service-group-discovery-picker-results">${serviceGroupDiscoveryOptions()}</div></details><div id="service-group-impact" aria-live="polite"></div><p class="help-text">Preview the affected policies and endpoints before saving. Saving changes intended configuration; eligible endpoints receive the saved intent automatically.</p></div><div class="modal-footer"><button type="button" class="button secondary" data-action="close-modal">Cancel</button><button type="submit" class="button secondary">Preview impact</button><button type="button" class="button primary" data-action="service-group-save" disabled>Save service group</button></div></form>`,'SERVICE CATALOGUE');
 }
 function serviceGroupDraft(form) {
   const data=new FormData(form),ports=parsePorts(String(data.get('ports') || '')),name=String(data.get('name') || '').trim();
   if(!name)throw new Error('Enter a service group name.');if(!ports.length||ports.length>100)throw new Error('Provide 1–100 distinct exact port/protocol pairs.');
   const body={name,description:String(data.get('description') || '').trim(),ports};if(form.dataset.id)body.expected_revision=Number(form.dataset.revision);return body;
 }
+function invalidateServiceGroupReview(form) {
+  form.reviewedDraft=null;
+  const save=$('[data-action="service-group-save"]',form);
+  if(save)save.disabled=true;
+  $('#service-group-impact').innerHTML='<p class="help-text">Changes need a new impact preview.</p>';
+}
 function serviceGroupInput(event) {
+  if(event.target.id==='service-group-discovered-search'&&state.view==='services'){
+    state.discoveredServiceSearch=event.target.value.slice(0,120);
+    state.discoveredServiceOffset=0;
+    $('#service-group-discovered-results').innerHTML=discoveredServiceResultsHTML();
+    return true;
+  }
+  if(event.target.id==='service-group-discovery-picker-search'){
+    $('#service-group-discovery-picker-results').innerHTML=serviceGroupDiscoveryOptions(event.target.value.slice(0,120));
+    return true;
+  }
   if(!event.target.closest?.('#service-group-form'))return false;
-  const form=$('#service-group-form');if(form){form.reviewedDraft=null;const save=$('[data-action="service-group-save"]',form);if(save)save.disabled=true;$('#service-group-impact').innerHTML='<p class="help-text">Changes need a new impact preview.</p>';}
+  const form=$('#service-group-form');if(form)invalidateServiceGroupReview(form);
   return true;
 }
 async function serviceGroupSubmit(event) {
@@ -35,8 +72,31 @@ async function serviceGroupSubmit(event) {
 }
 async function serviceGroupAction(button) {
   const {action,id}=button.dataset;
+  if(action==='service-group-discovered-page'){
+    if(state.view!=='services'||button.disabled)return;
+    const offset=Number(button.dataset.offset);
+    if(!Number.isSafeInteger(offset)||offset<0)return;
+    state.discoveredServiceOffset=offset;
+    $('#service-group-discovered-results').innerHTML=discoveredServiceResultsHTML();
+    return;
+  }
   if(action==='service-group-view')return showServiceGroupEditor(id,true);
   if(!canWrite())return;
+  if(['service-group-use-discovered','service-group-add-discovered'].includes(action)){
+    const port=Number(button.dataset.port),protocol=button.dataset.protocol;
+    if(state.view!=='services'||!Number.isInteger(port)||port<1||port>65535||!['tcp','udp'].includes(protocol))return;
+    if(action==='service-group-use-discovered')return showServiceGroupEditor(undefined,false,[{port,protocol}]);
+    const form=$('#service-group-form'),field=$('#service-group-ports');
+    if(!form||!field)return;
+    try {
+      const ports=parsePorts(field.value);
+      if(ports.some(item=>item.port===port&&item.protocol===protocol))return;
+      if(ports.length>=100)throw new Error('A service group can contain up to 100 distinct ports.');
+      field.value=portList([...ports,{port,protocol}]);
+      invalidateServiceGroupReview(form);
+    }catch(error){formError(error);}
+    return;
+  }
   if(action==='service-group-create')return showServiceGroupEditor();if(action==='service-group-edit')return showServiceGroupEditor(id);
   if(action==='service-group-delete-review')return showConfirm('Delete this service group?','Only unused service groups can be deleted. The controller checks policy references before removal.','Delete service group','service-group-delete-confirm',id);
   if(action==='service-group-delete-confirm'){button.disabled=true;const success=await mutate('/service-groups/'+encodeURIComponent(id),{method:'DELETE'},'Unused service group deleted.');if(!success)button.disabled=false;return;}

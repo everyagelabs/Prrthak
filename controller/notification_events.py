@@ -43,10 +43,10 @@ def subscribed_revision(store, db, kind):
     return None
 
 
-def queue(db, revision, identifier, kind, message, *, server=None, created_at=None):
+def queue(db, revision, identifier, kind, message, *, server=None, created_at=None, severity="info"):
     server = server or {}
     at = created_at or stamp()
-    event = {"id": identifier, "kind": kind, "severity": "info", "message": message, "created_at": at,
+    event = {"id": identifier, "kind": kind, "severity": severity, "message": message, "created_at": at,
              "server_id": server.get("id", ""), "hostname": server.get("hostname", ""), "configuration_revision": revision}
     db.execute("INSERT INTO notification_events(id,created_at,data) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING",
                (identifier, at, json.dumps(event)))

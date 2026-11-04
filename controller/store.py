@@ -833,6 +833,8 @@ class Store:
             previous_apply_status = server.get("apply_status", "preview")
             server.update({"hostname": hostname, "ips": ips, "last_seen": stamp(), "applied_version": applied_version, "apply_status": apply_status, "collector_status": collector_status, "ufw_active": bool(value.get("ufw_active", False)), "discovery_performed": discovery_performed, "control_interval_seconds": control_interval})
             server.update({"agent_version": agent_version, "capabilities": capabilities})
+            from .agent_resources import report as report_agent_resources
+            report_agent_resources(self, db, server, value.get("resource_usage"))
             from .agent_upgrades import report as report_agent_upgrade
             report_agent_upgrade(self, db, server, value)
             if fast_receipt is not None:
@@ -1043,6 +1045,10 @@ class Store:
         upgrade = upgrade_assignment(db, server)
         if upgrade is not None:
             result["agent_upgrade"] = upgrade
+        from .endpoint_renewal import assignment as endpoint_renewal_assignment
+        renewal = endpoint_renewal_assignment(self, db, server)
+        if renewal is not None:
+            result["certificate_renewal"] = renewal
         return result
 
     def assignment(self, identifier):

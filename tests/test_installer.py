@@ -91,6 +91,15 @@ esac
         self.assertIn('--config ' + str(self.root.resolve() / 'etc/seg-agent/config.json'), calls[1])
         self.assertNotIn(self.token.read_text(), self.calls.read_text() + result.stdout + result.stderr)
 
+    def test_resource_limits_require_live_native_systemd_before_any_staging_mutation(self):
+        for options in (('--resource-limits',), ('--resource-limits', '--require-state-volume')):
+            result = self.run_install(*options)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('require a live install', result.stderr)
+            self.assertFalse(self.root.exists())
+            self.assertFalse(self.calls.exists())
+            self.assertFalse(self.systemctl_calls.exists())
+
     def test_existing_different_config_aborts_before_install_or_start(self):
         active = self.root / 'etc/seg-agent/config.json'
         active.parent.mkdir(parents=True)

@@ -142,11 +142,17 @@ class App:
             self.store.prune()
 
         def evaluate():
+            from .resource_monitor import sample
             while not self.stop.is_set():
                 try:
                     self.store.run_job("health", health_job)
                 except Exception:
                     LOG.warning("Health evaluation unavailable; no local storage fallback")
+                if not self.demo and self.platform:
+                    try:
+                        sample(self.store, self.controller_id, self.site, self.platform.data_dir)
+                    except Exception:
+                        LOG.warning("Controller resource monitoring unavailable")
                 self.stop.wait(30)
 
         def traffic():
@@ -529,7 +535,14 @@ def handler_for(app):
                     from .endpoint_certificates import renew
                     self.response(200, renew(app.store, identity, self.connection.getpeercert(binary_form=True), self.body(), app.signer))
                 elif path == "/api/v1/agent/report" and method == "POST":
-                    self.response(200, app.store.report(identity, self.body()))
+                    report = self.body()
+                    if "certificate_renewal_probe" in report:
+                        if app.demo or not isinstance(self.connection, ssl.SSLSocket):
+                            raise PermissionError("A verified endpoint TLS certificate is required")
+                        from .endpoint_certificates import probe_discovery
+                        self.response(200, probe_discovery(app.store, identity, self.connection.getpeercert(binary_form=True), report))
+                    else:
+                        self.response(200, app.store.report(identity, report))
                 elif path == "/api/v1/agent/configuration/check" and method == "POST":
                     from .endpoint_configuration import check
                     self.response(200, check(app, identity, self.body()))
@@ -720,7 +733,8 @@ def handler_for(app):
                     return
                 if parts == ["platform", "endpoint-certificates"] and method == "GET":
                     from .endpoint_certificates import listing
-                    self.response(200, listing(app.store))
+                    from .endpoint_renewal import available
+                    self.response(200, listing(app.store, renewal_available=available(app) and role == "super_admin" and principal.get("auth_type") == "session" and isinstance(self.connection, ssl.SSLSocket)))
                     return
                 if parts == ["platform", "internal-certificates"] and method == "GET":
                     from .internal_certificates import status
@@ -838,6 +852,16 @@ def handler_for(app):
                         self.response(202, notifications.retry(app.platform, parts[3], self.body(), actor))
                     else:
                         self.response(404, {"error": "Notification operation not found"})
+                    return
+                if len(parts) == 3 and parts[:2] == ["platform", "endpoint-certificates"] and parts[2] in ("renewal-preview", "renewal-apply") and method == "POST":
+                    from . import endpoint_renewal
+                    if not endpoint_renewal.available(app) or not isinstance(self.connection, ssl.SSLSocket):
+                        raise PermissionError("Endpoint certificate renewal requires installed HTTPS, an issuer and online assignment signing")
+                    from .provider_lifecycle import assert_current
+                    assert_current(app)
+                    app.platform.policy_signer().public_trust()
+                    action = endpoint_renewal.preview if parts[2] == "renewal-preview" else endpoint_renewal.apply
+                    self.response(200 if parts[2] == "renewal-preview" else 202, action(app, self.body(), principal))
                     return
                 if parts == ["platform", "endpoint-certificates", "revoke-preview"] and method == "POST":
                     from .endpoint_certificates import revoke_preview

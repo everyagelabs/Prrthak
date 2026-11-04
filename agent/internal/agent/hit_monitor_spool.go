@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+const (
+	maxHitSpoolBytes = 16 * 1024 * 1024
+	hitUploadGrace   = 5 * time.Minute // controller/hit_monitoring.py UPLOAD_GRACE_SECONDS
+)
+
 func hitBatchDigest(batch HitBatch) string {
 	batch.BatchID = ""
 	raw, _ := json.Marshal(batch)
@@ -38,8 +43,7 @@ func (m *HitMonitor) spool(batch HitBatch) error {
 	if err != nil || len(raw) > maxHitBatchBytes {
 		return errors.New("hit batch exceeds byte limit")
 	}
-	dir := filepath.Join(m.dir, "spool")
-	files, err := spoolFiles(dir)
+	dir, err := trafficSpoolDir(filepath.Join(m.dir, "spool"), true)
 	if err != nil {
 		return err
 	}
@@ -57,10 +61,14 @@ func (m *HitMonitor) spool(batch HitBatch) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	if len(files) >= m.maxSpool {
+	allowed, err := spoolCanAppend(dir, m.maxSpool, maxHitSpoolBytes, len(raw))
+	if err != nil {
+		return err
+	}
+	if !allowed {
 		return errors.New("hit spool full; durable cursor retained for retry")
 	}
-	return atomicJSON(path, batch)
+	return atomicPrivateFile(path, raw)
 }
 func (client *Client) Hits(ctx context.Context, batch HitBatch) error {
 	if err := validateHitBatch(batch); err != nil {
@@ -73,7 +81,15 @@ func (client *Client) Hits(ctx context.Context, batch HitBatch) error {
 	return decodeResponse(response, &map[string]any{})
 }
 func (m *HitMonitor) Flush(ctx context.Context, client *Client, now time.Time) (int, error) {
-	files, err := spoolFiles(filepath.Join(m.dir, "spool"))
+	dir, err := trafficSpoolDir(filepath.Join(m.dir, "spool"), false)
+	if os.IsNotExist(err) {
+		m.coverage.PendingBatches = 0
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	files, err := trafficSpoolFiles(dir)
 	if err != nil {
 		return 0, err
 	}
@@ -89,60 +105,63 @@ func (m *HitMonitor) Flush(ctx context.Context, client *Client, now time.Time) (
 			return 0, errors.New("hit spool belongs to another endpoint identity")
 		}
 	}
+	if err := pruneTrafficQuarantine(filepath.Join(dir, "quarantine"), maxHitBatchBytes, rejectedSpoolLimit); err != nil {
+		return 0, err
+	}
 	sent := 0
 	var discarded error
-	for index, path := range files {
-		if index >= m.maxSpool {
-			return sent, errors.New("hit spool contains more files than its bound")
+	finish := func(retry error) (int, error) {
+		result := errors.Join(discarded, retry, m.save())
+		if discarded != nil {
+			m.coverage.Status = "degraded"
+		}
+		if result != nil {
+			m.coverage.Error = result.Error()
+		}
+		return sent, result
+	}
+	for _, path := range files[:min(len(files), trafficFlushBatchLimit)] {
+		if err := ctx.Err(); err != nil {
+			return finish(err)
 		}
 		raw, readErr := readPrivateSetupBound(path, maxHitBatchBytes)
 		var batch HitBatch
 		if readErr != nil || json.Unmarshal(raw, &batch) != nil || validateHitBatch(batch) != nil {
-			if err = quarantineBatch(path); err != nil {
-				return sent, err
+			if err = quarantineTrafficBatch(path, maxHitBatchBytes); err != nil {
+				return finish(err)
 			}
 			m.drop(max(1, len(batch.Events)))
-			discarded = errors.New("invalid hit spool quarantined; observed packets omitted")
+			m.coverage.PendingBatches--
+			discarded = errors.New("invalid hit spool discarded; observed packets omitted")
 			continue
 		}
-		if now.Sub(batch.LeaseExpiresAt) > 24*time.Hour {
+		if now.After(batch.LeaseExpiresAt.Add(hitUploadGrace)) {
 			if err = os.Remove(path); err != nil {
-				return sent, err
+				return finish(err)
 			}
 			m.drop(len(batch.Events))
+			m.coverage.PendingBatches--
 			discarded = errors.New("expired hit delivery window; observed packets omitted")
 			continue
 		}
 		if err = client.Hits(ctx, batch); err != nil {
 			var status *HTTPError
 			if errors.As(err, &status) && (status.Status == 400 || status.Status == 403 || status.Status == 404 || status.Status == 409 || status.Status == 410 || status.Status == 422) {
-				if err = quarantineBatch(path); err != nil {
-					return sent, err
+				if err = quarantineTrafficBatch(path, maxHitBatchBytes); err != nil {
+					return finish(err)
 				}
 				m.drop(len(batch.Events))
+				m.coverage.PendingBatches--
 				discarded = errors.New("hit controller permanently rejected private batch; quarantined")
 				continue
 			}
-			m.coverage.Error = err.Error()
-			_ = m.save()
-			return sent, err
+			return finish(err)
 		}
 		if err = os.Remove(path); err != nil {
-			return sent, err
+			return finish(err)
 		}
+		m.coverage.PendingBatches--
 		sent += len(batch.Events)
 	}
-	remaining, err := spoolFiles(filepath.Join(m.dir, "spool"))
-	if err != nil {
-		return sent, err
-	}
-	m.coverage.PendingBatches = len(remaining)
-	if discarded != nil {
-		m.coverage.Status = "degraded"
-		m.coverage.Error = discarded.Error()
-	}
-	if err = m.save(); err != nil {
-		return sent, err
-	}
-	return sent, discarded
+	return finish(nil)
 }

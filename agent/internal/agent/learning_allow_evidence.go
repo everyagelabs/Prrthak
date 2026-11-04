@@ -18,14 +18,21 @@ func (a *Agent) restoreLearningEvidenceFromSpool() error {
 	for id, session := range a.State.PendingDrains {
 		sessions[id] = session
 	}
-	files, e := spoolFiles(filepath.Join(a.Config.StateDir, "spool"))
+	dir, e := trafficSpoolDir(filepath.Join(a.Config.StateDir, "spool"), false)
+	if os.IsNotExist(e) {
+		return a.save()
+	}
+	if e != nil {
+		return e
+	}
+	files, e := spoolFiles(dir)
 	if e != nil {
 		return e
 	}
 	for _, path := range files {
-		raw, e := os.ReadFile(path)
+		raw, e := readPrivateSetupBound(path, maxLearningBatchBytes)
 		if e != nil {
-			return e
+			continue // FlushSpool discards malformed/unsafe payloads and reports the loss.
 		}
 		var batch Batch
 		if json.Unmarshal(raw, &batch) != nil {

@@ -70,6 +70,72 @@ class NotificationTests(unittest.TestCase):
         with patch.object(n, "dispatch", side_effect=AssertionError("No unconfigured network sends")):
             self.assertEqual(n.run_once(self.manager)["processed"], 0)
 
+    def test_controller_resource_alerts_use_sustained_per_node_episodes_and_explicit_email(self):
+        from controller import resource_monitor as resources
+
+        base = now().replace(microsecond=0)
+
+        def sample(seconds, *, node="east-controller", memory=86, storage=91, busy=90):
+            with patch.object(resources.sys, "platform", "linux"), patch.object(
+                resources, "_cpu_counters", return_value=[10000 + 100 * seconds, 500 + busy * seconds]
+            ), patch.object(resources, "_memory_percent", return_value=memory), patch.object(
+                resources, "_storage_percent", return_value=storage
+            ):
+                return resources.sample(self.store, node, "East", self.root, at=base + timedelta(seconds=seconds))
+
+        self.configure(self.body([self.email_channel()]))
+        self.assertEqual(sample(0), 0)
+        self.assertFalse(self.store.all("maintenance_settings"))
+        self.configure(self.body([
+            self.email_channel(id="selected", event_types=[resources.EVENT]),
+            self.email_channel(),
+            self.channel(event_types=[resources.EVENT]),
+        ]))
+        for elapsed in (0, 30, 60, 90):
+            self.assertEqual(sample(elapsed), 0)
+            self.assertEqual(sample(elapsed + 1), 0)
+        self.assertEqual(sample(120), 2)
+        self.assertEqual(sample(150), 1)
+        self.assertEqual(sample(180), 0)
+        self.assertEqual(sample(180, node="west-controller"), 0)
+        self.assertEqual(n.enqueue_alerts(self.manager), 3)
+        deliveries = n.deliveries(self.store)["items"]
+        self.assertTrue(all(row["channel_id"] == "selected" and row["event"]["severity"] == "warning" for row in deliveries))
+        messages = " ".join(row["event"]["message"] for row in deliveries)
+        for label in ("Linux host CPU activity", "Linux host memory use", "local controller data filesystem use", "east-controller"):
+            self.assertIn(label, messages)
+        self.assertNotIn("west-controller", messages)
+        self.assertNotIn(str(self.root), messages)
+        self.assertEqual(n.enqueue_alerts(self.manager), 0)
+        # Missing readings do not claim recovery. A real reading below the
+        # rearm level allows another sustained episode.
+        self.assertEqual(sample(210, memory=None), 0)
+        self.assertEqual(sample(240), 0)
+        self.assertEqual(sample(270, memory=78), 0)
+        for elapsed in (300, 330, 360, 390):
+            self.assertEqual(sample(elapsed), 0)
+        self.assertEqual(sample(420), 1)
+        self.assertEqual(n.enqueue_alerts(self.manager), 1)
+
+    def test_resource_readings_use_linux_busy_ticks_and_usable_filesystem_blocks(self):
+        from controller import resource_monitor as resources
+
+        proc = self.root / "stat"
+        proc.write_text("cpu  100 3 20 800 12 2 4 1 5 6\ncpu0 30\n")
+        self.assertEqual(resources._cpu_counters(proc), [942, 129])
+        self.assertEqual(resources._cpu_percent([842, 39], [942, 129]), 90)
+        self.assertIsNone(resources._cpu_percent([942, 129], [50, 25]))
+        self.assertIsNone(resources._cpu_counters(self.root / "missing"))
+        proc.write_text("MemTotal: 1000 kB\nMemAvailable: 120 kB\n")
+        self.assertEqual(resources._memory_percent(proc), 88)
+        proc.write_text("MemTotal: 1000 kB\nMemFree: 100 kB\n")
+        self.assertIsNone(resources._memory_percent(proc))
+        with patch.object(resources.os, "statvfs", return_value=types.SimpleNamespace(
+            f_blocks=110, f_bfree=20, f_bavail=10
+        )):
+            self.assertEqual(resources._storage_percent(self.root), 90)
+        self.assertIsNone(resources._storage_percent(self.root / "missing"))
+
     def test_named_admin_change_queues_only_a_safe_summary_for_email(self):
         self.configure(self.body([self.email_channel(event_types=["admin_change"]), self.channel(event_types=["admin_change"])]))
         with self.store.meta() as db:

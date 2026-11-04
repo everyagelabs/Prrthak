@@ -32,6 +32,7 @@ type Agent struct {
 	captureCoverage                      TrafficCaptureCoverage
 	captureScopeKey                      string
 	timingMu                             sync.RWMutex
+	resourceSampler                      agentResourceSampler
 	managedOptOutRulesPresent            *bool
 	managedOptOutRemovalAttested         bool
 	remotePolling                        *PollingSettings
@@ -300,6 +301,11 @@ func (a *Agent) Sync(ctx context.Context) error {
 		}
 		if e := a.validateAssignmentReplay(a.State.Policy, time.Now().UTC()); e != nil {
 			return e
+		}
+		if !a.Simulate && a.State.Policy.CertificateRenewal != nil && a.State.Policy.Signature != nil && policySigningRequired(a.Config) {
+			if e := a.Client.renewIdentity(ctx, a.State.Policy.CertificateRenewal); e != nil {
+				log.Printf("scheduled certificate renewal pending: %v", e)
+			}
 		}
 		if handled, err := a.processAgentUpgrade(ctx, a.State.Policy); handled || err != nil {
 			if reportErr := a.report(ctx); reportErr != nil {
@@ -799,25 +805,7 @@ func (a *Agent) Run(ctx context.Context, once bool) error {
 			}
 		}
 		if !now.Before(nextFlush) {
-			if a.hitMonitor != nil {
-				if _, err := a.hitMonitor.Flush(ctx, a.Client, now); err != nil {
-					log.Printf("hit upload: %v", err)
-				}
-			}
-			if _, e := FlushSpool(ctx, a.Client, filepath.Join(a.Config.StateDir, "spool"), now); e != nil {
-				var dropped *DiscardedBatchError
-				if errors.As(e, &dropped) {
-					for _, loss := range dropped.Losses {
-						if cov := a.State.Coverage[loss.SessionID]; cov != nil {
-							cov.DroppedEvents += loss.Count
-							cov.Error = loss.Reason
-						}
-					}
-					a.State.SpoolError = dropped.Error()
-					_ = a.save()
-				}
-				log.Printf("traffic upload: %v", e)
-			}
+			a.flushTrafficSpools(ctx, now)
 			nextFlush = now.Add(10 * time.Second)
 		}
 		select {
@@ -826,4 +814,35 @@ func (a *Agent) Run(ctx context.Context, once bool) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+func (a *Agent) flushTrafficSpools(ctx context.Context, now time.Time) {
+	// Separate deadlines keep a blocked discovery upload from consuming the
+	// other stream's slot or the policy poller's entire request timeout.
+	if a.hitMonitor != nil {
+		upload, cancel := context.WithTimeout(ctx, trafficUploadBudget)
+		_, err := a.hitMonitor.Flush(upload, a.Client, now)
+		cancel()
+		if err != nil {
+			log.Printf("hit upload: %v", err)
+		}
+	}
+	upload, cancel := context.WithTimeout(ctx, trafficUploadBudget)
+	_, err := FlushSpool(upload, a.Client, filepath.Join(a.Config.StateDir, "spool"), now)
+	cancel()
+	if err == nil {
+		return
+	}
+	var dropped *DiscardedBatchError
+	if errors.As(err, &dropped) {
+		for _, loss := range dropped.Losses {
+			if coverage := a.State.Coverage[loss.SessionID]; coverage != nil {
+				coverage.DroppedEvents += loss.Count
+				coverage.Error = loss.Reason
+			}
+		}
+		a.State.SpoolError = dropped.Error()
+		_ = a.save()
+	}
+	log.Printf("traffic upload: %v", err)
 }

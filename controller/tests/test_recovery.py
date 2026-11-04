@@ -226,6 +226,19 @@ class SQLiteRecoveryTests(unittest.TestCase):
         self.assertNotEqual(restored.get('servers', 'newer')['status'], 'healthy')
         self.assertIsNone(restored._get(sqlite3.connect(restored.meta_path), "maintenance_settings", "endpoint_recovery:unused"))
 
+    def test_restore_discards_endpoint_certificate_renewal_and_revocation_reviews(self):
+        from controller.endpoint_renewal import JOB_PREFIX, REVIEW_PREFIX, ROLLOUT
+        keys = (JOB_PREFIX + "target", REVIEW_PREFIX + "review", ROLLOUT, "endpoint_revoke:review")
+        with self.store.meta() as db:
+            for identifier in keys:
+                self.store._put(db, "maintenance_settings", {"id": identifier})
+        self.backup = maintenance.backup_create(self.store, self.maker["actor"])
+        self.queued()
+        self.assertFalse(recovery.supervisor_tick(Supervisor(self.manager)))
+        restored = Store(self.directory)
+        with restored.read_meta() as db:
+            self.assertTrue(all(restored._get(db, "maintenance_settings", identifier) is None for identifier in keys))
+
     def start_without_target(self, supervisor, profile):
         recovery.assert_start_allowed(self.manager, profile)
         with patch.dict(os.environ, recovery.child_environment(self.manager)):

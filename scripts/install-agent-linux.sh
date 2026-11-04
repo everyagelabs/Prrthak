@@ -13,6 +13,7 @@ usage() {
   cat <<USAGE
 Usage: $PROGRAM --setup-file /root/prthak-agent-setup.json [--binary FILE]
        [--replace-config] [--no-start] [--wait-seconds 10] [--root STAGING_DIR]
+       [--resource-limits [--require-state-volume]]
    or: $PROGRAM [--check-only] [--binary FILE] [--ca-file CA.pem]
        [--endpoint-ca-file ENDPOINT_CA.pem]
        [--token-file PRIVATE_FILE] [--replace-config] [--no-start]
@@ -25,6 +26,8 @@ Live installation requires root and Linux. --root staging requires --no-start
 and reads the target's etc/os-release and installed command files.
 Read-only checks/staging never install packages or change a firewall service.
 The shared installer enables/starts only seg-agent after credential validation.
+Optional resource limits require a live systemd host with cgroup controls. Strict storage
+verification also requires a provisioned dedicated ext4 or XFS state volume.
 --setup-file consumes the private data-only GUI download; no config/token/CA editing.
 Explicit GUI preparation can install missing dependencies with startup suppression
 and export a private UFW assessment. It never disables UFW or activates firewalld.
@@ -45,6 +48,8 @@ REPLACE_CONFIG=0
 NO_START=0
 WAIT_SECONDS=10
 TARGET_ROOT=
+RESOURCE_LIMITS=0
+REQUIRE_STATE_VOLUME=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --help|-h) usage; exit 0 ;;
@@ -59,11 +64,18 @@ while [ "$#" -gt 0 ]; do
     --no-start) NO_START=1; shift ;;
     --wait-seconds) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; WAIT_SECONDS=$2; shift 2 ;;
     --root) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; TARGET_ROOT=$2; shift 2 ;;
+    --resource-limits) RESOURCE_LIMITS=1; shift ;;
+    --require-state-volume) REQUIRE_STATE_VOLUME=1; shift ;;
     --) shift; break ;;
     -*) usage >&2; exit 2 ;;
     *) break ;;
   esac
 done
+if [ "$REQUIRE_STATE_VOLUME" -eq 1 ] && [ "$RESOURCE_LIMITS" -ne 1 ]; then usage >&2; exit 2; fi
+if [ "$RESOURCE_LIMITS" -eq 1 ] && { [ "$CHECK_ONLY" -eq 1 ] || [ "$NO_START" -eq 1 ] || [ -n "$TARGET_ROOT$CONFIGURATION_FILE" ]; }; then
+  echo 'Resource limits require a live agent installation so the native systemd controls can be verified.' >&2
+  exit 2
+fi
 if [ -n "$CONFIGURATION_FILE" ]; then
   if [ "$#" -ne 0 ] || [ "$CHECK_ONLY" -ne 0 ] || [ "$NO_START" -ne 0 ] || [ "$REPLACE_CONFIG" -ne 0 ] || [ -n "$SETUP_FILE$CA_SOURCE$ENDPOINT_CA_SOURCE$TOKEN_SOURCE$TARGET_ROOT" ] || [ -n "${SEG_ENROLLMENT_TOKEN:-}${SEG_ENROLLMENT_TOKEN_FILE:-}" ]; then
     echo '--configuration-file requires one live independently approved kit and cannot mix bootstrap, staging or manual inputs.' >&2; exit 2
@@ -159,6 +171,13 @@ if [ -n "$SETUP_FILE" ]; then
     [ -f "$MANIFEST" ] && [ -f "$TRUST" ] || { echo 'A signed runtime manifest and independently established public release trust are required.' >&2; exit 1; }
     "$BINARY" --check-release --release-manifest "$MANIFEST" --release-trust "$TRUST" --release-binary "$BINARY" --release-unit "$PROJECT_ROOT/deploy/systemd/seg-agent.service"
   fi
+  if [ "$RESOURCE_LIMITS" -eq 1 ]; then
+    if [ "$REQUIRE_STATE_VOLUME" -eq 1 ]; then
+      "$BINARY" --prepare-agent-resource-limits --require-state-volume >/dev/null
+    else
+      "$BINARY" --prepare-agent-resource-limits >/dev/null
+    fi
+  fi
   SETUP_WORK=$(mktemp -d "${TMPDIR:-/tmp}/prthak-agent-setup.XXXXXXXX")
   SETUP_WORK=$(CDPATH= cd -- "$SETUP_WORK" && pwd -P)
   trap 'rm -rf -- "$SETUP_WORK"' 0
@@ -222,6 +241,8 @@ set -- "$SCRIPT_DIR/install-agent.sh"
 [ -z "$TARGET_ROOT" ] || set -- "$@" --root "$TARGET_ROOT"
 [ "$NO_START" -eq 0 ] || set -- "$@" --no-start
 [ "$REPLACE_CONFIG" -eq 0 ] || set -- "$@" --replace-config
+[ "$RESOURCE_LIMITS" -eq 0 ] || set -- "$@" --resource-limits
+[ "$REQUIRE_STATE_VOLUME" -eq 0 ] || set -- "$@" --require-state-volume
 [ -z "$CA_SOURCE" ] || set -- "$@" --ca-file "$CA_SOURCE"
 [ -z "$ENDPOINT_CA_SOURCE" ] || set -- "$@" --endpoint-ca-file "$ENDPOINT_CA_SOURCE"
 [ -z "$TOKEN_SOURCE" ] || set -- "$@" --token-file "$TOKEN_SOURCE"
