@@ -93,6 +93,7 @@ class DiscoverTrafficTests(unittest.TestCase):
         self.upload(session, 'traffic', [self.event('traffic', 1)])
         stopped = self.store.stop_session(session['id'], 'admin')
         stopped_at = parse_time(stopped['stopped_at'])
+        self.assertEqual(session_views.listing(self.store, purpose='traffic')['items'][0]['stopped_at'], stopped['stopped_at'])
         self.assertEqual(parse_time(stopped['evidence_expires_at']), stopped_at + timedelta(days=30))
         with patch('controller.learning.now', return_value=stopped_at):
             legacy = self.store.create_session({'selection_mode': 'manual', 'server_ids': ['web-1'], 'ports': [{'port': 443}]}, 'admin')

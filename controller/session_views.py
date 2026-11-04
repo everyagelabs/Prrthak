@@ -8,7 +8,7 @@ from .store import stamp, validate_port
 MAX_IDS_BYTES = 3 * 1024 * 1024
 MAX_PORT_BYTES = 16384
 MAX_DETAIL_BYTES = 8 * 1024 * 1024
-FIELDS = ("name", "status", "starts_at", "expires_at", "ended_at", "selection_mode", "policy_action", "initial_approval_state", "created_by", "evidence_revision", "observation_kinds", "purpose", "evidence_expires_at")
+FIELDS = ("name", "status", "starts_at", "expires_at", "ended_at", "stopped_at", "selection_mode", "policy_action", "initial_approval_state", "created_by", "evidence_revision", "observation_kinds", "purpose", "evidence_expires_at")
 
 
 def initialize(db):
