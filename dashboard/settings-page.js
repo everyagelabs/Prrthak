@@ -84,6 +84,8 @@ async function platformAction(button){
   if(action?.startsWith('platform-endpoint-')||action?.startsWith('platform-internal-')||action==='platform-policy-trust-download')return platformEndpointCertificateAction(button);
   if(action?.startsWith('platform-agents-')||action?.startsWith('platform-agent-rule-'))return platformAgentSettingsAction(button);
   if(action==='platform-certificate-refresh')return loadPlatformCertificates();
+  if(action==='platform-certificate-edit-identity')return platformOpenCertificateGeneration();
+  if(action==='platform-certificate-regenerate')return platformOpenCertificateGeneration({preview:true});
   if(action?.startsWith('platform-appliance-')||action==='platform-backup-schedule-refresh')return platformApplianceAction(button);
   if(action?.startsWith('platform-ha-')||action==='platform-job-refresh'||action==='platform-controller-mode')return platformHAAction(button);
   if(action==='platform-start-create'||action==='platform-start-join'){if(!canManagePlatform())return;state.platformTab=action==='platform-start-create'?'database':'controllers';state.platformControllerMode='join';render();return;}

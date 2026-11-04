@@ -263,6 +263,28 @@ class PlatformManager:
         if self.app:
             self.app.store.audit(kind, actor, details)
 
+    def controller_display_name(self):
+        return _read_json(self.root / "controller-display.json", {}).get("display_name", "")
+
+    def save_controller_display_name(self, body, actor):
+        if not isinstance(body, dict) or set(body) != {"controller_id", "display_name"}:
+            raise ValueError("Provide the controller ID and its display name")
+        controller_id = self.app.controller_id
+        if body["controller_id"] != controller_id:
+            raise WorkflowConflict("A different controller handled this request. Open its direct workspace and try again.", {})
+        name = body["display_name"]
+        if not isinstance(name, str) or len(name) > 64 or (name and not name.isprintable()):
+            raise ValueError("Enter up to 64 printable characters for the display name")
+        name = name.strip()
+        with self.lock:
+            previous = self.controller_display_name()
+            if name != previous:
+                _private_json(self.root / "controller-display.json", {"display_name": name})
+                self._audit("controller.display_name_changed", actor, {
+                    "controller_id": controller_id, "previous": previous, "display_name": name,
+                })
+        return {"controller_id": controller_id, "display_name": name}
+
     def configuration(self, private=False):
         value = _read_json(self.root / "configuration.json", {"revision": 0, "spec": None})
         if private or not value.get("spec"):
@@ -852,7 +874,7 @@ class PlatformManager:
         from .ha_setup import CAPABILITIES
         active = self.active_profile()
         jobs = [self.public_job(_read_json(path)) for path in sorted((self.root / "jobs").glob("*.json"))]
-        runtime = {"storage": self.app.store.storage_kind, "ha": self.app.store.ha, "demo": self.app.demo, "controller_id": self.app.controller_id, "site": self.app.site} if self.app else {}
+        runtime = {"storage": self.app.store.storage_kind, "ha": self.app.store.ha, "demo": self.app.demo, "controller_id": self.app.controller_id, "controller_display_name": self.controller_display_name(), "site": self.app.site} if self.app else {}
         return {"runtime": runtime, "cluster": self.app.cluster() if self.app else {}, "configuration": self.configuration(), "active": {key: active[key] for key in ("deployment_id", "active_revision", "mode", "controller_origin") if key in active} if active else None, "jobs": jobs[-30:], "capabilities": {**CAPABILITIES, "backups": True, "demo_cleanup": bool(self.app and self.app.demo), "remote_provisioning": bool(self.app and not self.app.demo and self.app.signer), "supervised": os.environ.get("PRTHAK_SUPERVISED_CHILD") == "1", "database": "PostgreSQL16 + Patroni + three etcd voters", "rpo": "synchronous_strict"}, "backup_storage": {"scope": "controller_local", "shared_storage_required_for_cross_node_download": True}}
 
 

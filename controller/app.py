@@ -642,7 +642,11 @@ def handler_for(app):
             elif path == "/api/v1/cluster" and method == "GET":
                 self.response(200, app.cluster())
             elif path == "/api/v1/overview" and method == "GET":
-                self.response(200, app.store.overview(app.demo))
+                result = app.store.overview(app.demo)
+                if app.platform:
+                    result["meta"].update(controller_id=app.controller_id,
+                                          controller_display_name=app.platform.controller_display_name())
+                self.response(200, result)
             elif parts and parts[0] == "platform":
                 if parts[:2] == ["platform", "approval-settings"]:
                     if parts == ["platform", "approval-settings"] and method == "GET":
@@ -813,7 +817,9 @@ def handler_for(app):
                 if not app.platform:
                     raise RuntimeError("Configure a private platform state directory on this controller")
                 from . import maintenance
-                if parts == ["platform", "backup-schedule"] and method in ("POST", "PUT"):
+                if parts == ["platform", "controller-name"] and method == "PUT":
+                    self.response(200, app.platform.save_controller_display_name(self.body(), actor))
+                elif parts == ["platform", "backup-schedule"] and method in ("POST", "PUT"):
                     from .backup_schedule import save
                     self.response(200, save(app.store, self.body(), actor))
                 elif parts == ["platform", "agent-settings"] and method == "POST":

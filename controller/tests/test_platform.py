@@ -6,6 +6,7 @@ import tempfile
 import types
 import unittest
 import uuid
+from unittest.mock import Mock
 
 from controller.firewall import WorkflowConflict
 from controller.platform import PlatformManager
@@ -43,6 +44,23 @@ class PlatformManagerTests(unittest.TestCase):
 
     def save(self):
         return self.manager.save_configuration({'expected_revision': 0, 'spec': copy.deepcopy(self.spec)}, 'super')
+
+    def test_controller_display_name_is_local_and_bound_to_the_controller(self):
+        store = Mock()
+        self.manager.app = types.SimpleNamespace(controller_id="node-1", store=store)
+        self.assertEqual(self.manager.controller_display_name(), "")
+        with self.assertRaises(WorkflowConflict):
+            self.manager.save_controller_display_name({"controller_id": "node-2", "display_name": "Remote"}, "admin")
+        with self.assertRaises(ValueError):
+            self.manager.save_controller_display_name({"controller_id": "node-1", "display_name": "Name\nwith newline"}, "admin")
+        saved = self.manager.save_controller_display_name({"controller_id": "node-1", "display_name": "  Primary DC  "}, "admin")
+        self.assertEqual(saved, {"controller_id": "node-1", "display_name": "Primary DC"})
+        self.assertEqual(PlatformManager(self.temp.name).controller_display_name(), "Primary DC")
+        store.audit.assert_called_once_with("controller.display_name_changed", "admin", {
+            "controller_id": "node-1", "previous": "", "display_name": "Primary DC",
+        })
+        self.manager.save_controller_display_name({"controller_id": "node-1", "display_name": ""}, "admin")
+        self.assertEqual(self.manager.controller_display_name(), "")
 
     def test_credentials_are_encrypted_and_blanks_preserve_only_own_node_key(self):
         saved = self.save()

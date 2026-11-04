@@ -67,11 +67,44 @@
 <body>
   <a class="skip-link" id="workspace-skip" href="#main" hidden>Skip to content</a>
   <main id="sign-in-page" class="sign-in-page" aria-labelledby="sign-in-title">
-    <section class="sign-in-card">
-      <img class="sign-in-logo" src="/assets/prthak-wordmark.svg" alt="Prṛthak · पृथक्">
-      <h1 id="sign-in-title">Sign in to Prṛthak</h1>
-      <div id="sign-in-content" aria-live="polite"><p>Checking sign-in options…</p></div>
-    </section>
+    <div class="sign-in-layout">
+      <section class="sign-in-overview" aria-label="Prṛthak Microsegmentation">
+        <span class="sign-in-product-label"><span aria-hidden="true"></span> Network security</span>
+        <div class="sign-in-overview-copy">
+          <p class="sign-in-overview-title">Precise access.<br> Protected servers.</p>
+          <p>Discover services, review traffic, and manage access across your infrastructure.</p>
+        </div>
+        <svg class="sign-in-network" viewBox="0 0 400 222" fill="none" aria-hidden="true" focusable="false">
+          <rect x="24" y="28" width="352" height="165" rx="24" stroke="currentColor" opacity=".24"/>
+          <rect x="66" y="57" width="268" height="107" rx="20" stroke="currentColor" opacity=".32" stroke-dasharray="5 6"/>
+          <path d="M103 90h38l26 21m-64 28h38l26-28m66 0 26-21h38m-64 21 26 28h38" stroke="currentColor" stroke-width="1.5" opacity=".7"/>
+          <path d="M200 21v59m0 62v59" stroke="currentColor" opacity=".38" stroke-dasharray="4 5"/>
+          <g fill="#f8a7ae">
+            <circle cx="103" cy="90" r="5"/><circle cx="103" cy="139" r="5"/>
+            <circle cx="297" cy="90" r="5"/><circle cx="297" cy="139" r="5"/>
+            <circle cx="200" cy="21" r="4"/><circle cx="200" cy="201" r="4"/>
+          </g>
+          <rect x="169" y="80" width="62" height="62" rx="16" fill="#ffe1e4"/>
+          <path d="M200 94c4 4 9 6 15 7v10c0 9-5 15-15 19-10-4-15-10-15-19v-10c6-1 11-3 15-7Z" stroke="#a31d36" stroke-width="2"/>
+          <path d="m194 112 4 4 8-8" stroke="#a31d36" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <div class="sign-in-overview-footer">Prṛthak Microsegmentation</div>
+      </section>
+      <section class="sign-in-card">
+        <img class="sign-in-logo" src="/assets/prthak-wordmark.svg" width="146" height="48" alt="Prṛthak · पृथक्">
+        <div class="sign-in-card-heading">
+          <span class="sign-in-eyebrow">Workspace access</span>
+          <h1 id="sign-in-title">Sign in to your workspace</h1>
+        </div>
+        <div id="sign-in-content" aria-live="polite">
+          <div class="sign-in-loading" role="status">
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Preparing sign-in options…</span>
+          </div>
+        </div>
+        <p class="sign-in-support">Need access? Contact your workspace administrator.</p>
+      </section>
+    </div>
   </main>
   <div class="app-shell" id="workspace-shell" hidden>
     <aside class="sidebar" aria-label="Primary navigation">
@@ -82,10 +115,10 @@
       <div class="sidebar-bottom"><div class="agent-note"><span class="connection-dot"></span><span id="connection-label">Connecting to controller</span></div><button class="nav-item" id="setup-button" type="button"><span id="setup-icon"></span>Agent setup<span class="nav-arrow">↗</span></button></div>
     </aside>
     <div class="workspace-main">
-      <header class="topbar"><div class="breadcrumb"><span id="breadcrumb-icon"></span><span>Workspace</span><span class="slash">/</span><strong id="breadcrumb-page">Overview</strong></div><div class="topbar-tools"><span class="last-updated" id="last-updated">Waiting for first sync</span><div class="topbar-client"><img class="topbar-client-logo" src="/assets/airtel-payments-bank.png" alt="Airtel Payments Bank"><span>Security operations</span></div><span class="controller-badge"><span class="connection-dot"></span>Controller <span id="controller-version">v0.15.0</span></span><button id="refresh-button" class="icon-button" type="button" title="Refresh workspace" aria-label="Refresh workspace"></button><div id="policy-deployments" class="policy-deployments"></div><div class="account-menu" id="account-menu"><button id="account-menu-toggle" class="account-trigger" type="button" data-action="account-toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu-panel" aria-label="Account"><span class="topbar-avatar" id="identity-avatar" aria-hidden="true">?</span><span class="account-trigger-label"><span id="identity-name">Sign in required</span><small id="role-label">Read Only</small></span><span class="account-trigger-chevron" aria-hidden="true">⌄</span></button><div id="account-menu-panel" class="account-dropdown" role="menu" aria-label="Account menu" hidden></div></div></div></header>
+      <header class="topbar"><div class="breadcrumb"><span id="breadcrumb-icon"></span><span>Workspace</span><span class="slash">/</span><strong id="breadcrumb-page">Overview</strong></div><div class="topbar-tools"><span class="last-updated" id="last-updated">Waiting for first sync</span><div class="topbar-client"><img class="topbar-client-logo" src="/assets/airtel-payments-bank.png" alt="Airtel Payments Bank"><span>Security operations</span></div><span class="controller-badge"><span class="connection-dot"></span><span id="controller-display-name">Controller</span><span id="controller-version">v0.15.0</span></span><button id="refresh-button" class="icon-button" type="button" title="Refresh workspace" aria-label="Refresh workspace"></button><div id="policy-deployments" class="policy-deployments"></div><div class="account-menu" id="account-menu"><button id="account-menu-toggle" class="account-trigger" type="button" data-action="account-toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu-panel" aria-label="Account"><span class="topbar-avatar" id="identity-avatar" aria-hidden="true">?</span><span class="account-trigger-label"><span id="identity-name">Sign in required</span><small id="role-label">Read Only</small></span><span class="account-trigger-chevron" aria-hidden="true">⌄</span></button><div id="account-menu-panel" class="account-dropdown" role="menu" aria-label="Account menu" hidden></div></div></div></header>
       <div id="demo-banner" class="demo-banner" hidden><span class="demo-symbol">◇</span><strong>Demo workspace</strong><span>·</span><span>Synthetic endpoints and traffic included. Live changes require explicit agent opt-in and reviewed authorization.</span><span class="demo-pill">LOCAL PREVIEW</span></div>
       <main id="main" tabindex="-1">
-        <section class="page-heading"><div><div class="eyebrow">NETWORK SECURITY</div><h1 id="page-title">Infrastructure overview</h1><p id="page-description">Precise access. Protected servers.</p></div><div class="heading-actions"><button class="button secondary" id="enroll-button" type="button"></button><button class="button primary" id="learn-button" type="button"></button></div></section>
+        <section class="page-heading"><div><div class="eyebrow">NETWORK SECURITY</div><h1 id="page-title">Infrastructure overview</h1><p id="page-description">Precise access. Protected servers.</p></div><div class="heading-actions"><button class="button secondary" id="enroll-button" type="button"></button><button class="button primary" id="learn-button" type="button" hidden></button></div></section>
         <div class="capability-banner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg><span><strong>Managed enforcement.</strong> Admin changes publish directly. Agents apply eligible changes after local firewall opt-ins and safety checks.</span></div>
         <nav id="view-tabs" class="view-tabs" aria-label="Section links" hidden></nav>
         <div id="global-error" class="error-banner" role="alert" hidden></div>

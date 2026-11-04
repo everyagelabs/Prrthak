@@ -402,6 +402,9 @@ class CertificateTests(unittest.TestCase):
         self.assertFalse(certificates.status(None)["configured"])
         result = certificates.status(self.manager)
         self.assertEqual(result["current"]["sans"], ["controller.example", "127.0.0.1"])
+        self.assertEqual(result["current"]["common_name"], "controller.example")
+        self.assertEqual(result["current"]["issuer_common_name"], "Certificate test issuer")
+        self.assertEqual(result["generation_issuer"], "literal_self_signed")
         self.assertEqual(result["current"]["fingerprint_sha256"], certificates._fp(self.current))
         self.assertNotIn(str(self.directory), json.dumps(result))
         self.manager.app.demo = True
@@ -452,20 +455,37 @@ class CertificateTests(unittest.TestCase):
     def test_generation_prefers_existing_issuer_and_preserves_dns_and_ip_sans(self):
         signer = types.SimpleNamespace(ca=self.ca_path, ca_key=self.ca_key_path)
         self.manager.app.signer = signer
-        body = {"mode": "self_signed", "hostname": "new-controller.example", "sans": ["127.0.0.1", "2001:db8::7", "extra.example"], "days": 30}
+        body = {
+            "mode": "self_signed",
+            "hostname": "new-controller.example",
+            "sans": ["127.0.0.1", "2001:db8::7", "extra.example"],
+            "days": 30,
+            "subject_common_name": " Regional controller ",
+            "subject_organization": "Infrastructure",
+            "subject_organizational_unit": "Sécurité",
+        }
         plan = certificates.preview(self.manager, body, "super_admin")
         self.assertEqual(plan["summary"]["source"], "existing_local_issuer")
+        self.assertEqual(certificates.status(self.manager)["generation_issuer"], "existing_local_issuer")
         self.assertFalse(plan["summary"]["trust_change"])
         self.assertFalse(plan["summary"]["endpoint_issuer_changed"])
-        self.assertTrue({"controller.example", "new-controller.example", "extra.example", "127.0.0.1", "2001:db8::7"} <= set(plan["summary"]["certificate"]["sans"]))
+        certificate = plan["summary"]["certificate"]
+        self.assertEqual(certificate["common_name"], "Regional controller")
+        self.assertEqual(certificate["organization"], "Infrastructure")
+        self.assertEqual(certificate["organizational_unit"], "Sécurité")
+        self.assertEqual(certificate["issuer_common_name"], "Certificate test issuer")
+        self.assertEqual(set(certificate["sans"]), {"controller.example", "new-controller.example", "extra.example", "127.0.0.1", "2001:db8::7"})
         private = json.loads((self.manager.root / "certificate-plans" / (plan["id"] + ".json")).read_text())
         material = json.loads(self.manager.vault.get(private["material_ref"]))
         self.assertNotIn(self.key_pem(self.ca_key), json.dumps(material))
         self.assertEqual(body["sans"], ["127.0.0.1", "2001:db8::7", "extra.example"])
 
     def test_literal_self_signed_requires_explicit_client_trust_phrase(self):
-        plan = certificates.preview(self.manager, {"source": "self_signed", "hostname": "controller.example"}, "super_admin")
+        plan = certificates.preview(self.manager, {"source": "self_signed", "hostname": "controller.example", "subject_common_name": "Lab controller"}, "super_admin")
         self.assertEqual(plan["summary"]["source"], "literal_self_signed")
+        certificate = plan["summary"]["certificate"]
+        self.assertEqual(certificate["common_name"], "Lab controller")
+        self.assertEqual(certificate["issuer"], certificate["subject"])
         self.assertTrue(plan["summary"]["trust_change"])
         self.assertIn("AND UPDATE CLIENT TRUST", plan["confirmation_phrase"])
         with self.assertRaises(WorkflowConflict):
@@ -529,6 +549,16 @@ class CertificateTests(unittest.TestCase):
         self.manager.app.signer = types.SimpleNamespace(ca=self.ca_path, ca_key=self.key_path)
         with self.assertRaisesRegex(ValueError, "no new trust root"):
             certificates.preview(self.manager, {"mode": "self_signed", "hostname": "controller.example"}, "super_admin")
+
+    def test_generated_subject_rejects_control_characters_overlong_unicode_and_import_overrides(self):
+        generation = {"mode": "self_signed", "hostname": "controller.example"}
+        for value in ("bad\nname", "é" * 33, 123):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "Subject common name must be printable text"):
+                certificates.preview(self.manager, {**generation, "subject_common_name": value}, "super_admin")
+        with self.assertRaisesRegex(ValueError, "already contain their signed subject"):
+            certificates.preview(self.manager, self.body(subject_organization="Unsigned edit"), "super_admin")
+        with self.assertRaisesRegex(ValueError, "Unsupported certificate field"):
+            certificates.preview(self.manager, {**generation, "issuer_common_name": "Impersonated CA"}, "super_admin")
 
 
 if __name__ == "__main__":

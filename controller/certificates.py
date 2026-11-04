@@ -24,6 +24,7 @@ from .store import digest, now, parse_time, stamp
 
 MAX_BYTES = 2 * 1024 * 1024
 IDENTIFIER = re.compile(r"[a-f0-9]{32}\Z")
+SUBJECT_FIELDS = frozenset(("subject_common_name", "subject_organization", "subject_organizational_unit"))
 
 
 def _context(manager):
@@ -67,6 +68,12 @@ def _fp(certificate):
 def _summary(certificate):
     from cryptography import x509
     from cryptography.hazmat.primitives.asymmetric import rsa, ec
+    from cryptography.x509.oid import NameOID
+
+    def attribute(name, oid):
+        values = name.get_attributes_for_oid(oid)
+        return values[0].value if values and isinstance(values[0].value, str) else None
+
     public = certificate.public_key()
     algorithm = "RSA " + str(public.key_size) if isinstance(public, rsa.RSAPublicKey) else "ECDSA " + public.curve.name if isinstance(public, ec.EllipticCurvePublicKey) else type(public).__name__
     try:
@@ -74,7 +81,20 @@ def _summary(certificate):
         sans = [str(value) for value in extension.get_values_for_type(x509.DNSName)] + [str(value) for value in extension.get_values_for_type(x509.IPAddress)]
     except x509.ExtensionNotFound:
         sans = []
-    return {"subject": certificate.subject.rfc4514_string(), "issuer": certificate.issuer.rfc4514_string(), "sans": sans, "not_before": stamp(certificate.not_valid_before_utc), "not_after": stamp(certificate.not_valid_after_utc), "fingerprint_sha256": _fp(certificate), "serial_number": str(certificate.serial_number), "key_algorithm": algorithm}
+    return {
+        "subject": certificate.subject.rfc4514_string(),
+        "common_name": attribute(certificate.subject, NameOID.COMMON_NAME),
+        "organization": attribute(certificate.subject, NameOID.ORGANIZATION_NAME),
+        "organizational_unit": attribute(certificate.subject, NameOID.ORGANIZATIONAL_UNIT_NAME),
+        "issuer": certificate.issuer.rfc4514_string(),
+        "issuer_common_name": attribute(certificate.issuer, NameOID.COMMON_NAME),
+        "sans": sans,
+        "not_before": stamp(certificate.not_valid_before_utc),
+        "not_after": stamp(certificate.not_valid_after_utc),
+        "fingerprint_sha256": _fp(certificate),
+        "serial_number": str(certificate.serial_number),
+        "key_algorithm": algorithm,
+    }
 
 
 def status(manager):
@@ -85,6 +105,7 @@ def status(manager):
     try:
         context = _context(manager)
         result["hostname"] = context.get("hostname")
+        result["generation_issuer"] = "existing_local_issuer" if context.get("issuer_cert_path") and context.get("issuer_key_path") else "literal_self_signed"
         chain = _read_certificates(context.get("cert_path"))
         if chain:
             result.update(current=_summary(chain[0]), configured=True)
@@ -313,6 +334,16 @@ def _binding(manager, context):
     return {"hostname": context.get("hostname"), "current_fingerprint": fingerprint, "active_revision": profile.get("active_revision") if profile else None, "deployment_id": profile.get("deployment_id") if profile else None, "profile_digest": digest(profile), "trust_fingerprints": sorted(_fp(value) for value in _anchors(context))}
 
 
+def _subject_value(body, field, label):
+    value = body.get(field, "")
+    if not isinstance(value, str) or value and not value.isprintable():
+        raise ValueError(f"{label} must be printable text of at most 64 UTF-8 bytes")
+    value = value.strip()
+    if len(value.encode("utf-8")) > 64:
+        raise ValueError(f"{label} must be printable text of at most 64 UTF-8 bytes")
+    return value
+
+
 def _generate(body, context, hostname):
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes, serialization
@@ -329,8 +360,16 @@ def _generate(body, context, hostname):
     if context.get("hostname"):
         names.add(_name(context["hostname"])[0])
     names.update(_name(value, wildcard=True)[0] for value in values)
+    common_name = _subject_value(body, "subject_common_name", "Subject common name") or hostname[:64]
+    organization = _subject_value(body, "subject_organization", "Subject organization")
+    unit = _subject_value(body, "subject_organizational_unit", "Subject organizational unit")
+    attributes = [x509.NameAttribute(NameOID.COMMON_NAME, common_name)]
+    if organization:
+        attributes.append(x509.NameAttribute(NameOID.ORGANIZATION_NAME, organization))
+    if unit:
+        attributes.append(x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, unit))
+    subject = x509.Name(attributes)
     key = rsa.generate_private_key(public_exponent=65537, key_size=3072)
-    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, hostname[:64])])
     issuer, issuer_key, mode = None, key, "literal_self_signed"
     if context.get("issuer_cert_path") and context.get("issuer_key_path"):
         try:
@@ -359,11 +398,13 @@ def _material(body, context):
     from cryptography.hazmat.primitives.serialization import pkcs12
     if not isinstance(body, dict):
         raise ValueError("Provide certificate import or generation fields")
-    if set(body) - {"source", "mode", "hostname", "certificate_pem", "private_key_pem", "key_password", "pkcs12_bytes", "pkcs12_base64", "password", "sans", "san_dns", "san_ips", "days"}:
+    if set(body) - {"source", "mode", "hostname", "certificate_pem", "private_key_pem", "key_password", "pkcs12_bytes", "pkcs12_base64", "password", "sans", "san_dns", "san_ips", "days"} - SUBJECT_FIELDS:
         raise ValueError("Unsupported certificate field; endpoint issuing trust is managed separately")
     source = body.get("source", body.get("mode", "pem"))
     if source not in ("pem", "pkcs12", "self_signed"):
         raise ValueError("Choose PEM, PKCS#12 or self-signed generation")
+    if source != "self_signed" and SUBJECT_FIELDS.intersection(body):
+        raise ValueError("Imported certificates already contain their signed subject. Change subject fields when generating a certificate.")
     hostname = _name(body.get("hostname") or context.get("hostname"))[0]
     mode = "imported"
     if source == "self_signed":

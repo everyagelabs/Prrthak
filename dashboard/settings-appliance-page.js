@@ -1,6 +1,54 @@
 'use strict';
 
 function appliance(){return state.platformAppliance || {};}
+function controllerDisplayNameSettings() {
+  return state.platformInfo?.runtime?.controller_id ? state.platformInfo.runtime : state.data?.meta || {};
+}
+
+function showControllerDisplayName() {
+  const settings = controllerDisplayNameSettings();
+  if (!canManagePlatform() || !settings.controller_id) return;
+  showModal('Controller display name', `<form id="platform-controller-name-form" data-controller-id="${h(settings.controller_id)}">
+    <div class="modal-body">${errorSlot}
+      <div class="field">
+        <label for="platform-controller-name">Display name</label>
+        <input id="platform-controller-name" name="display_name" value="${h(settings.controller_display_name || '')}" maxlength="64" placeholder="Primary controller" autofocus>
+        <small>This label appears in the workspace for this controller. Leave it blank to use the default.</small>
+      </div>
+    </div>
+    ${modalFooter('Save display name')}
+  </form>`, 'PLATFORM SETTINGS');
+}
+
+async function saveControllerDisplayName(event) {
+  event.preventDefault();
+  if (!canManagePlatform()) return;
+  const form = event.target;
+  const button = $('button[type="submit"]', form);
+  const controllerId = form.dataset.controllerId;
+  button.disabled = true;
+  try {
+    const result = await api('/platform/controller-name', {
+      method: 'PUT',
+      body: {controller_id: controllerId, display_name: String(new FormData(form).get('display_name') || '')}
+    });
+    if (state.platformInfo?.runtime?.controller_id === result.controller_id) {
+      state.platformInfo.runtime.controller_display_name = result.display_name;
+    }
+    if (state.data?.meta?.controller_id === result.controller_id) {
+      state.data.meta.controller_display_name = result.display_name;
+    }
+    if ($('#platform-controller-name-form') === form) closeModal();
+    if (state.data) renderChrome();
+    toast('Controller display name saved.');
+  } catch (error) {
+    if ($('#platform-controller-name-form') === form) formError(error);
+    else toast(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function applianceOperational(){return canManagePlatform()&&appliance().installed===true&&appliance().manager_available!==false&&state.platformInfo?.runtime?.demo!==true;}
 function applianceDisabledNotice(){return applianceOperational()?'':`<div class="inline-notice">${state.platformInfo?.runtime?.demo===true?'Demo mode shows settings and reported health. Real cluster joining, storage moves and service restarts are disabled.':appliance().installed===true&&appliance().manager_available===false?(appliance().error || 'The installed appliance manager is unavailable. Service and storage operations remain blocked.'):'Managed operations require the appliance package and its node manager on this controller. Installation state has not been verified.'}</div>`;}
 function applianceReplicationRotationHTML(){
@@ -15,7 +63,8 @@ function applianceRoutingHTML(){
 }
 function platformApplianceOverviewHTML(){
   const info=appliance(),identity=info.identity || {},cluster=info.cluster || {},nodes=cluster.nodes || state.platformInfo?.cluster?.nodes || [],runtime=state.platformInfo?.runtime || {};
-  return `${state.platformApplianceError?`<div class="inline-notice warning">${h(state.platformApplianceError)}</div>`:''}<div class="platform-overview-cards"><article class="card platform-metric"><span>This controller</span><strong>${h(identity.id || runtime.controller_id || 'Not reported')}</strong><p>${h(identity.site || runtime.site || 'Site not reported')}${identity.ip?' · '+h(identity.ip):''}</p></article><article class="card platform-metric"><span>Cluster</span><strong>${h(cluster.configured===true?(cluster.name || 'Configured'):cluster.settings_saved===true?'Settings saved':cluster.configured===false?'Not connected':'Not reported')}</strong><p>${h(cluster.replication_state?humanize(cluster.replication_state):'Replication state not reported')}</p></article><article class="card platform-metric"><span>Data location</span><strong class="appliance-data-root">${h(info.data_root || 'Not reported')}</strong><p>${info.installed===true?'Appliance package detected':info.installed===false?'Appliance manager unavailable':'Installation state not reported'}</p></article></div><section class="card platform-panel"><div class="section-line"><h2>Controller nodes<span>${nodes.length} reported</span></h2><button class="text-button" data-action="platform-refresh">Refresh health</button></div><div class="table-scroll"><table><thead><tr><th>Controller</th><th>Site</th><th>Reported health</th><th>Last heartbeat</th></tr></thead><tbody>${nodes.map(node=>`<tr><td><strong>${h(node.id || node.name)}</strong></td><td>${h(node.site || 'Not reported')}</td><td>${platformHealthBadge(node.health ?? node.ready ?? node.status ?? node.state)}</td><td>${h(timestamp(node.last_seen))}</td></tr>`).join('') || '<tr><td colspan="4">No controller health has been reported.</td></tr>'}</tbody></table></div></section>${canManagePlatform()?`<div class="appliance-quick-actions"><button class="button secondary" data-action="platform-appliance-create">${cluster.configured===true||cluster.settings_saved===true?'Manage cluster settings':'Create cluster settings'}</button><button class="button secondary" data-action="platform-appliance-connect">Join an existing cluster</button>${runtime.demo===true?'<button class="text-button" data-action="platform-demo-preview">Review sample-data cleanup</button>':''}</div>`:'<div class="inline-notice">Your role can view platform health. Super Admins manage cluster settings, storage, backups and services.</div>'}${applianceRoutingHTML()}`;
+  const display = controllerDisplayNameSettings();
+  return `${state.platformApplianceError?`<div class="inline-notice warning">${h(state.platformApplianceError)}</div>`:''}<div class="platform-overview-cards"><article class="card platform-metric"><span>This controller</span><strong>${h(display.controller_display_name || identity.id || runtime.controller_id || 'Not reported')}</strong><p>${h(identity.site || runtime.site || 'Site not reported')}${identity.ip?' · '+h(identity.ip):''}</p>${canManagePlatform()&&display.controller_id?'<button type="button" class="text-button" data-action="platform-appliance-controller-name">Edit display name</button>':''}</article><article class="card platform-metric"><span>Cluster</span><strong>${h(cluster.configured===true?(cluster.name || 'Configured'):cluster.settings_saved===true?'Settings saved':cluster.configured===false?'Not connected':'Not reported')}</strong><p>${h(cluster.replication_state?humanize(cluster.replication_state):'Replication state not reported')}</p></article><article class="card platform-metric"><span>Data location</span><strong class="appliance-data-root">${h(info.data_root || 'Not reported')}</strong><p>${info.installed===true?'Appliance package detected':info.installed===false?'Appliance manager unavailable':'Installation state not reported'}</p></article></div><section class="card platform-panel"><div class="section-line"><h2>Controller nodes<span>${nodes.length} reported</span></h2><button class="text-button" data-action="platform-refresh">Refresh health</button></div><div class="table-scroll"><table><thead><tr><th>Controller</th><th>Site</th><th>Reported health</th><th>Last heartbeat</th></tr></thead><tbody>${nodes.map(node=>`<tr><td><strong>${h(node.id || node.name)}</strong></td><td>${h(node.site || 'Not reported')}</td><td>${platformHealthBadge(node.health ?? node.ready ?? node.status ?? node.state)}</td><td>${h(timestamp(node.last_seen))}</td></tr>`).join('') || '<tr><td colspan="4">No controller health has been reported.</td></tr>'}</tbody></table></div></section>${canManagePlatform()?`<div class="appliance-quick-actions"><button class="button secondary" data-action="platform-appliance-create">${cluster.configured===true||cluster.settings_saved===true?'Manage cluster settings':'Create cluster settings'}</button><button class="button secondary" data-action="platform-appliance-connect">Join an existing cluster</button>${runtime.demo===true?'<button class="text-button" data-action="platform-demo-preview">Review sample-data cleanup</button>':''}</div>`:'<div class="inline-notice">Your role can view platform health. Super Admins manage cluster settings, storage, backups and services.</div>'}${applianceRoutingHTML()}`;
 }
 function platformApplianceClusterHTML(){
   const info=appliance(),identity=info.identity || {},cluster=info.cluster || {},routing=info.routing || {},join=state.platformApplianceClusterMode==='join';
@@ -91,6 +140,7 @@ async function platformApplianceSubmit(event){
 }
 async function platformApplianceAction(button){
   if(!canManagePlatform())return;const {action,id}=button.dataset;
+  if(action==='platform-appliance-controller-name')return showControllerDisplayName();
   if(action==='platform-appliance-replication-abort'){
     const rotation=appliance().cluster?.replication_rotation;if(appliance().installed!==true||state.platformInfo?.runtime?.demo===true||rotation?.can_abort!==true||rotation.phase==='abort')return;
     button.disabled=true;try{const result=await api('/platform/appliance/replication/abort',{method:'POST',body:{}});state.platformAppliance.cluster.replication_rotation=result;render();toast(result?.phase==='aborted'?'Replication rotation cancellation completed.':'Cancellation requested. Wait for every voter to acknowledge cleanup.');}catch(error){formError(error);if(error.status===409)await loadPlatformSettings();}finally{button.disabled=false;}return;

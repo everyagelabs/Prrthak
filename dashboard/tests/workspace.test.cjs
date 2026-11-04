@@ -9,7 +9,7 @@ const policy={id:'policy-1',revision:1,name:'Billing policy',mode:'enforce',sele
 const serviceGroup={id:'web-ports',name:'Web application',description:'Reusable application ports',revision:2,ports:[{port:443,protocol:'tcp'},{port:8443,protocol:'tcp'}],policy_ids:['policy-1'],policy_count:1};
 const fixture={learning_policies:[],service_groups:[serviceGroup],servers:[host],locations:[location],policies:[policy],groups:[],flows:[],alerts:[],learning_sessions:[],meta:{demo:true,version:'0.1.0',traffic_retention_hours:24}};
 async function workspace(view='overview',options={}) {
- const elements=new Map(),listeners={},requests=[],navigation=[],storageChanges=[],storage=new Map(Object.entries(options.storage || {})),displayStorage=new Map(Object.entries(options.localStorage || {})),displayStorageChanges=[];
+ const elements=new Map(),listeners={},windowListeners={},requests=[],navigation=[],routeHistory=[],storageChanges=[],storage=new Map(Object.entries(options.storage || {})),displayStorage=new Map(Object.entries(options.localStorage || {})),displayStorageChanges=[];
  const mode=options.mode || 'demo',role=options.role || 'super_admin';
  const identity=options.identity || {role,demo:mode==='demo',auth_type:mode==='demo'?'demo':mode==='tokens'?'token':'session',csrf_token:mode==='entra'?'session-csrf-fixture':'',user:{id:mode==='demo'?'demo':'super-self',display_name:mode==='demo'?'Demo administrator':'Priya Operator',email:'priya@example.test',role}};
  const authStatus=options.authStatus;
@@ -17,7 +17,11 @@ async function workspace(view='overview',options={}) {
  function element(selector){if(!elements.has(selector))elements.set(selector,{id:selector.startsWith('#')?selector.slice(1):'',attributes:{},innerHTML:'',textContent:'',hidden:false,open:false,disabled:false,value:'',dataset:{},style:{},classList:{values:new Set(),add(...names){names.forEach(name=>this.values.add(name));},remove(...names){names.forEach(name=>this.values.delete(name));},toggle(name,force){const enabled=force===undefined?!this.values.has(name):force;if(enabled)this.values.add(name);else this.values.delete(name);return enabled;},contains(name){return this.values.has(name);}},querySelector:element,querySelectorAll:()=>[],eventListeners:{},addEventListener(type,handler){(this.eventListeners[type] ||= []).push(handler);},removeEventListener(){},setAttribute(name,value){this.attributes[name]=String(value);},getAttribute(name){return this.attributes[name] ?? null;},append(){},remove(){},replaceChildren(){this.innerHTML='';},focus(){document.activeElement=this;},matches:()=>false,showModal(){this.open=true;},close(){this.open=false;},setSelectionRange(){},click(){}});return elements.get(selector);}
  element('#workspace-shell').hidden=true;
  const document={body:element('body'),createElement:tag=>element('created:'+tag),querySelector:element,querySelectorAll:()=>[],getElementById:id=>element('#'+id),activeElement:null,hidden:false,addEventListener:(type,handler)=>{(listeners[type] ||= []).push(handler)}};
- const context={console,Date,Map,Set,JSON,Array,String,Number,Error,URL,URLSearchParams,Intl,AbortController,TextEncoder,Blob,document,location:{pathname:'/'+view,hash:'',search:'',assign:url=>navigation.push(url),replace:url=>navigation.push(url)},history:{replaceState(_state,_title,url){const next=new URL(url,'https://controller.test');context.location.pathname=next.pathname;context.location.search=next.search;context.location.hash=next.hash;}},window:{addEventListener(){},localStorage:{getItem:key=>displayStorage.get(key) ?? null,setItem(key,value){displayStorage.set(key,String(value));displayStorageChanges.push({key,value:String(value)});}}},sessionStorage:{getItem:key=>storage.get(key) ?? null,setItem(key,value){storage.set(key,String(value));storageChanges.push({operation:'set',key,value:String(value)});},removeItem(key){storage.delete(key);storageChanges.push({operation:'remove',key});}},setInterval:()=>1,setTimeout:()=>1,clearTimeout(){},fetch:async(url,options={})=>{
+ function setRoute(url) {
+  const next = new URL(url, 'https://controller.test');
+  Object.assign(context.location, {pathname: next.pathname, search: next.search, hash: next.hash});
+ }
+ const context={console,Date,Map,Set,JSON,Array,String,Number,Error,URL,URLSearchParams,Intl,AbortController,TextEncoder,Blob,document,location:{origin:'https://controller.test',pathname:'/'+view,hash:'',search:'',assign:url=>navigation.push(url),replace:url=>navigation.push(url)},history:{replaceState(_state,_title,url){setRoute(url);},pushState(_state,_title,url){routeHistory.push(url);setRoute(url);}},window:{scrollTo(){},addEventListener(type,handler){(windowListeners[type] ||= []).push(handler);},localStorage:{getItem:key=>displayStorage.get(key) ?? null,setItem(key,value){displayStorage.set(key,String(value));displayStorageChanges.push({key,value:String(value)});}}},sessionStorage:{getItem:key=>storage.get(key) ?? null,setItem(key,value){storage.set(key,String(value));storageChanges.push({operation:'set',key,value:String(value)});},removeItem(key){storage.delete(key);storageChanges.push({operation:'remove',key});}},setInterval:()=>1,setTimeout:()=>1,clearTimeout(){},fetch:async(url,options={})=>{
   requests.push({url,options});let data={};
   const override=context.apiResponses?.[(options.method || 'GET')+' '+url] ?? context.apiResponses?.[url];
   if(override!==undefined)data=typeof override==='function'?await override(options):structuredClone(override);
@@ -41,16 +45,92 @@ async function workspace(view='overview',options={}) {
  const run=script=>vm.runInContext(script,context);
  async function click(action,dataset={}){context.testButton={disabled:false,dataset:{action,...dataset}};return run('handleAction({target:{closest:()=>testButton}})');}
  async function submit(formId,values={}){const match=(element('#modal-content').innerHTML+element('#sign-in-content').innerHTML).match(new RegExp('<form[^>]*id=\"'+formId+'\"[^>]*>'));assert.ok(match,formId+' must be a rendered production form');const dataset={};for(const attr of match[0].matchAll(/data-([a-z-]+)=\"([^\"]*)\"/g))dataset[attr[1].replace(/-([a-z])/g,(_,letter)=>letter.toUpperCase())]=attr[2];return listeners.submit.at(-1)({preventDefault(){},target:{id:formId,dataset,values,querySelector:element}});}
- return {context,elements,listeners,requests,element,run,click,submit,navigation,storage,storageChanges,displayStorage,displayStorageChanges};
+ function popRoute(url) {
+  setRoute(url);
+  for (const handler of windowListeners.popstate || []) handler();
+ }
+ return {context,elements,listeners,requests,element,run,click,submit,navigation,routeHistory,popRoute,storage,storageChanges,displayStorage,displayStorageChanges};
 }
 function accountTestItems(env){const panel=env.element('#account-menu-panel');panel.querySelectorAll=()=>[...panel.innerHTML.matchAll(/<button role="menuitem"[^>]*data-action="([^"]+)"/g)].map(match=>{const item=env.element('account-item:'+match[1]);item.dataset.action=match[1];item.closest=selector=>selector==='#account-menu-panel'?panel:selector==='#account-menu'?env.element('#account-menu'):null;return item;});const trigger=env.element('#account-menu-toggle');trigger.closest=selector=>selector==='#account-menu-toggle'?trigger:selector==='#account-menu'?env.element('#account-menu'):null;return {panel,trigger};}
 function accountKey(env,key,target){let prevented=false,stopped=false;env.listeners.keydown.find(handler=>handler.name==='accountMenuKeydown')({key,target,preventDefault(){prevented=true;},stopImmediatePropagation(){stopped=true;}});return {prevented,stopped};}
+function clickWorkspaceLink(env, path, {target = '', download = false, ...options} = {}) {
+ const link = {href: new URL(path, env.context.location.origin).href, target, hasAttribute: name => name === 'download' && download};
+ let prevented = false;
+ env.listeners.click.find(handler => handler.name === 'handleWorkspaceLink')({
+  button: 0, ...options, target: {closest: () => link}, preventDefault() { prevented = true; }
+ });
+ return prevented;
+}
+test('workspace links switch views without another sign-in check and restore Back and Forward', async () => {
+ const env = await workspace('overview', {mode: 'entra', role: 'admin'});
+ const startupRequests = env.requests.filter(({url}) => /\/api\/v1\/(auth|overview)/.test(url)).length;
+ env.run('state.search = "billing"; state.detail = "host-1"');
+ for (const [path, title, label] of [
+  ['/locations', 'Location catalogue', ''],
+  ['/policies', 'Access policies', 'Discover policy'],
+  ['/traffic', 'Traffic intelligence', 'Discover traffic'],
+  ['/servers', 'Server inventory', '']
+ ]) {
+  assert.equal(clickWorkspaceLink(env, path), true);
+  assert.equal(env.context.location.pathname, path);
+  assert.equal(env.element('#page-title').textContent, title);
+  assert.equal(env.element('#workspace-shell').hidden, false);
+  assert.equal(env.element('#learn-button').hidden, !label);
+  assert.ok(env.element('#learn-button').innerHTML.endsWith(label));
+ }
+ await new Promise(setImmediate);
+ assert.equal(env.run('state.search'), 'billing');
+ assert.equal(env.run('state.detail'), null);
+ assert.ok(env.requests.some(({url}) => url === '/api/v1/metadata/subnets'));
+ assert.deepEqual(env.routeHistory, ['/locations', '/policies', '/traffic', '/servers']);
+ env.popRoute('/traffic');
+ assert.equal(env.element('#page-title').textContent, 'Traffic intelligence');
+ env.popRoute('/servers');
+ assert.equal(env.element('#page-title').textContent, 'Server inventory');
+ assert.equal(env.context.document.activeElement, env.element('#main'));
+ assert.equal(env.requests.filter(({url}) => /\/api\/v1\/(auth|overview)/.test(url)).length, startupRequests);
+ assert.deepEqual(env.navigation, []);
+ assert.equal(env.routeHistory.length, 4);
+});
+test('workspace routing preserves modified links and keeps signed-out history private', async () => {
+ const env = await workspace('servers', {mode: 'entra', role: 'admin'});
+ for (const [path, options] of [
+  ['/overview', {metaKey: true}], ['/overview', {ctrlKey: true}], ['/overview', {button: 1}],
+  ['/overview', {target: '_blank'}], ['/overview', {download: true}],
+  ['/api/v1/auth/login', {}], ['https://other.test/overview', {}], ['#main', {}]
+ ]) assert.equal(clickWorkspaceLink(env, path, options), false);
+ await env.run('dashboardLogout()');
+ env.popRoute('/locations');
+ assert.equal(env.context.location.pathname, '/login');
+ assert.equal(env.context.location.search, '?next=locations');
+ assert.equal(env.element('#workspace-shell').hidden, true);
+ assert.deepEqual(env.routeHistory, []);
+});
+test('Super Admin can save the selected controller display name and the workspace header updates', async () => {
+ const runtime = {controller_id: 'node-1', controller_display_name: 'Original'};
+ const env = await workspace('settings', {mode: 'entra', role: 'super_admin', responses: {
+  '/api/v1/overview': {...fixture, meta: {...fixture.meta, ...runtime}},
+  '/api/v1/platform/status': {runtime},
+  'PUT /api/v1/platform/controller-name': {controller_id: 'node-1', display_name: 'Primary DC'}
+ }});
+ assert.equal(env.element('#controller-display-name').textContent, 'Original');
+ await env.click('platform-appliance-controller-name');
+ assert.match(env.element('#modal-content').innerHTML, /value="Original"/);
+ await env.submit('platform-controller-name-form', {display_name: 'Primary DC'});
+ const request = mutations(env)[0];
+ assert.equal(request.url, '/api/v1/platform/controller-name');
+ assert.deepEqual(JSON.parse(request.options.body), {controller_id: 'node-1', display_name: 'Primary DC'});
+ assertCookieMutation(request);
+ assert.equal(env.element('#controller-display-name').textContent, 'Primary DC');
+ const admin = await workspace('settings', {mode: 'entra', role: 'admin', responses: {'/api/v1/platform/status': {runtime}}});
+ assert.doesNotMatch(admin.element('#view-content').innerHTML, /Edit display name/);
+});
 test('account shell moves real identity to the top right and keeps controller and agent setup in the sidebar',async()=>{
  const shell=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');assert.doesNotMatch(shell,/sidebar-profile|id="logout-button"|>OP<\/span>/);assert.match(shell,/id="account-menu-toggle"[^>]*aria-haspopup="menu"/);assert.match(shell,/id="account-menu-panel"[^>]*role="menu"/);assert.match(shell,/id="connection-label"/);assert.match(shell,/id="setup-button"/);assert.match(shell,/airtel-payments-bank\.png/);
  const env=await workspace('servers',{mode:'entra',role:'admin',identity:{role:'admin',auth_type:'session',csrf_token:'session-csrf-fixture',user:{id:'own-user',display_name:'Maya <Owner>',email:'maya@example.test',role:'admin',tenant_id:'tenant-one',object_id:'object-one'}}});assert.equal(env.element('#identity-avatar').textContent,'MO');assert.equal(env.element('#identity-name').textContent,'Maya <Owner>');assert.equal(env.element('#role-label').textContent,'Admin');await env.click('account-toggle');assert.equal(env.element('#account-menu-toggle').getAttribute('aria-expanded'),'true');assert.match(env.element('#account-menu-panel').innerHTML,/Maya &lt;Owner&gt;/);assert.doesNotMatch(env.element('#account-menu-panel').innerHTML,/<Owner>/);await env.click('account-profile');const html=env.element('#modal-content').innerHTML;assert.match(html,/Entra-managed identity is read-only/);assert.match(html,/Microsoft Entra ID/);assert.match(html,/maya@example\.test/);assert.match(html,/tenant-one/);assert.doesNotMatch(html,/<form|name="role"|name="display_name"/);assert.equal(mutations(env).length,0);
 });
 test('account Manage users shortcut preserves existing Super Admin gates and profile access for all three roles',async()=>{
- for(const role of ['read_only','admin','super_admin']){const env=await workspace('servers',{mode:'entra',role});await env.click('account-toggle');const html=env.element('#account-menu-panel').innerHTML;assert.match(html,/My profile|Display preferences/);assert.equal(html.includes('data-action="account-users"'),role==='super_admin');assert.equal(env.element('#navigation').innerHTML.includes('href="/access"'),role==='super_admin');await env.click('account-users');assert.deepEqual(env.navigation,role==='super_admin'?['/access']:[]);await env.click('account-profile');assert.match(env.element('#modal-content').innerHTML,new RegExp(role==='read_only'?'Read Only':role==='super_admin'?'Super Admin':'Admin'));assert.equal(mutations(env).length,0);}
+ for(const role of ['read_only','admin','super_admin']){const env=await workspace('servers',{mode:'entra',role});await env.click('account-toggle');const html=env.element('#account-menu-panel').innerHTML;assert.match(html,/My profile|Display preferences/);assert.equal(html.includes('data-action="account-users"'),role==='super_admin');assert.equal(env.element('#navigation').innerHTML.includes('href="/access"'),role==='super_admin');await env.click('account-users');assert.deepEqual(env.routeHistory,role==='super_admin'?['/access']:[]);assert.deepEqual(env.navigation,[]);await env.click('account-profile');assert.match(env.element('#modal-content').innerHTML,new RegExp(role==='read_only'?'Read Only':role==='super_admin'?'Super Admin':'Admin'));assert.equal(mutations(env).length,0);}
 });
 test('account menu supports arrow Home End Escape Tab outside click and returns focus after profile closes',async()=>{
  const env=await workspace('servers',{mode:'entra'}),{panel,trigger}=accountTestItems(env);let result=accountKey(env,'ArrowDown',trigger);assert.equal(result.prevented,true);assert.equal(env.run('state.accountMenuOpen'),true);assert.equal(env.context.document.activeElement.dataset.action,'account-profile');accountKey(env,'ArrowDown',env.context.document.activeElement);assert.equal(env.context.document.activeElement.dataset.action,'account-preferences');accountKey(env,'End',env.context.document.activeElement);assert.equal(env.context.document.activeElement.dataset.action,'account-signout');accountKey(env,'Home',env.context.document.activeElement);assert.equal(env.context.document.activeElement.dataset.action,'account-profile');result=accountKey(env,'Escape',env.context.document.activeElement);assert.equal(result.stopped,true);assert.equal(panel.hidden,true);assert.equal(env.context.document.activeElement,trigger);
@@ -1591,4 +1671,62 @@ test('Traffic discovery reports typed rate and retention with CSV access and no 
  assert.match(html,/37 connections\/s/);assert.match(html,/retention ends/);assert.match(html,/Export CSV/);
  assert.doesNotMatch(html,/recommendation-form|recommendation-apply|Preview selected access/);
  assert.equal(mutations(env).length,0);
+});
+
+test('certificate names can be edited and regeneration opens a review with the current identity', async () => {
+ const current = {
+  subject: 'CN=controller-label',
+  issuer: 'CN=Existing CA',
+  common_name: 'controller-label',
+  organization: 'Network & Cloud',
+  organizational_unit: 'Operations',
+  sans: ['prthak.example.test', '10.241.10.11', '10.241.10.11']
+ };
+ const env = await applianceWorkspace({
+  '/api/v1/platform/certificates': {current, hostname: 'prthak.example.test', generation_issuer: 'existing_local_issuer'},
+  'POST /api/v1/platform/certificates/preview': applianceReview({summary: {certificate: current}})
+ });
+ await env.click('platform-tab', {tab: 'certificates'});
+ await new Promise(setImmediate);
+ const html = env.element('#view-content').innerHTML;
+ assert.match(html, />Reload details<\/button>/);
+ assert.match(html, /name="subject_common_name" value="controller-label"/);
+ assert.match(html, /name="subject_organization" value="Network &amp; Cloud"/);
+ assert.match(html, /name="hostname" value="prthak.example.test"/);
+ assert.match(html, /name="sans"[^>]*>10\.241\.10\.11<\/textarea>/);
+ assert.match(html, /configured local CA signs the replacement/);
+
+ await env.click('platform-certificate-edit-identity');
+ assert.equal(env.element('#certificate-self-signed-fields').hidden, false);
+ assert.equal(env.context.document.activeElement, env.element('#certificate-common-name'));
+ assert.equal(mutations(env).length, 0);
+ const form = env.element('#platform-certificate-form');
+ let submitted;
+ form.requestSubmit = () => {
+  const formWithEditedValues = renderedForm(env, 'platform-certificate-form', {
+   mode: 'self_signed',
+   hostname: 'prthak.example.test',
+   subject_common_name: 'Edited label',
+   subject_organization: 'Network & Cloud',
+   subject_organizational_unit: 'Operations',
+   sans: '10.241.10.11, controller-pune.example.test'
+  });
+  submitted = submitRendered(env, formWithEditedValues);
+ };
+ await env.click('platform-certificate-regenerate');
+ assert.ok(submitted);
+ await submitted;
+ const [request] = mutations(env);
+ assert.equal(request.url, '/api/v1/platform/certificates/preview');
+ assert.deepEqual(JSON.parse(request.options.body), {
+  mode: 'self_signed',
+  hostname: 'prthak.example.test',
+  subject_common_name: 'Edited label',
+  subject_organization: 'Network & Cloud',
+  subject_organizational_unit: 'Operations',
+  sans: ['10.241.10.11', 'controller-pune.example.test']
+ });
+ assertCookieMutation(request);
+ assert.match(env.element('#modal-content').innerHTML, /CN=Existing CA/);
+ assert.equal(mutations(env).length, 1);
 });

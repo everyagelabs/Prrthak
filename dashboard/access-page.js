@@ -78,15 +78,34 @@ function showSignInPage(content){
   $('#sign-in-content').innerHTML=content;
   $('#sign-in-content').querySelector('[autofocus]')?.focus();
 }
+function signInErrorHTML(){
+  return state.authError ? `<div class="form-error" role="alert">${h(state.authError)}</div>` : '';
+}
 function showDashboardLogin(){
   if(state.passwordChangeRequired)return showLocalPasswordChange(true);
   if(!accessSupportsLocal())return showLegacyDashboardLogin();
-  const config=state.authConfig||{},providers=config.providers,entra=config.entra||state.accessProviders?.entra||{},saml=config.saml||state.accessProviders?.saml||{};
+  const config=state.authConfig||{},entra=config.entra||state.accessProviders?.entra||{},saml=config.saml||state.accessProviders?.saml||{};
 
   const entraEnabled=entra.enabled===true||entra.configured===true||accessOffered(config,'entra')||(config.mode==='entra'&&config.configured);
   const samlEnabled=saml.enabled===true||accessOffered(config,'saml')||config.mode==='saml';
   const sso=`${entraEnabled?`<button type="button" class="button microsoft-signin" data-action="auth-entra-login">${microsoftMark()}Sign in with Microsoft</button>`:''}${samlEnabled?`<button type="button" class="button microsoft-signin" data-action="auth-saml-login">${icon('access')}Sign in with ${h(saml.display_name||'SAML SSO')}</button>`:''}`;
-  showSignInPage(`<div class="modal-body auth-signin-panel">${errorSlot}<div class="auth-emblem">${icon('access')}</div><h3>Welcome to your workspace</h3>${state.authError?`<div class="form-error">${h(state.authError)}</div>`:''}<form id="local-login-form" method="post" action="/api/v1/auth/local" class="auth-local-form"><div class="field"><label for="local-username">Local username</label><input id="local-username" name="username" autocomplete="username" maxlength="64" required autofocus></div><div class="field"><label for="local-password">Password</label><input id="local-password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div><button class="button primary" type="submit">Sign in with local account</button></form>${saml.error?`<div class="inline-notice warning">Organisation SSO is unavailable: ${h(saml.error)}</div>`:''}${sso?`<div class="auth-divider"><span>Or use organisation SSO</span></div><div class="auth-sso-buttons">${sso}</div>`:'<p class="auth-provider-note">Organisation SSO can be configured by a Super Admin after signing in.</p>'}<div class="auth-role-chips"><span>Read Only</span><span>Admin</span><span>Super Admin</span></div><small>Local accounts and SSO accounts use the same workspace roles. A new or reset local account must change its password before entering the workspace.</small></div>`);
+  showSignInPage(`<div class="sign-in-content-panel">
+    <p class="sign-in-description">Use your local Prṛthak account to continue.</p>
+    ${errorSlot}${signInErrorHTML()}
+    <form id="local-login-form" method="post" action="/api/v1/auth/local" class="auth-local-form">
+      <div class="field">
+        <label for="local-username">Username</label>
+        <input id="local-username" name="username" autocomplete="username" maxlength="64" required autofocus>
+      </div>
+      <div class="field">
+        <label for="local-password">Password</label>
+        <input id="local-password" name="password" type="password" autocomplete="current-password" maxlength="1024" required>
+      </div>
+      <button class="button primary" type="submit">Sign in with local account</button>
+    </form>
+    ${saml.error?`<div class="inline-notice warning" role="status">Organisation SSO is unavailable. ${h(saml.error)}</div>`:''}
+    ${sso?`<div class="auth-divider"><span>Or use single sign-on</span></div><div class="auth-sso-buttons">${sso}</div>`:''}
+  </div>`);
 }
 function showLocalPasswordChange(required=state.passwordChangeRequired){
   if(state.authType!=='session'||accessProvider()!=='local')return;
@@ -140,11 +159,29 @@ function showLegacyDashboardLogin() {
   const config=state.authConfig,entra=config?.mode==='entra',tokens=config?.mode==='tokens';
   let content;
   if(entra){
-    content=`<div class="modal-body auth-signin-panel">${errorSlot}<div class="auth-emblem">${icon('access')}</div><h3>Your organisation. Your approved access.</h3><p>Sign in with Microsoft Entra ID using your organisation account. A Super Admin must grant your Prṛthak access first.</p>${state.authError?`<div class="form-error">${h(state.authError)}</div>`:''}${config.configured?`<button class="button microsoft-signin" data-action="auth-entra-login">${microsoftMark()}Sign in with Microsoft</button>`:'<div class="inline-notice warning">Microsoft Entra sign-in is not configured. Ask the deployment administrator to complete the tenant, application and callback configuration.</div>'}<div class="auth-role-chips"><span>Read Only</span><span>Admin</span><span>Super Admin</span></div><small>Your password and MFA are handled by Microsoft Entra ID. Prṛthak does not collect your directory password.</small></div>`;
+    content=`<div class="sign-in-content-panel">
+      <p class="sign-in-description">Continue with your organisation account through Microsoft Entra ID.</p>
+      ${errorSlot}${signInErrorHTML()}
+      ${config.configured?`<button type="button" class="button microsoft-signin" data-action="auth-entra-login">${microsoftMark()}Sign in with Microsoft</button>`:'<div class="inline-notice warning" role="status">Microsoft Entra sign-in is not configured. Contact your workspace administrator.</div>'}
+    </div>`;
   }else if(tokens){
-    content=`<form id="login-form"><div class="modal-body">${errorSlot}<div class="inline-notice">Role-token authentication is enabled on this controller. Microsoft Entra sign-in must be configured separately.</div><p class="help-text">Enter a controller-issued role token. It is kept only in this browser tab.</p><div class="field"><label for="login-token">Access token</label><input id="login-token" name="token" type="password" autocomplete="off" required autofocus></div></div><div class="modal-footer"><button class="button primary" type="submit">Connect workspace</button></div></form>`;
+    content=`<div class="sign-in-content-panel">
+      <p class="sign-in-description">Enter your controller-issued access token to continue.</p>
+      ${errorSlot}${signInErrorHTML()}
+      <form id="login-form" class="auth-local-form">
+        <div class="field">
+          <label for="login-token">Access token</label>
+          <input id="login-token" name="token" type="password" autocomplete="off" required autofocus>
+        </div>
+        <button class="button primary" type="submit">Connect workspace</button>
+      </form>
+    </div>`;
   }else{
-    content=`<div class="modal-body auth-signin-panel">${errorSlot}<div class="inline-notice warning">${h(state.authError || 'The controller authentication configuration is unavailable.')}</div><button class="button secondary" data-action="auth-retry">Retry sign-in configuration</button></div>`;
+    content=`<div class="sign-in-content-panel">
+      ${errorSlot}
+      <div class="inline-notice warning" role="alert">${h(state.authError || 'The controller authentication configuration is unavailable.')}</div>
+      <button type="button" class="button secondary" data-action="auth-retry">Retry sign-in configuration</button>
+    </div>`;
   }
   showSignInPage(content);
 }
