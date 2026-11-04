@@ -73,6 +73,10 @@ async function api(path, options={}) {
   const timeout = setTimeout(()=>controller.abort(),20000);
   try {
     const response = await fetch(`/api/v1${path}`, {...options,credentials:'same-origin',headers,body:options.body===undefined?undefined:JSON.stringify(options.body),signal:controller.signal});
+    if (options.download && response.ok) {
+      if (response.headers.get('Content-Type')!=='application/octet-stream') throw new Error('The controller did not return a download.');
+      return await response.blob();
+    }
     const result = response.status===204 ? {} : await response.json().catch(()=>({}));
     if (!response.ok) {if(response.status===403&&result.code==='password_change_required'){state.passwordChangeRequired=true;state.authProvider='local';state.data=null;if(typeof showLocalPasswordChange==='function')showLocalPasswordChange(true);}const error = new Error(result.error || result.message || `Request failed (${response.status})`);error.status=response.status;error.payload=result;throw error;}
     return result;

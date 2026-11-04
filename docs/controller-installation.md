@@ -130,12 +130,14 @@ From a frozen reviewed source tree, preview inputs without creating an archive:
 python3 scripts/package-controller.py --dry-run
 ```
 
-Create the source archive in a private output directory:
+Build the signed Linux agent archives first, then pass their directory when creating a controller release that hosts both agent downloads in **Agent setup**.
 
 ```sh
-python3 scripts/package-controller.py --output-dir /private/release-output
+python3 scripts/package-controller.py --agent-dist /private/signed-agents --output-dir /private/release-output
 ```
 
-Unsigned output is for isolated lab use. Set `PRTHAK_RELEASE_SIGNING_KEY_FILE` to the separately provisioned private seed to invoke the existing detached-signature tool. The seed is never packaged. Existing output is refused unless `--overwrite` is explicitly supplied for a reviewed unpublished rebuild. The builder uses allowlisted public inputs, refuses selected symlinks/special files and populated secret fields in `.env.example`, normalizes archive paths/modes, and writes a per-file manifest plus checksum. These controls do not replace source review or the independent signature-verification decision.
+The agent input directory must contain matching AMD64 and ARM64 archives and both detached signatures. The packager verifies the archives with the controller release trust pin before embedding them. The installer stages them for download from the controller, alongside the GUI workflow for creating a private setup JSON. Omit `--agent-dist` to produce a source-only build candidate for isolated lab use or later packaging.
+
+Set `PRTHAK_RELEASE_SIGNING_KEY_FILE` to the separately provisioned private seed to sign the controller archive. The seed is never packaged. Existing output is refused unless `--overwrite` is explicitly supplied for a reviewed unpublished rebuild. The builder uses allowlisted public inputs, refuses selected symlinks/special files and populated secret fields in `.env.example`, normalizes archive paths/modes, and writes a per-file manifest plus checksum. These controls do not replace source review or the independent signature-verification decision.
 
 <sub>Created by Pratik Srivastava</sub>

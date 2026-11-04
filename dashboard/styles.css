@@ -95,3 +95,4 @@ td,.mono,.host-name,.policy-service strong,.alert-title,.activity-item h3,.detai
 .sign-in-logo{display:block;width:132px;height:auto;margin-bottom:24px}
 .sign-in-card h1{font-size:27px;margin:0 0 12px}
 .sign-in-card .modal-body,.sign-in-card .modal-footer{padding:0;margin-top:14px}
+#agent-installation-form .modal-footer{flex-wrap:wrap}

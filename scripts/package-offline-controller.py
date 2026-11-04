@@ -2,6 +2,7 @@
 """Combine the reviewed controller archive and local dependency payload."""
 
 import argparse
+import importlib.util
 import io
 import os
 from pathlib import Path, PurePosixPath
@@ -16,7 +17,6 @@ PROJECT = Path(__file__).resolve().parents[1]
 REQUIRED = {'keys/docker.asc', 'rpms/repodata/repomd.xml', 'images.json', 'images.tar.gz'}
 RPM = re.compile(r'rpms/[A-Za-z0-9._+~:-]+\.rpm')
 REPODATA = re.compile(r'rpms/repodata/[A-Za-z0-9._-]+')
-ARCHES = ('amd64', 'arm64')
 INSTALL = """Prthak offline controller for RHEL 9 x86_64
 
 Verify the detached release signature with an independently trusted public pin
@@ -51,27 +51,11 @@ def payload_files(root):
     return files
 
 
-def verified_agents(directory, stage, version):
-    """Freeze the same agent bytes that are verified and added to the bundle."""
-    stage.mkdir(mode=0o700)
-    files = {}
-    for architecture in ARCHES:
-        name = f'prthak-agent-{version}-linux-{architecture}.tar.gz'
-        for filename, maximum in ((name, 64 * 1024**2), (name + '.signature.json', 16384)):
-            source = directory/filename
-            if source.is_symlink() or not source.is_file() or not 1 <= source.stat().st_size <= maximum:
-                raise ValueError('Missing or invalid signed Linux agent artifact: ' + filename)
-            with source.open('rb') as stream:
-                content = stream.read(maximum + 1)
-            if not 1 <= len(content) <= maximum:
-                raise ValueError('Agent artifact exceeded its size limit: ' + filename)
-            staged = stage/filename
-            staged.write_bytes(content)
-            files['agents/' + filename] = staged
-        subprocess.run([sys.executable, str(PROJECT/'scripts/verify-release.py'), '--public-trust-file',
-                        str(PROJECT/'deploy/release-public-trust.json'), '--signature',
-                        str(stage/(name + '.signature.json')), str(stage/name)], check=True)
-    return files
+def verified_agents(directory, version):
+    spec = importlib.util.spec_from_file_location('prthak_controller_packager', PROJECT/'scripts/package-controller.py')
+    packager = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(packager)
+    return packager.verified_agent_assets(directory, version, (PROJECT/'deploy/release-public-trust.json').read_bytes())
 
 
 def pack(controller, payload, output, key, agent_dist=PROJECT/'dist'):
@@ -87,7 +71,7 @@ def pack(controller, payload, output, key, agent_dist=PROJECT/'dist'):
         raise ValueError('Offline release output already exists')
     with tempfile.TemporaryDirectory(prefix='.offline-controller-', dir=output) as temporary:
         stage = Path(temporary)
-        files.update(verified_agents(agent_dist, stage/'agents', match[2]))
+        agents = verified_agents(agent_dist, match[2])
         candidate = stage/filename
         with tarfile.open(controller, 'r:gz') as base, tarfile.open(candidate, 'x:gz', compresslevel=1) as bundle:
             marker_data = b'Prthak controller offline release for RHEL 9 x86_64\n'
@@ -96,6 +80,7 @@ def pack(controller, payload, output, key, agent_dist=PROJECT/'dist'):
             marker.uname = marker.gname = 'root'
             bundle.addfile(marker, io.BytesIO(marker_data))
             seen = set()
+            embedded = set()
             for member in base:
                 parts = PurePosixPath(member.name).parts
                 if (not member.isfile() or len(parts) < 2 or parts[0] != stem or '..' in parts
@@ -105,9 +90,24 @@ def pack(controller, payload, output, key, agent_dist=PROJECT/'dist'):
                 if member.name == stem + '/INSTALL.txt':
                     member.size = len(INSTALL)
                     bundle.addfile(member, io.BytesIO(INSTALL))
+                elif parts[1] == 'agent-releases':
+                    data = agents.get(parts[-1]) if len(parts) == 3 else None
+                    with base.extractfile(member) as source:
+                        if data is None or member.size != len(data) or source.read() != data:
+                            raise ValueError('Embedded agent artifact does not match the signed release: ' + member.name)
+                    bundle.addfile(member, io.BytesIO(data))
+                    embedded.add(parts[-1])
                 else:
                     with base.extractfile(member) as source:
                         bundle.addfile(member, source)
+            if embedded and embedded != agents.keys():
+                raise ValueError('The controller archive contains an incomplete set of signed agent artifacts')
+            if not embedded:
+                for name, data in sorted(agents.items()):
+                    member = tarfile.TarInfo(stem + '/agent-releases/' + name)
+                    member.mode, member.size = 0o644, len(data)
+                    member.uname = member.gname = 'root'
+                    bundle.addfile(member, io.BytesIO(data))
             for name, path in sorted(files.items()):
                 member = tarfile.TarInfo(stem + '/offline/' + name)
                 member.mode = 0o600 if name == 'images.json' else 0o644

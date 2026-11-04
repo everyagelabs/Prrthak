@@ -15,7 +15,7 @@ function fixture({mode='entra',role='admin',profiles=[],total=profiles.length,re
  const nodes=new Map(),requests=[],downloads=[],errors=[],toasts=[],listeners={},blobs=new Map();let form;
  const element=selector=>{if(!nodes.has(selector))nodes.set(selector,{value:'',innerHTML:'',textContent:'',disabled:false,files:[],open:false,isConnected:true});return nodes.get(selector);};
  const c={console,Date,JSON,Blob,Number,String,Set,Map,Error,
-  state:{role,authType:mode==='demo'?'demo':'session',user:{id:'admin-a',tenant_id:'tenant-a'},csrfToken:'fixture-csrf',token:'',authConfig:{mode,tenant_id:'tenant-a'},data:{meta:{version:'0.10.0'}}},
+  state:{role,authType:mode==='demo'?'demo':'session',user:{id:'admin-a',tenant_id:'tenant-a'},csrfToken:'fixture-csrf',token:'',authConfig:{mode,tenant_id:'tenant-a',agent_downloads:{amd64:'0.18.1',arm64:'0.18.1'}},data:{meta:{version:'0.10.0'}}},
   canWrite:()=>['admin','super_admin'].includes(c.state.role),
   $:(selector,scope)=>selector==='button[type="submit"]'&&scope?.button?scope.button:element(selector),
   h:value=>String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'),timestamp:value=>value,errorSlot:'<div class="form-error"></div>',
@@ -36,7 +36,7 @@ function fixture({mode='entra',role='admin',profiles=[],total=profiles.length,re
 test('fleet setup is the default with one architecture-specific agent and no hostname or host-count requirement',async()=>{
  const f=fixture();await f.show();const html=f.element('#modal-content').innerHTML;
  assert.match(html,/value="fleet" selected/);assert.match(html,/any number of servers/);assert.match(html,/No hostname list, CSV or per-server download/);assert.match(html,/same binary is used on RHEL and Ubuntu/);assert.doesNotMatch(html,/id="agent-install-hostname"|name="(?:max_hosts|server_count|hostnames)"/);
- assert.match(html,/releases\/download\/v0\.18\.1-pilot\.1\/prthak-agent-0\.18\.1-linux-amd64\.tar\.gz/);assert.match(f.c.agentInstallationArchive('arm64'),/0\.18\.1-linux-arm64/);
+ assert.match(html,/\/api\/v1\/agent-installation\/releases\/amd64\/archive/);assert.match(f.c.agentInstallationArchive('arm64'),/0\.18\.1-linux-arm64/);
  f.c.state.data.meta.version='<script>wrong</script>';assert.equal(f.c.agentInstallationArchive('amd64'),'prthak-agent-0.18.1-linux-amd64.tar.gz');
  assert.match(html,/enrollment key grants no dashboard or firewall-policy authority/);
 });

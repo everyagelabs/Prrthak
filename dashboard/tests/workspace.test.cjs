@@ -31,7 +31,7 @@ async function workspace(view='overview',options={}) {
   else if(url==='/api/v1/learning-policies/learned-1')data=structuredClone(learnedPolicy);
   else if(url.startsWith('/api/v1/servers/'))data={server:structuredClone(host)};
   else data={items:[]};
-  const status=data.responseStatus || 200;return {ok:status>=200&&status<300,status,json:async()=>data.responseStatus?data.data:data,blob:async()=>new Blob([data.csvText || 'server_id,source_ip,port,protocol\r\nhost-1,192.0.2.44,8443,tcp\r\n'],{type:'text/csv'})};
+  const status=data.responseStatus || 200;return {ok:status>=200&&status<300,status,headers:new Headers(data.headers),json:async()=>data.responseStatus?data.data:data,blob:async()=>new Blob([data.csvText || 'server_id,source_ip,port,protocol\r\nhost-1,192.0.2.44,8443,tcp\r\n'],{type:'text/csv'})};
  }};
  context.apiResponses=options.responses || {};
  context.FormData=class{constructor(form){this.values=form.values || {};}get(key){return this.values[key] ?? null;}getAll(key){const value=this.values[key];return Array.isArray(value)?value:value==null?[]:[value];}};
@@ -789,6 +789,31 @@ test('storage and fixed service actions need an expiring typed review before que
  const env=await applianceWorkspace({'POST /api/v1/platform/appliance/storage/review':applianceReview({summary:{current_data_root:'/var/lib/prthak',data_root:'/srv/prthak-data'}}),'POST /api/v1/platform/appliance/storage/apply':haJob('storage-job','appliance_storage'),'POST /api/v1/platform/appliance/services/review':applianceReview(),'POST /api/v1/platform/appliance/services/apply':haJob('service-job','appliance_service')});await env.click('platform-tab',{tab:'storage'});const form=renderedForm(env,'platform-appliance-storage-form',{data_root:'relative/path'});await submitRendered(env,form);assert.equal(mutations(env).length,0);form.values.data_root='/srv/prthak-data';await submitRendered(env,form);let request=mutations(env)[0];assert.deepEqual(JSON.parse(request.options.body),{data_root:'/srv/prthak-data'});assert.match(env.element('#modal-content').innerHTML,/\/srv\/prthak-data/);let review=renderedForm(env,'platform-appliance-review-form',{confirmation_phrase:'wrong'});await submitRendered(env,review);assert.equal(mutations(env).length,1);review.values.confirmation_phrase='APPLY REVIEWED CHANGE';await submitRendered(env,review);assert.equal(mutations(env)[1].url,'/api/v1/platform/appliance/storage/apply');assert.equal(env.run('state.platformAppliance.data_root'),'/var/lib/prthak','queued migration does not change displayed actual mount path');
  await env.click('platform-tab',{tab:'services'});await env.click('platform-appliance-service-review',{id:'arbitrary-service',serviceAction:'restart'});assert.equal(mutations(env).length,2);await env.click('platform-appliance-service-review',{id:'controller',serviceAction:'restart'});request=mutations(env)[2];assert.deepEqual(JSON.parse(request.options.body),{service:'controller',action:'restart'});review=renderedForm(env,'platform-appliance-review-form',{confirmation_phrase:'APPLY REVIEWED CHANGE'});await submitRendered(env,review);assert.equal(mutations(env)[3].url,'/api/v1/platform/appliance/services/apply');assertCookieMutation(mutations(env)[3]);
 });
+test('unused local HA services have no controls while stopped services on a voter remain visible as faults',async()=>{
+ const haServices=[{id:'database',name:'PostgreSQL 16 / Patroni'},{id:'etcd',name:'etcd quorum'}];
+ const localServices=enabled=>[applianceState.services[0],...haServices.map(service=>({...service,state:'stopped',enabled,can_restart:true,can_stop:true}))];
+ const standalone=await applianceWorkspace({'/api/v1/platform/appliance':{...applianceState,manager_available:true,services:localServices(false)}});
+ await standalone.click('platform-tab',{tab:'services'});
+ let html=standalone.element('#view-content').innerHTML;
+ assert.equal((html.match(/Not used on this node/g)||[]).length,2);
+ assert.match(html,/standalone controller stores its data in SQLite/);
+ assert.match(html,/Appliance node manager.*prthak-appliance-manager\.service.*>Reachable/);
+ assert.doesNotMatch(html,/data-id="(?:database|etcd)" data-service-action/);
+ await standalone.click('platform-appliance-service-review',{id:'database',serviceAction:'restart'});
+ await standalone.click('platform-appliance-service-review',{id:'etcd',serviceAction:'stop'});
+ assert.equal(mutations(standalone).length,0);
+ const voter=await applianceWorkspace({'/api/v1/platform/status':{...productionPlatform,runtime:{...productionPlatform.runtime,ha:true,storage:'postgresql'}},'/api/v1/platform/appliance':{...applianceState,services:localServices(true)}});
+ await voter.click('platform-tab',{tab:'services'});
+ html=voter.element('#view-content').innerHTML;
+ assert.equal((html.match(/class="badge danger"><i><\/i>Stopped/g)||[]).length,2);
+ assert.match(html,/data-id="database" data-service-action="restart"/);
+ assert.match(html,/data-id="etcd" data-service-action="restart"/);
+ assert.doesNotMatch(html,/Not used on this node|standalone controller/);
+ const unreachable=await applianceWorkspace({'/api/v1/platform/appliance':{...applianceState,manager_available:false,services:[]}});
+ await unreachable.click('platform-tab',{tab:'services'});
+ assert.match(unreachable.element('#view-content').innerHTML,/Appliance node manager.*class="badge danger"><i><\/i>Unreachable/);
+ assert.doesNotMatch(unreachable.element('#view-content').innerHTML,/data-action="platform-appliance-service-review"/);
+});
 test('backup scheduling saves exact local timezone, weekday, interval and retention with stale revision protection',async()=>{
  const env=await applianceWorkspace();await env.click('platform-tab',{tab:'backups'});await new Promise(setImmediate);const html=env.element('#view-content').innerHTML;assert.match(html,/Automatic backups/);assert.match(html,/value="Asia\/Kolkata"/);assert.match(html,/Last successful run/);const form=renderedForm(env,'platform-backup-schedule-form',{enabled:'on',frequency:'weekly',time:'02:30',timezone:'Asia/Kolkata',weekday:'5',interval_hours:'24',retention_count:'14'});await submitRendered(env,form);const request=mutations(env)[0];assert.equal(request.url,'/api/v1/platform/backup-schedule');assert.deepEqual(JSON.parse(request.options.body),{expected_revision:3,enabled:true,frequency:'weekly',time:'02:30',timezone:'Asia/Kolkata',weekday:5,interval_hours:24,retention_count:14});assertCookieMutation(request);
  form.values.interval_hours='169';await submitRendered(env,form);assert.equal(mutations(env).length,1);assert.match(env.element('#platform-backup-schedule-error').textContent,/1–168/);form.values.interval_hours='24';form.values.timezone='Not/A/Timezone';await submitRendered(env,form);assert.equal(mutations(env).length,1);assert.match(env.element('#platform-backup-schedule-error').textContent,/IANA timezone/);
@@ -1007,23 +1032,40 @@ function endpointKit(overrides={}){return {schema_version:3,installation_options
 function agentKitValues(overrides={}){return {setup_mode:'individual',architecture:'amd64',expected_hostname:'linux-pilot-01',controller_url:'https://controller.example.test',interval_seconds:'30',discovery_interval_seconds:'900',...overrides};}
 
 test('GUI optional individual setup downloads a fresh data-only private kit with CSRF and no token rendering or browser persistence',async()=>{
- const kit=endpointKit(),env=await workspace('servers',{mode:'entra',role:'admin',responses:{'POST /api/v1/agent-installation/kit':kit}});env.run('showSetup()');const html=env.element('#modal-content').innerHTML;assert.match(html,/No agent JSON or environment-file editing/);assert.match(html,/--setup-file \/root\/prthak-agent-setup.json/);assert.match(html,/Enrollment is identity-only/);assert.doesNotMatch(html,/id="enrollment-(?:token|name|tags|location)"/);
+ const kit=endpointKit(),env=await workspace('servers',{mode:'entra',role:'admin',config:{agent_downloads:{arm64:'0.18.1'}},responses:{'POST /api/v1/agent-installation/kit':kit}});env.run('showSetup()');const html=env.element('#modal-content').innerHTML;assert.match(html,/No agent JSON or environment-file editing/);assert.match(html,/--setup-file \/root\/prthak-agent-setup.json/);assert.match(html,/Enrollment is identity-only/);assert.doesNotMatch(html,/id="enrollment-(?:token|name|tags|location)"/);
  await env.submit('agent-installation-form',agentKitValues());const request=env.requests.find(row=>row.url==='/api/v1/agent-installation/kit');assert.equal(request.options.cache,'no-store');assertCookieMutation(request);assert.deepEqual(JSON.parse(request.options.body),{family:'auto',architecture:'amd64',expected_hostname:'linux-pilot-01',controller_url:'https://controller.example.test',interval_seconds:30,discovery_interval_seconds:900,installation_options:{install_dependencies:true,ufw_action:'preserve'}});assert.equal(env.element('created:a').download,'prthak-agent-setup.json');assert.match(env.element('#agent-installation-result').innerHTML,/Use it for one endpoint/);assert.doesNotMatch(env.element('#modal-content').innerHTML+env.element('#agent-installation-result').innerHTML,RegExp(kit.enrollment_token));assert.equal(env.run('JSON.stringify(state).includes("private-setup-fixture-token")'),false);assert.equal(env.storageChanges.some(row=>String(row.value).includes(kit.enrollment_token)),false);assert.equal(env.displayStorageChanges.some(row=>row.value.includes(kit.enrollment_token)),false);
  env.element('#agent-install-architecture').value='arm64';env.run('agentInstallationChange({target:{id:"agent-install-architecture"}})');assert.match(env.element('#agent-install-command').textContent,/install-agent-auto.sh --setup-file/);assert.match(env.element('#agent-install-archive').textContent,/linux-arm64.tar.gz/);
 });
 
-test('agent package links follow CPU choice and prefer a staged signed release',async()=>{
- const env=await workspace('servers',{mode:'entra',role:'admin',config:{agent_downloads:{amd64:'0.18.0',arm64:'https://foreign.invalid/archive'}}});
+test('agent archive and private setup JSON are separate actions in Agent setup',async()=>{
+ const env=await workspace('servers',{mode:'entra',role:'admin',config:{agent_downloads:{amd64:'0.18.0',arm64:'0.18.1'}}});
  env.run('showSetup()');
- assert.match(env.element('#modal-content').innerHTML,/href="\/api\/v1\/agent-installation\/releases\/amd64\/archive"/);
- assert.match(env.element('#modal-content').innerHTML,/href="\/api\/v1\/agent-installation\/releases\/amd64\/signature"/);
+ const modal=env.element('#modal-content').innerHTML;
+ assert.match(modal,/href="\/api\/v1\/agent-installation\/releases\/amd64\/signature"/);
+ assert.match(modal,/<div class="modal-footer">.*href="\/api\/v1\/agent-installation\/releases\/amd64\/archive".*Download agent \(\.tar\.gz\).*Download private setup JSON/);
  env.element('#agent-install-architecture').value='arm64';
  env.run('agentInstallationChange({target:{id:"agent-install-architecture"}})');
- const html=env.element('#agent-install-download-links').innerHTML;
- assert.match(html,/https:\/\/github\.com\/everyagelabs\/Prrthak\/releases\/download\/v0\.18\.1-pilot\.1\/prthak-agent-0\.18\.1-linux-arm64\.tar\.gz"/);
- assert.match(html,/linux-arm64\.tar\.gz\.signature\.json"/);
- assert.doesNotMatch(html,/foreign\.invalid/);
+ assert.match(env.element('#agent-install-archive-action').innerHTML,/href="\/api\/v1\/agent-installation\/releases\/arm64\/archive" download="prthak-agent-0\.18\.1-linux-arm64\.tar\.gz"/);
+ assert.match(env.element('#agent-install-download-links').innerHTML,/linux-arm64\.tar\.gz\.signature\.json"/);
+ env.run('state.authConfig.agent_downloads.arm64="https://foreign.invalid/archive";agentInstallationChange({target:{id:"agent-install-architecture"}})');
+ assert.match(env.element('#agent-install-archive-action').innerHTML,/<button[^>]*disabled/);
+ assert.match(env.element('#agent-install-download-links').innerHTML,/unavailable on this controller/);
+ assert.doesNotMatch(env.element('#agent-install-download-links').innerHTML,/href=/);
  assert.equal(mutations(env).length,0);
+});
+
+test('agent downloads in a token session send authentication only to the controller',async()=>{
+ const url='/api/v1/agent-installation/releases/arm64/archive';
+ const env=await workspace('servers',{mode:'tokens',role:'admin',storage:{'segment-token':'private-fixture-token'},config:{agent_downloads:{arm64:'0.18.1'}},responses:{[url]:{headers:{'Content-Type':'application/octet-stream'}}}});
+ env.run('showSetup()');
+ env.element('#agent-install-architecture').value='arm64';
+ env.run('agentInstallationChange({target:{id:"agent-install-architecture"}})');
+ assert.match(env.element('#agent-install-archive-action').innerHTML,/data-agent-release-asset="archive"/);
+ await env.run('downloadTokenAgentAsset({dataset:{agentReleaseAsset:"archive"}})');
+ const request=env.requests.find(row=>row.url===url);
+ assert.equal(request.options.headers.Authorization,'Bearer private-fixture-token');
+ assert.equal(request.options.credentials,'same-origin');
+ assert.equal(env.element('created:a').download,'prthak-agent-0.18.1-linux-arm64.tar.gz');
 });
 
 test('GUI endpoint setup refuses unsafe origins, invalid intervals, private-key uploads and Read Only requests',async()=>{

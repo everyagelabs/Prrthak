@@ -24,8 +24,30 @@ function platformApplianceClusterHTML(){
 function platformApplianceStorageHTML(){
   const info=appliance();return `${applianceDisabledNotice()}<section class="card platform-panel"><div class="platform-panel-heading"><span class="platform-feature-icon">${icon('services')}</span><div><h2>Storage location</h2><p>Change the appliance data path through a reviewed migration.</p></div></div><dl class="detail-grid"><div><dt>Current data path</dt><dd><code>${h(info.data_root || 'Not reported')}</code></dd></div></dl><form id="platform-appliance-storage-form"><div id="platform-appliance-storage-error" class="form-error" role="alert" hidden></div><div class="field"><label for="appliance-data-root">New data mount path</label><input id="appliance-data-root" name="data_root" value="" required placeholder="/srv/prthak-data"><small>Choose an absolute path on a mounted volume. The review reports migration checks, service interruption and any blockers before changes start.</small></div><button class="button secondary" type="submit" ${!applianceOperational()?'disabled':''}>Review storage migration</button></form></section>${platformJobsHTML()}`;
 }
+function applianceServiceUnused(service){
+  return service.enabled===false&&['database','etcd'].includes(service.id);
+}
+function applianceServiceRowHTML(service){
+  const unused=applianceServiceUnused(service);
+  const running=['active','running'].includes(service.state);
+  const stopped=['stopped','exited'].includes(service.state);
+  const inactive=unused&&stopped;
+  const label=inactive?'Not used on this node':humanize(service.state || 'Not reported');
+  const unexpected=(unused&&running)||(service.enabled===true&&stopped);
+  const failed=unexpected||['failed','dead'].includes(service.state);
+  const kind=failed?'danger':running?'':'neutral';
+  const enabled=unused?'HA database voters only':service.enabled===true?'Enabled':service.enabled===false?'Disabled':'Not reported';
+  const disabled=applianceOperational()?'':'disabled';
+  const actions=unused?'&mdash;':`<div class="platform-backup-actions"><button class="text-button" data-action="platform-appliance-service-review" data-id="${h(service.id)}" data-service-action="restart" ${service.can_restart===true?disabled:'disabled'}>Restart</button>${service.can_stop===true?`<button class="text-button danger-text" data-action="platform-appliance-service-review" data-id="${h(service.id)}" data-service-action="stop" ${disabled}>Stop</button>`:''}</div>`;
+  return `<tr><td><strong>${h(service.name || service.id)}</strong></td><td>${badge(label,kind)}</td><td>${enabled}</td><td>${actions}</td></tr>`;
+}
 function platformApplianceServicesHTML(){
-  const services=appliance().services || [];return `${platformApplicationPortHTML()}${applianceDisabledNotice()}<section class="card platform-panel"><div class="section-line"><h2>Appliance services</h2><button class="text-button" data-action="platform-refresh">Refresh health</button></div><p class="platform-intro">Review a fixed service action before it runs. Controller restarts may briefly disconnect this dashboard; completion is shown only after the operation reports its result.</p><div class="table-scroll"><table><thead><tr><th>Service</th><th>Reported state</th><th>Enabled</th><th>Actions</th></tr></thead><tbody>${services.map(service=>`<tr><td><strong>${h(service.name || service.id)}</strong></td><td>${badge(humanize(service.state || 'Not reported'),service.state==='active'||service.state==='running'?'':service.state==='failed'?'danger':'neutral')}</td><td>${service.enabled===true?'Enabled':service.enabled===false?'Disabled':'Not reported'}</td><td><div class="platform-backup-actions"><button class="text-button" data-action="platform-appliance-service-review" data-id="${h(service.id)}" data-service-action="restart" ${!applianceOperational()||service.can_restart!==true?'disabled':''}>Restart</button>${service.can_stop===true?`<button class="text-button danger-text" data-action="platform-appliance-service-review" data-id="${h(service.id)}" data-service-action="stop" ${!applianceOperational()?'disabled':''}>Stop</button>`:''}</div></td></tr>`).join('') || '<tr><td colspan="4">No managed service state has been reported by this appliance.</td></tr>'}</tbody></table></div></section>${platformJobsHTML()}`;
+  const info=appliance(),services=info.services || [];
+  const runtime=state.platformInfo?.runtime;
+  const storageNote=runtime?.ha===false&&runtime.storage==='sqlite'&&services.some(applianceServiceUnused)?'<p class="help-text">This standalone controller stores its data in SQLite. PostgreSQL with Patroni and etcd run on database voters in a high-availability deployment.</p>':'';
+  const managerState=info.manager_available===true?badge('Reachable'):info.manager_available===false?badge('Unreachable','danger'):badge('Not reported','neutral');
+  const managerRow=info.installed===true?`<tr><td><strong>Appliance node manager</strong><br><small>prthak-appliance-manager.service</small></td><td>${managerState}</td><td>Host systemd</td><td>&mdash;</td></tr>`:'';
+  return `${platformApplicationPortHTML()}${applianceDisabledNotice()}<section class="card platform-panel"><div class="section-line"><h2>Appliance services</h2><button class="text-button" data-action="platform-refresh">Refresh health</button></div><p class="platform-intro">Review a service action before it runs. A controller restart can briefly disconnect the dashboard. Check Deployment operations for the result.</p>${storageNote}<div class="table-scroll"><table><thead><tr><th>Service</th><th>Reported state</th><th>Configuration</th><th>Actions</th></tr></thead><tbody>${managerRow}${services.map(applianceServiceRowHTML).join('') || '<tr><td colspan="4">No managed service state has been reported by this appliance.</td></tr>'}</tbody></table></div></section>${platformJobsHTML()}`;
 }
 function platformBackupScheduleHTML(){
   const schedule=state.platformBackupSchedule,loaded=!!schedule,s=schedule || {},frequency=s.frequency || 'daily';
@@ -76,6 +98,6 @@ async function platformApplianceAction(button){
   if(action==='platform-appliance-create'||action==='platform-appliance-connect'){platformClearDraft();state.platformTab='cluster';state.platformApplianceClusterMode=action==='platform-appliance-connect'?'join':'settings';render();return;}
   if(action==='platform-backup-schedule-refresh')return loadPlatformBackupSchedule();
   if(action==='platform-appliance-service-review'){
-    try{const service=(appliance().services || []).find(service=>service.id===id),operation=button.dataset.serviceAction;if(!applianceOperational()||!service||!['restart','stop'].includes(operation)||(operation==='restart'&&service.can_restart!==true)||(operation==='stop'&&service.can_stop!==true))throw new Error('This fixed service action is not available on the installed appliance.');const plan=await api('/platform/appliance/services/review',{method:'POST',body:{service:id,action:operation}});platformShowApplianceReview(plan,'services');}catch(error){formError(error);}
+    try{const service=(appliance().services || []).find(service=>service.id===id),operation=button.dataset.serviceAction;if(!applianceOperational()||!service||applianceServiceUnused(service)||!['restart','stop'].includes(operation)||(operation==='restart'&&service.can_restart!==true)||(operation==='stop'&&service.can_stop!==true))throw new Error('This fixed service action is not available on the installed appliance.');const plan=await api('/platform/appliance/services/review',{method:'POST',body:{service:id,action:operation}});platformShowApplianceReview(plan,'services');}catch(error){formError(error);}
   }
 }

@@ -1972,8 +1972,10 @@ def protected_release_directory(path):
         raise Blocked('The agent release directory must be root-owned, protected and free of symlinks')
 
 
-def stage_offline_agent_releases(release, data_root):
-    source = release/'offline/agents'
+def stage_agent_releases(release, data_root):
+    source = release/'agent-releases'
+    if not source.exists() and not source.is_symlink():
+        source = release/'offline/agents'
     if not source.exists() and not source.is_symlink():
         return
     protected_release_directory(source.parent)
@@ -1981,20 +1983,20 @@ def stage_offline_agent_releases(release, data_root):
     version = re.search(r'^__version__ = "([0-9]+\.[0-9]+\.[0-9]+)"$',
                         (release/'controller/__init__.py').read_text(), re.MULTILINE)
     if not version:
-        raise Blocked('Cannot identify the matching offline agent release version')
+        raise Blocked('Cannot identify the matching agent release version')
     files = {}
     for arch in ('amd64', 'arm64'):
         archive = 'prthak-agent-' + version[1] + '-linux-' + arch + '.tar.gz'
-        for name, maximum in ((archive, 32 * 1024**2), (archive+'.signature.json', 16384)):
+        for name, maximum in ((archive, 16 * 1024**2), (archive+'.signature.json', 16384)):
             descriptor = os.open(source/name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
             with os.fdopen(descriptor, 'rb') as stream:
                 info = os.fstat(stream.fileno())
                 if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022
-                        or not 0 < info.st_size <= maximum):
-                    raise Blocked('The offline agent release contains an unsafe file')
+                        or info.st_nlink != 1 or not 0 < info.st_size <= maximum):
+                    raise Blocked('The agent release contains an unsafe file')
                 files[name] = stream.read(maximum + 1)
                 if len(files[name]) != info.st_size:
-                    raise Blocked('An offline agent release file changed during staging')
+                    raise Blocked('An agent release file changed during staging')
     runtime = data_root/'runtime'
     private_dir(runtime)
     destination = runtime/'agent-releases'
@@ -2028,9 +2030,9 @@ def install(args):
     release=Path(args.release_root).resolve()
     if getattr(args, 'offline', False):
         images = offline_appliance_images(engine, release/'offline')
-        stage_offline_agent_releases(release, root)
     else:
         images = build_appliance_images(engine, release, root/'runtime/build')
+    stage_agent_releases(release, root)
     engine.controller_image = images['controller']
     local['images']=images
     private_dir(root/'config/controller',10001);private_dir(root/'controller',10001)

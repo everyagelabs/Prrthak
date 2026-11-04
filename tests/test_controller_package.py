@@ -292,3 +292,31 @@ class ControllerPackageTests(unittest.TestCase):
         contents=self.members(result['archive'])
         self.assertFalse(any(seed.read_bytes() in data for item,data in contents.values()))
         self.assertNotIn('private-release.seed',contents)
+
+    def test_connected_package_embeds_only_both_verified_agent_archives_and_signatures(self):
+        from controller.policy_signing import PolicySigner
+
+        seed = self.base / 'private-release.seed'
+        signer = PolicySigner(seed, '00000000-0000-0000-0000-000000000000', create=True)
+        self.put('deploy/release-public-trust.json', json.dumps(signer.public_trust()))
+        archives = [self.put(f'agents/prthak-agent-0.6.0-linux-{arch}.tar.gz', arch)
+                    for arch in ('amd64', 'arm64')]
+        subprocess.run([sys.executable, str(PROJECT/'scripts/sign-release.py'), '--key-file', str(seed),
+                        *map(str, archives)], check=True, capture_output=True, timeout=15)
+
+        result = self.build(agent_dist=archives[0].parent)
+        contents = self.members(result['archive'])
+        manifest = json.loads(contents['MANIFEST.json'][1])
+        names = {archive.name + suffix for archive in archives for suffix in ('', '.signature.json')}
+        self.assertFalse(manifest['source_only'])
+        self.assertEqual({name for name in contents if name.startswith('agent-releases/')},
+                         {'agent-releases/' + name for name in names})
+        for name in names:
+            data = (archives[0].parent / name).read_bytes()
+            archive_path = 'agent-releases/' + name
+            self.assertEqual(contents[archive_path][1], data)
+            self.assertEqual(manifest['files'][archive_path]['sha256'], hashlib.sha256(data).hexdigest())
+
+        archives[0].write_bytes(b'AMD64')
+        with self.assertRaisesRegex(package.PackageError, 'Signed Linux agent artifact did not verify'):
+            self.build(agent_dist=archives[0].parent, overwrite=True)

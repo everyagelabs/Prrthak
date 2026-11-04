@@ -20,6 +20,9 @@ import tempfile
 PROJECT = Path(__file__).resolve().parents[1]
 MAX_FILE_BYTES = 8 * 1024 * 1024
 MAX_PAYLOAD_BYTES = 64 * 1024 * 1024
+AGENT_ARCHIVE_LIMIT = 16 * 1024 * 1024
+AGENT_SIGNATURE_LIMIT = 16 * 1024
+AGENT_ARCHITECTURES = ('amd64', 'arm64')
 # Reviewed public guide outputs only. A new render or image name must be added
 # deliberately; unrelated nested documentation and private captures are excluded.
 SIMPLE_GUIDE_FILES = (
@@ -110,8 +113,10 @@ class PackageError(ValueError):
     pass
 
 
-def _regular_bytes(root: Path, name: str) -> bytes:
+def _regular_bytes(root: Path, name: str, maximum: int | None = None) -> bytes:
     """Walk inside an opened root; no selected path component may be a symlink."""
+    if maximum is None:
+        maximum = MAX_FILE_BYTES
     relative = PurePosixPath(name)
     if relative.is_absolute() or any(part in ('', '.', '..') for part in relative.parts):
         raise PackageError('Unsafe package source path')
@@ -124,10 +129,10 @@ def _regular_bytes(root: Path, name: str) -> bytes:
         descriptor = os.open(relative.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
         with os.fdopen(descriptor, 'rb') as handle:
             info = os.fstat(handle.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > MAX_FILE_BYTES:
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > maximum:
                 raise PackageError('Selected source must be a single regular bounded file: ' + name)
-            data = handle.read(MAX_FILE_BYTES + 1)
-            if len(data) > MAX_FILE_BYTES:
+            data = handle.read(maximum + 1)
+            if len(data) > maximum:
                 raise PackageError('Selected source grew beyond the byte limit: ' + name)
             return data
     finally:
@@ -224,18 +229,48 @@ def snapshot(root: Path) -> tuple[str, dict[str, bytes]]:
     return version.group(1).decode('ascii'), payload
 
 
-def _manifest(version: str, payload: dict[str, bytes]) -> dict:
-    return {'product': 'Prṛthak controller', 'version': version, 'source_only': True,
+def _manifest(version: str, payload: dict[str, bytes], *, source_only: bool) -> dict:
+    return {'product': 'Prṛthak controller', 'version': version, 'source_only': source_only,
             'files': {name: {'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
                       for name, data in sorted(payload.items())}}
 
 
-def build(source_root: Path, output_dir: Path, *, dry_run: bool = False, overwrite: bool = False) -> dict:
+def verified_agent_assets(directory: Path, version: str, trust: bytes) -> dict[str, bytes]:
+    """Verify and return the exact signed files for both Linux architectures."""
+    assets = {}
+    with tempfile.TemporaryDirectory(prefix='prthak-signed-agent-assets-') as temporary:
+        staging = Path(temporary)
+        pin = staging / 'release-public-trust.json'
+        pin.write_bytes(trust)
+        pin.chmod(0o600)
+        for architecture in AGENT_ARCHITECTURES:
+            archive = f'prthak-agent-{version}-linux-{architecture}.tar.gz'
+            signature = archive + '.signature.json'
+            for name, maximum in ((archive, AGENT_ARCHIVE_LIMIT), (signature, AGENT_SIGNATURE_LIMIT)):
+                data = _regular_bytes(directory, name, maximum)
+                if not data:
+                    raise PackageError('Empty signed Linux agent artifact: ' + name)
+                assets[name] = data
+                (staging / name).write_bytes(data)
+            result = subprocess.run([sys.executable, str(PROJECT / 'scripts/verify-release.py'),
+                                     '--public-trust-file', str(pin), '--signature', str(staging / signature),
+                                     str(staging / archive)], capture_output=True, check=False)
+            if result.returncode:
+                raise PackageError('Signed Linux agent artifact did not verify: ' + archive)
+    return assets
+
+
+def build(source_root: Path, output_dir: Path, *, dry_run: bool = False, overwrite: bool = False,
+          agent_dist: Path | None = None) -> dict:
     source_root = source_root.resolve(strict=True)
     version, payload = snapshot(source_root)
+    agent_assets = {} if agent_dist is None else {
+        'agent-releases/' + name: data for name, data in
+        verified_agent_assets(agent_dist, version, payload['deploy/release-public-trust.json']).items()
+    }
     stem = 'prthak-controller-' + version
     filename = stem + '.tar.gz'
-    manifest = _manifest(version, payload)
+    manifest = _manifest(version, {**payload, **agent_assets}, source_only=not agent_assets)
     if dry_run:
         return {'dry_run': True, 'archive': filename, 'public_source_files': len(payload), 'manifest': manifest}
     output_dir = output_dir.resolve()
@@ -283,11 +318,13 @@ Advanced --env-file installation remains supported for existing deployments.
 The installer builds images and fetches base images/OS/Python packages, etcd and
 HAProxy. Approved registry/package access is required; this is not an offline
 image bundle. Native/DC/DR and target hardware validation remain separate.
-No keys, real environment file, database, test fixture or agent binary is included.
+No private keys, real environment file, database or test fixture is included.
+{'Download both signed Linux agent packages from Agent setup.' if agent_assets else 'This source bundle omits the signed Linux agent packages.'}
 
 Created by Pratik Srivastava
 '''.encode('utf-8')
-    archive_payload = dict(payload, **{'INSTALL.txt': install, 'MANIFEST.json': (json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False) + '\n').encode('utf-8')})
+    archive_payload = {**payload, **agent_assets, 'INSTALL.txt': install,
+                       'MANIFEST.json': (json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False) + '\n').encode('utf-8')}
     with tempfile.TemporaryDirectory(prefix='.prthak-controller-build-', dir=output_dir) as temporary:
         stage = Path(temporary)
         candidate = stage / filename
@@ -324,11 +361,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root', type=Path, default=PROJECT)
     parser.add_argument('--output-dir', type=Path, default=PROJECT / 'dist')
-    parser.add_argument('--dry-run', action='store_true', help='validate and list public inputs without creating files or signing')
+    parser.add_argument('--agent-dist', type=Path, help='directory with both matching signed Linux agent archives')
+    parser.add_argument('--dry-run', action='store_true', help='validate and list public inputs without writing a release or signing')
     parser.add_argument('--overwrite', action='store_true', help='replace a reviewed unpublished package and its sidecars')
     args = parser.parse_args()
     try:
-        result = build(args.source_root, args.output_dir, dry_run=args.dry_run, overwrite=args.overwrite)
+        result = build(args.source_root, args.output_dir, dry_run=args.dry_run, overwrite=args.overwrite,
+                       agent_dist=args.agent_dist)
     except (PackageError, OSError, UnicodeError, subprocess.SubprocessError) as error:
         print('Controller package blocked: ' + str(error), file=sys.stderr)
         return 1
