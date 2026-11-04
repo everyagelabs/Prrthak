@@ -116,6 +116,9 @@ func checkEnforcementUpgradeSafety(c Config, ownsConfigurationLock bool, ownRevi
 // The caller either holds the managed lease or has just performed the read-only
 // lock/fence preflight above. Preparation rechecks while retaining both leases.
 func checkEnforcementJournals(c Config) error {
+	if err := checkNetworkControlUpgradeSafety(c); err != nil {
+		return err
+	}
 	bankPaths, err := filepath.Glob(filepath.Join(sourceBankDirectory(c.StateDir), "*.json"))
 	if err != nil {
 		return err
@@ -127,6 +130,19 @@ func checkEnforcementJournals(c Config) error {
 		journal, err := readManagedJournal(path, strings.TrimSuffix(filepath.Base(path), ".json"))
 		if err != nil || !terminalManagedPhase(journal.Phase) {
 			return errors.New("source-bank maintenance/recovery is active or unverifiable; binary replacement refused")
+		}
+	}
+	maintenance, err := filepath.Glob(filepath.Join(firewallActivationDirectory(c.StateDir), "*.json"))
+	if err != nil {
+		return err
+	}
+	if len(maintenance) > enforcementHistoryMaxEntries {
+		return errors.New("firewall maintenance history exceeds capacity")
+	}
+	for _, path := range maintenance {
+		journal, err := readManagedJournal(path, strings.TrimSuffix(filepath.Base(path), ".json"))
+		if err != nil || !terminalManagedPhase(journal.Phase) {
+			return errors.New("firewall maintenance/recovery is active or unverifiable; binary replacement refused")
 		}
 	}
 	for _, directory := range []string{managedDirectory(c.StateDir), learningAllowDirectory(c.StateDir)} {

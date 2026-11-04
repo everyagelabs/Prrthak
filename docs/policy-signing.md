@@ -52,6 +52,12 @@ the approved process. Changed sources, authorities, polling intent or expired
 validity require a fresh artifact. Online signing with a separate TLS key alone
 does not protect against a controller that can access that signing seed.
 
+## Current GUI/controller signing choice
+
+The selected deployment uses automatic **online** controller signing. A Super Admin opens **Settings → Policy signing** to check the real signing/public-key pair, create an encrypted node-local Vault checkpoint, or preview and confirm repair of a missing current key. The repair accepts only the same deployment/key identity, validates trust and local authority, and refuses existing, changed, unsafe or foreign key paths. Private key bytes are never downloaded by this page.
+
+This checkpoint is local recovery material, not an off-node DR backup. Key rotation remains unavailable until an explicit agent trust-migration workflow exists. An online controller that can sign remains part of the signing trust boundary; separating the key from TLS does not make it offline. The optional offline provider described above is not the selected installation model and is not required for automatic learning or normal GUI updates.
+
 ## Signed Linux packages
 
 Provision a dedicated release-signing key outside source control. To create a

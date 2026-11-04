@@ -2,7 +2,7 @@
 
 New to Linux? Use the [simple agent picture guide](guide/simple/agent-installation.pdf), or its [browser edition with copyable commands](guide/simple/agent-installation.html). The [end-to-end command sheets](installation-commands.md#agent) include safe dependencies, private file transfer, CPU selection, checksum verification, extraction, installation and status checks.
 
-**Preferred 0.17 GUI flow:** download one private **Fleet setup** through **Install
+**Preferred GUI flow:** download one private **Fleet setup** through **Install
 agent**, copy the same file to the servers as root-owned 0600 at `/root/prthak-agent-setup.json`, then run
 `sudo ./scripts/install-agent-auto.sh --setup-file /root/prthak-agent-setup.json`
 on either supported Linux family. OS/CPU detection and required dependency
@@ -18,12 +18,14 @@ Prṛthak supplies one automatic entrypoint over the same credential/upgrade-saf
 
 | Target | Entrypoint | Runtime packages |
 | --- | --- | --- |
-| RHEL 8 or 9, amd64/arm64 | `scripts/install-agent-auto.sh` | `systemd`, `iproute`, `firewalld`, `ca-certificates`, `util-linux` (`flock`) |
-| Ubuntu 26.04, amd64/arm64 | `scripts/install-agent-auto.sh` | `systemd`, `iproute2`, `firewalld`, `ca-certificates`, `util-linux` (`flock`) |
+| RHEL / Rocky / Alma / Oracle Linux 8 or 9, amd64/arm64 | `scripts/install-agent-auto.sh` | `systemd`, `iproute`, `firewalld`, `ca-certificates`, `util-linux` (`flock`), `nftables`, `procps-ng` (`sysctl`) |
+| Ubuntu 22.04 / 24.04 / 26.04, amd64/arm64 | `scripts/install-agent-auto.sh` | `systemd`, `iproute2`, `firewalld`, `ca-certificates`, `util-linux` (`flock`), `nftables`, `procps` (`sysctl`) |
 
-The automatic entrypoint detects OS/version and CPU, validates the GUI kit and signed binary/unit, prepares missing packages through the native helper and calls `install-agent.sh`. Genuine systemd and root/sudo must already be available. The agent binary needs no separate Git, Python, Go compiler or Go runtime setup; firewalld uses its normal OS package dependencies. Existing `install-agent-rhel.sh` and `install-agent-ubuntu.sh` entrypoints remain available for compatibility. Controller and endpoint installation are separate.
+The automatic entrypoint detects OS/version and CPU, validates the GUI kit and signed binary/unit, prepares missing packages through the native helper and calls `install-agent.sh`. Genuine systemd and root/sudo must already be available. The agent binary needs no separate Git, Python, Go compiler or Go runtime setup; firewalld uses its normal OS package dependencies. Existing `install-agent-rhel.sh` and `install-agent-ubuntu.sh` entrypoints remain available for compatibility. Controller and endpoint installation are separate. Controller prerequisites remain exactly RHEL 9 and Ubuntu 26.04. RHEL 7/10 and unrecognized derivatives are refused, rather than treated as compatible through ID_LIKE.
 
 The scripts have staged/mocked acceptance checks. Native RHEL 8/9 and Ubuntu host testing is deferred to the deployment phase; passing the platform check does not certify kernel, systemd, SELinux/polkit, firewalld or rollback behavior.
+
+After monitor-only enrollment, **Firewall maintenance** offers fresh assessment and reviewed activation, restricted UFW conversion, egress-template preparation and compatible native-counter enablement. No installation automatically switches firewall managers. Unknown/custom UFW hooks remain blocked. See [workflow and limits](observability-and-network-controls.md).
 
 ## Prepare the endpoint and release
 
@@ -36,13 +38,13 @@ An administration-workstation verification example, using approved Python 3.10+ 
 ```sh
 python3 /approved/tools/verify-release.py \
   --public-trust-file /approved/trust/prthak-release-public-trust.json \
-  --signature prthak-agent-0.17.0-linux-amd64.tar.gz.signature.json \
-  prthak-agent-0.17.0-linux-amd64.tar.gz
+  --signature prthak-agent-0.18.0-linux-amd64.tar.gz.signature.json \
+  prthak-agent-0.18.0-linux-amd64.tar.gz
 sudo install -d -o root -g root -m 0755 /opt/prthak/agent-releases
 sudo tar --no-same-owner --no-same-permissions \
-  -xzf /protected/releases/prthak-agent-0.17.0-linux-amd64.tar.gz \
+  -xzf /protected/releases/prthak-agent-0.18.0-linux-amd64.tar.gz \
   -C /opt/prthak/agent-releases
-cd /opt/prthak/agent-releases/prthak-agent-0.17.0-linux-amd64
+cd /opt/prthak/agent-releases/prthak-agent-0.18.0-linux-amd64
 ```
 
 Use the ARM64 filenames on ARM64. Transfer the already verified archive through your protected release path before extraction; execute privileged installers from protected root-owned release files. Obtain the verifier and public pin through the approved independent channel. RHEL 8's default Python 3.6 cannot run this verifier.

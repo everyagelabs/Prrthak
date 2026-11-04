@@ -190,7 +190,7 @@ def _pg_data_hashes(db, tables, deadline=None):
     raw = getattr(db, "connection", None)
     for table in sorted(set(tables) - {"runtime_deployment"}):
         columns = _columns(table)
-        order = columns[0] if table == "flows" else columns[0] + ' COLLATE "C"'
+        order = columns[0] if table in ("flows", "siem_events") else columns[0] + ' COLLATE "C"'
         sql = f'SELECT {",".join(columns)} FROM "{table}" ORDER BY {order}'
         checksum = hashlib.sha256()
         with raw.cursor(name="prthak_backup_hash_" + uuid.uuid4().hex) as cursor:

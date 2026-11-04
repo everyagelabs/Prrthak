@@ -557,7 +557,7 @@ func (a *Agent) rollbackFirewallJournal(ctx context.Context, journal *firewallJo
 		}
 	}
 	if uncertain {
-		verified := CollectFirewallSnapshot(ctx, a.Commands, a.ownedFirewallObservationRules())
+		verified := CollectFirewallSnapshot(ctx, a.Commands, a.ownedFirewallObservationRules(), a.Config.StateDir)
 		if verified.Status != "ok" || verified.Digest != journal.Before.Digest {
 			failures = append(failures, "unacknowledged mutation requires manual review; baseline was not verified")
 		}
@@ -660,7 +660,7 @@ func (a *Agent) applyFirewallChange(ctx context.Context, change FirewallChange) 
 			return fail("plan ID was previously used with a different digest")
 		}
 	}
-	snapshot := CollectFirewallSnapshot(ctx, a.Commands, a.ownedFirewallObservationRules())
+	snapshot := CollectFirewallSnapshot(ctx, a.Commands, a.ownedFirewallObservationRules(), a.Config.StateDir)
 	result.SnapshotDigest = snapshot.Digest
 	if snapshot.Status != "ok" {
 		return fail("fresh firewall inventory is incomplete; change refused")
@@ -715,7 +715,7 @@ func (a *Agent) applyFirewallChange(ctx context.Context, change FirewallChange) 
 			return fail("change failed; completed mutations rolled back")
 		}
 	}
-	after := CollectFirewallSnapshot(ctx, a.Commands, a.ownedFirewallObservationRules())
+	after := CollectFirewallSnapshot(ctx, a.Commands, a.ownedFirewallObservationRules(), a.Config.StateDir)
 	if after.Status != "ok" {
 		_ = a.rollbackFirewallJournal(ctx, journal)
 		return fail("post-change inventory incomplete; rollback attempted and backup retained")
@@ -793,7 +793,7 @@ func (a *Agent) processApprovedChanges(ctx context.Context, changes []FirewallCh
 		}
 		result := a.applyFirewallChange(ctx, change)
 		if result.Status != "applied" && a.Config.AllowFirewallChanges && !a.Simulate && a.inventory != nil {
-			a.inventory.FirewallSnapshot = retainFirewallSnapshot(a.inventory.FirewallSnapshot, CollectFirewallSnapshot(ctx, a.Commands, a.ownedFirewallObservationRules()))
+			a.inventory.FirewallSnapshot = retainFirewallSnapshot(a.inventory.FirewallSnapshot, CollectFirewallSnapshot(ctx, a.Commands, a.ownedFirewallObservationRules(), a.Config.StateDir))
 		}
 		if e := a.recordFirewallResult(result); e != nil {
 			return e

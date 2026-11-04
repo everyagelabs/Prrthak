@@ -104,7 +104,7 @@ func parseFirewallZones(text string) ([]parsedZone, error) {
 	}
 	return zones, nil
 }
-func CollectFirewallSnapshot(ctx context.Context, runner CommandRunner, owned []OwnedRule) *FirewallSnapshot {
+func CollectFirewallSnapshot(ctx context.Context, runner CommandRunner, owned []OwnedRule, stateDirs ...string) *FirewallSnapshot {
 	snapshot := &FirewallSnapshot{CollectedAt: time.Now().UTC(), Status: "ok", Rules: []FirewallRule{}, Capabilities: []string{"runtime-zones", "permanent-zones", "service-port-simple-rich-changes", "imported_zone_target_v1", "imported_direct_v1", "imported_nat_v1"}}
 	issues := []string{}
 	contexts := []string{}
@@ -323,6 +323,10 @@ func CollectFirewallSnapshot(ctx context.Context, runner CommandRunner, owned []
 			issue("active-policy output is ambiguous")
 		}
 		for _, name := range names {
+			if name == egressPolicyName && len(stateDirs) == 1 && OwnedEgressPolicyContext(ctx, runner, stateDirs[0]) == nil {
+				snapshot.Capabilities = append(snapshot.Capabilities, "verified-owned-egress-policy")
+				continue
+			}
 			if safeHostIPv6Policy(policyDetails["runtime|"+name]) {
 				knownIPv6ControlPolicy = true
 				snapshot.Capabilities = append(snapshot.Capabilities, "known-icmpv6-host-policy-nonoverlap")

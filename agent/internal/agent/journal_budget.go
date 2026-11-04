@@ -24,6 +24,10 @@ func checkNewEnforcementJournalBudget(stateDir, area string) error {
 		path = filepath.Join(stateDir, area, "transactions")
 	case "firewall-changes":
 		path = filepath.Join(stateDir, area)
+	case "network-control":
+		path = filepath.Join(networkDirectory(stateDir), "transactions")
+	case "firewall-activation":
+		path = firewallActivationDirectory(stateDir)
 	case "source-banks":
 		path = sourceBankDirectory(stateDir)
 	default:

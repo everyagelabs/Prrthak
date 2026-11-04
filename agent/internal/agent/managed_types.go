@@ -79,18 +79,19 @@ type managedMutation struct {
 	After  bool   `json:"after"`
 }
 type managedJournal struct {
-	SourceBankPreparation *sourceBankJournal     `json:"source_bank_preparation,omitempty"`
-	Nonce                 string                 `json:"nonce"`
-	Phase                 string                 `json:"phase"`
-	DeadlineBootSeconds   float64                `json:"deadline_boot_seconds"`
-	Deadline              time.Time              `json:"deadline"`
-	PID                   int                    `json:"pid"`
-	ProcessIdentity       string                 `json:"process_identity"`
-	Previous              *ManagedBundle         `json:"previous,omitempty"`
-	Next                  ManagedBundle          `json:"next"`
-	Mutations             []managedMutation      `json:"mutations"`
-	SetMutations          []managedIPSetMutation `json:"set_mutations,omitempty"`
-	Error                 string                 `json:"error,omitempty"`
+	FirewallActivation    *firewallActivationJournal `json:"firewall_activation,omitempty"`
+	SourceBankPreparation *sourceBankJournal         `json:"source_bank_preparation,omitempty"`
+	Nonce                 string                     `json:"nonce"`
+	Phase                 string                     `json:"phase"`
+	DeadlineBootSeconds   float64                    `json:"deadline_boot_seconds"`
+	Deadline              time.Time                  `json:"deadline"`
+	PID                   int                        `json:"pid"`
+	ProcessIdentity       string                     `json:"process_identity"`
+	Previous              *ManagedBundle             `json:"previous,omitempty"`
+	Next                  ManagedBundle              `json:"next"`
+	Mutations             []managedMutation          `json:"mutations"`
+	SetMutations          []managedIPSetMutation     `json:"set_mutations,omitempty"`
+	Error                 string                     `json:"error,omitempty"`
 }
 
 type ManagedFailure struct {

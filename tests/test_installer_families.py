@@ -52,7 +52,7 @@ class AgentFamilyInstallerTests(unittest.TestCase):
         self.env.pop('SEG_ENROLLMENT_TOKEN', None)
         self.env.pop('SEG_ENROLLMENT_TOKEN_FILE', None)
         self.write_executable(self.fakebin/'uname', '#!/bin/sh\ncase "$1" in -s) echo Linux;; -m) echo "$PRTHAK_FAMILY_ARCH";; *) exit 99;; esac\n')
-        for name in ['systemctl','journalctl','systemd-run','ss','firewall-cmd','flock']:
+        for name in ['systemctl','journalctl','systemd-run','ss','firewall-cmd','flock','nft','sysctl']:
             # These are inspected as target files, never executed by staging.
             self.write_executable(self.target/'usr/bin'/name, '#!/bin/sh\nprintf "%s\\n" "'+name+' $*" >> "$PRTHAK_FAMILY_COMMAND_CALLS"\nexit 99\n')
         self.release('rhel','8.10')
@@ -126,7 +126,15 @@ esac
         self.binary()
         for distro, version, native, arch in [('rhel','8.10','x86_64','amd64'),
                                                ('rhel','9.6','aarch64','arm64'),
-                                               ('ubuntu','26.04','x86_64','amd64')]:
+                                               ('ubuntu','26.04','x86_64','amd64'),
+                                               ('ubuntu','22.04','x86_64','amd64'),
+                                               ('ubuntu','24.04','aarch64','arm64'),
+                                               ('rocky','8.10','x86_64','amd64'),
+                                               ('rocky','9.6','aarch64','arm64'),
+                                               ('almalinux','8.10','x86_64','amd64'),
+                                               ('almalinux','9.6','aarch64','arm64'),
+                                               ('ol','8.10','x86_64','amd64'),
+                                               ('ol','9.6','aarch64','arm64')]:
             with self.subTest(distro=distro, version=version, arch=arch):
                 self.release(distro,version)
                 result=self.run_entrypoint('auto','--check-only',config=False,env={'PRTHAK_FAMILY_ARCH':native})
@@ -154,7 +162,9 @@ esac
         marker=self.base/'auto-os-release-was-executed'
         for value in ['ID="debian"\nVERSION_ID="13"\n',
                       'ID="rhel"\nVERSION_ID="10.0"\n',
-                      'ID="ubuntu"\nVERSION_ID="24.04"\n',
+                      'ID="ubuntu"\nVERSION_ID="20.04"\n',
+                      'ID="rhel"\nVERSION_ID="7.9"\n',
+                      'ID="untrustedclone"\nID_LIKE="rhel"\nVERSION_ID="9.6"\n',
                       'ID="$(touch '+str(marker)+')"\nVERSION_ID="8.10"\n',
                       'ID="rhel"\nID="ubuntu"\nVERSION_ID="8.10"\n']:
             (self.target/'etc/os-release').write_text(value)
@@ -170,13 +180,13 @@ esac
             self.assertNotEqual(result.returncode,0)
             self.assertIn('Missing target commands: firewall-cmd',result.stderr)
             self.assertIn(package,result.stderr)
-            self.assertIn('post-install scripts may start firewalld',result.stderr)
+            self.assertIn('GUI-generated setup file to prepare dependencies with startup suppression',result.stderr)
             self.assertFalse(self.calls.exists());self.assertFalse(self.commands.exists())
             self.assertFalse((self.target/'etc/seg-agent').exists())
 
     def test_wrong_family_unsupported_release_and_architecture_fail_before_mutation(self):
         self.binary()
-        for family,distro,version in [('rhel','ubuntu','26.04'),('ubuntu','ubuntu','24.04'),('rhel','rhel','10.0'),('ubuntu','debian','13')]:
+        for family,distro,version in [('rhel','ubuntu','26.04'),('ubuntu','ubuntu','20.04'),('rhel','rhel','10.0'),('ubuntu','debian','13')]:
             self.release(distro,version)
             result=self.run_entrypoint(family,'--no-start')
             self.assertNotEqual(result.returncode,0)
@@ -244,7 +254,7 @@ esac
         wrapper.write_text(wrapper.read_text().replace('RELEASE_FILE=$TARGET_ROOT/etc/os-release',
                                                        'RELEASE_FILE=$PRTHAK_TEST_OS_RELEASE'))
         self.write_executable(self.fakebin/'id','#!/bin/sh\n[ "$1" = -u ] && echo 0\n')
-        for name in ['systemctl','systemd-run','journalctl','ss','firewall-cmd','flock']:
+        for name in ['systemctl','systemd-run','journalctl','ss','firewall-cmd','flock','nft','sysctl']:
             self.write_executable(self.fakebin/name,'#!/bin/sh\nexit 99\n')
         self.write_executable(self.bundle/'scripts/install-agent.sh','#!/bin/sh\nprintf "%s\\n" "shared-installer $*" >> "$PRTHAK_FAMILY_AGENT_CALLS"\n')
         (self.bundle/'deploy/release-public-trust.json').write_text('{}')
@@ -296,7 +306,7 @@ esac
         wrapper.write_text(wrapper.read_text().replace('RELEASE_FILE=$TARGET_ROOT/etc/os-release',
                                                        'RELEASE_FILE=$PRTHAK_TEST_OS_RELEASE'))
         self.write_executable(self.fakebin/'id','#!/bin/sh\n[ "$1" = -u ] && echo 0\n')
-        for name in ['systemctl','systemd-run','journalctl','ss','firewall-cmd','flock','dnf','apt-get']:
+        for name in ['systemctl','systemd-run','journalctl','ss','firewall-cmd','flock','nft','sysctl','dnf','apt-get']:
             self.write_executable(self.fakebin/name,'#!/bin/sh\nprintf "%s\\n" "'+name+' $*" >> "$PRTHAK_FAMILY_COMMAND_CALLS"\nexit 99\n')
         self.write_executable(self.bundle/'scripts/install-agent.sh','#!/bin/sh\nprintf "%s\\n" "shared-installer $*" >> "$PRTHAK_FAMILY_AGENT_CALLS"\n')
         (self.bundle/'deploy/release-public-trust.json').write_text('{}')

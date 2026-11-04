@@ -1,0 +1,220 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+)
+
+const counterTestBoot = "11111111-2222-4333-8444-555555555555"
+const counterNFTFixture = `{"nftables":[
+ {"metainfo":{"version":"1.0.6","json_schema_version":1}},
+ {"table":{"family":"inet","name":"firewalld","handle":3}},
+ {"chain":{"family":"inet","table":"firewalld","name":"filter_INPUT","handle":1,"type":"filter","hook":"input","prio":10,"policy":"accept"}},
+ {"set":{"family":"inet","table":"firewalld","name":"addresses","elem":["192.0.2.1","192.0.2.2"]}},
+ {"rule":{"family":"inet","table":"firewalld","chain":"filter_INPUT","handle":4,"expr":[{"match":{"op":"in","left":{"ct":{"key":"state"}},"right":{"set":["established","related"]}}},{"counter":{"packets":9007199254740993,"bytes":18446744073709551615}},{"accept":null}]}},
+ {"rule":{"family":"inet","table":"firewalld","chain":"filter_IN_public_allow","handle":5,"expr":[{"match":{"op":"==","left":{"payload":{"protocol":"tcp","field":"dport"}},"right":443}},{"counter":{"packets":7,"bytes":420}},{"accept":null}]}},
+ {"rule":{"family":"inet","table":"firewalld","chain":"filter_INPUT","handle":6,"expr":[{"counter":{"packets":2,"bytes":120}},{"reject":{"type":"icmpx","expr":"admin-prohibited"}}]}},
+ {"rule":{"family":"inet","table":"docker","chain":"DOCKER","handle":7,"expr":[{"counter":{"packets":999,"bytes":999}},{"accept":null}]}}
+]}`
+
+func counterInventoryFixture() *FirewallSnapshot {
+	return &FirewallSnapshot{Rules: []FirewallRule{{Scope: "runtime", Zone: "public", Kind: "service", Value: "https"}}}
+}
+
+func TestNativeFirewallCountersIncludeDefaultAndExistingZoneRulesWithoutForeignTables(t *testing.T) {
+	rows, err := ParseNFTFirewallCounters(counterNFTFixture, "inet", counterTestBoot, counterInventoryFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 4 {
+		t.Fatalf("rules=%+v", rows)
+	}
+	if rows[0].Basis != "chain_policy" || rows[0].Packets != nil || rows[0].CounterStatus != "unavailable" {
+		t.Fatal("implicit policy claimed invented counts")
+	}
+	if *rows[1].Packets != "9007199254740993" || *rows[1].Bytes != "18446744073709551615" {
+		t.Fatal("large uint64 counts lost precision")
+	}
+	if rows[2].Zone != "public" || rows[2].Kind != "zone" || *rows[2].Packets != "7" || rows[3].Action != "reject" {
+		t.Fatalf("existing/default rules missing: %+v", rows)
+	}
+	for _, row := range rows {
+		if strings.Contains(row.Expression, "192.0.2.") || row.Table != "firewalld" || strings.Contains(row.Chain, "DOCKER") {
+			t.Fatal("foreign table/set elements exported")
+		}
+	}
+	changed := strings.ReplaceAll(strings.ReplaceAll(counterNFTFixture, `"packets":7`, `"packets":9`), `"bytes":420`, `"bytes":540`)
+	newRows, err := ParseNFTFirewallCounters(changed, "inet", counterTestBoot, counterInventoryFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows[2].ID != newRows[2].ID || rows[2].InstanceID != newRows[2].InstanceID {
+		t.Fatal("counter values changed rule identity")
+	}
+	changed = strings.ReplaceAll(changed, `"handle":5`, `"handle":15`)
+	newRows, err = ParseNFTFirewallCounters(changed, "inet", counterTestBoot, counterInventoryFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows[2].ID != newRows[2].ID || rows[2].InstanceID == newRows[2].InstanceID {
+		t.Fatal("rule recreation did not preserve logical identity and change generation")
+	}
+}
+
+func TestNativeFirewallCounterMissingAndNamedCountersAreUnavailableNotZero(t *testing.T) {
+	for _, replacement := range []string{`{"log":{"prefix":"example"}}`, `{"counter":"shared"}`} {
+		text := strings.ReplaceAll(counterNFTFixture, `{"counter":{"packets":7,"bytes":420}}`, replacement)
+		rows, err := ParseNFTFirewallCounters(text, "inet", counterTestBoot, counterInventoryFixture())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rows[2].CounterStatus != "unavailable" || rows[2].Packets != nil || rows[2].Bytes != nil || rows[2].Reason == "" {
+			t.Fatal("missing native counter became zero")
+		}
+	}
+}
+
+func TestNativeFirewallCountersRejectHostileOrAmbiguousNativeOutput(t *testing.T) {
+	for _, text := range []string{
+		strings.Replace(counterNFTFixture, `"handle":5`, `"handle":5,"handle":6`, 1),
+		strings.Replace(counterNFTFixture, `"packets":7`, `"packets":-1`, 1),
+		strings.Replace(counterNFTFixture, `"packets":7`, `"packets":18446744073709551616`, 1),
+		strings.Replace(counterNFTFixture, `"packets":7`, `"packets":1e2`, 1),
+		strings.Replace(counterNFTFixture, `"bytes":420`, `"bytes":"420"`, 1),
+		strings.Replace(counterNFTFixture, `"handle":3`, `"handle":null`, 1),
+		counterNFTFixture + ` {}`,
+		`{"nftables":` + strings.Repeat("[", 30) + strings.Repeat("]", 30) + `}`,
+		strings.Repeat(" ", maxFirewallCounterInput+1),
+	} {
+		if _, err := ParseNFTFirewallCounters(text, "inet", counterTestBoot, counterInventoryFixture()); err == nil {
+			t.Fatalf("accepted hostile/invalid native counter output: %.100s", text)
+		}
+	}
+}
+
+func TestLegacyFirewallCountersIncludeBaseZoneDirectRulesAndPoliciesOnly(t *testing.T) {
+	text := `# Generated by iptables-save v1.8.4
+*filter
+:INPUT ACCEPT [3:180]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [1:60]
+:INPUT_direct - [0:0]
+:INPUT_ZONES - [0:0]
+:IN_public_allow - [0:0]
+:DOCKER - [0:0]
+[11:660] -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+[2:120] -A INPUT -i lo -j ACCEPT
+[4:240] -A INPUT -j INPUT_direct
+[0:0] -A INPUT_direct -p tcp -m tcp --dport 22 -j DROP
+[7:420] -A IN_public_allow -p tcp -m tcp --dport 443 -j ACCEPT
+[8:480] -A INPUT -j REJECT --reject-with icmp-host-prohibited
+[999:999] -A DOCKER -p tcp --dport 8000 -j ACCEPT
+[999:999] -A INPUT -p tcp --dport 6666 -j ACCEPT
+COMMIT
+# Completed
+`
+	rows, err := ParseIPTablesFirewallCounters(text, "ipv4", counterTestBoot, counterInventoryFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 9 {
+		t.Fatalf("%d rows: %+v", len(rows), rows)
+	}
+	if rows[0].Basis != "chain_policy" || *rows[0].Packets != "3" {
+		t.Fatal("default policy counter omitted")
+	}
+	for _, row := range rows {
+		if strings.Contains(row.Expression, "6666") || strings.Contains(row.Chain, "DOCKER") {
+			t.Fatal("foreign legacy rule exported")
+		}
+		if row.Chain == "INPUT_direct" && (*row.Packets != "0" || row.Kind != "direct") {
+			t.Fatal("valid measured zero was lost")
+		}
+	}
+	for _, bad := range []string{strings.ReplaceAll(text, "[7:420]", "[18446744073709551616:420]"), strings.ReplaceAll(text, "[7:420]", "[7:-1]"), strings.ReplaceAll(text, "COMMIT", ""), strings.ReplaceAll(text, "*filter", "*nat"), strings.ReplaceAll(text, ":IN_public_allow - [0:0]", "")} {
+		if _, err := ParseIPTablesFirewallCounters(bad, "ipv4", counterTestBoot, counterInventoryFixture()); err == nil {
+			t.Fatal("accepted malformed legacy table")
+		}
+	}
+}
+
+type counterCommandFixture struct {
+	calls []string
+	text  string
+	deny  bool
+}
+
+func (f *counterCommandFixture) Run(ctx context.Context, name string, args ...string) (string, error) {
+	f.calls = append(f.calls, name+" "+strings.Join(args, " "))
+	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > 3*time.Second {
+		return "", errors.New("counter command lacks bounded shared context")
+	}
+	if f.deny {
+		return "", errors.New("permission denied")
+	}
+	if name == "nft" && strings.Join(args, " ") == "-j -a list table inet firewalld" {
+		return f.text, nil
+	}
+	return "Error: No such file or directory", errors.New("table absent")
+}
+
+func TestFirewallCounterCollectorOnlyRunsBoundedReadOnlyQueriesAndReportsCoverage(t *testing.T) {
+	fixture := &counterCommandFixture{text: counterNFTFixture}
+	sample := collectFirewallCounters(context.Background(), fixture, "nftables", "running", counterInventoryFixture(), counterTestBoot, time.Now())
+	if sample.Status != "partial" || len(sample.Rules) != 4 {
+		t.Fatalf("sample=%+v", sample)
+	}
+	if len(fixture.calls) != 3 {
+		t.Fatal(fixture.calls)
+	}
+	for _, call := range fixture.calls {
+		if !strings.HasPrefix(call, "nft -j -a list table ") || strings.Contains(call, "reset") || strings.Contains(call, "ruleset") {
+			t.Fatal("non-scoped or mutating counter command")
+		}
+	}
+	fixture = &counterCommandFixture{deny: true}
+	sample = collectFirewallCounters(context.Background(), fixture, "nftables", "running", nil, counterTestBoot, time.Now())
+	if sample.Status != "unavailable" || len(sample.Rules) != 0 || sample.Reason == "" {
+		t.Fatal("unreadable kernel data became counts")
+	}
+	fixture = &counterCommandFixture{}
+	sample = collectFirewallCounters(context.Background(), fixture, "nftables", "not-running", nil, counterTestBoot, time.Now())
+	if len(fixture.calls) != 0 || sample.Status != "unavailable" {
+		t.Fatal("stopped firewall inspected")
+	}
+}
+
+func TestNativeFirewallCounterBoundedRowsAndCachedHeartbeatOmission(t *testing.T) {
+	objects := []any{map[string]any{"table": map[string]any{"family": "inet", "name": "firewalld", "handle": 1}}}
+	for i := 1; i <= 600; i++ {
+		objects = append(objects, map[string]any{"rule": map[string]any{"family": "inet", "table": "firewalld", "chain": "filter_INPUT", "handle": i + 1, "expr": []any{map[string]any{"counter": map[string]any{"packets": i, "bytes": i * 60}}, map[string]any{"accept": nil}}}})
+	}
+	encoded, _ := json.Marshal(map[string]any{"nftables": objects})
+	rows, err := ParseNFTFirewallCounters(string(encoded), "inet", counterTestBoot, nil)
+	if err == nil || len(rows) != maxFirewallCounterRules {
+		t.Fatal("native rows not bounded")
+	}
+	now := time.Now().UTC()
+	a := &Agent{Simulate: true, Config: Config{StateDir: t.TempDir(), DiscoveryIntervalSeconds: 900, IntervalSeconds: 30}}
+	first := a.inventoryReport(context.Background(), now)
+	if first.FirewallCounters == nil {
+		t.Fatal("initial counter availability missing")
+	}
+	retry := a.inventoryReport(context.Background(), now.Add(time.Second))
+	if retry.FirewallCounters == nil || !retry.FirewallCounters.CollectedAt.Equal(first.FirewallCounters.CollectedAt) {
+		t.Fatal("pending retry replaced cached sample")
+	}
+	a.ackInventoryReport(first)
+	heartbeat := a.inventoryReport(context.Background(), now.Add(2*time.Second))
+	if heartbeat.FirewallCounters != nil {
+		t.Fatal("cached native counters inflated every heartbeat")
+	}
+	next := a.inventoryReport(context.Background(), now.Add(901*time.Second))
+	if next.FirewallCounters == nil || !next.DiscoveryPerformed {
+		t.Fatal("next scheduled sample omitted")
+	}
+}

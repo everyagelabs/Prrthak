@@ -37,7 +37,7 @@ test('fleet setup is the default with one architecture-specific agent and no hos
  const f=fixture();await f.show();const html=f.element('#modal-content').innerHTML;
  assert.match(html,/value="fleet" selected/);assert.match(html,/any number of servers/);assert.match(html,/No hostname list, CSV or per-server download/);assert.match(html,/same binary is used on RHEL and Ubuntu/);assert.doesNotMatch(html,/id="agent-install-hostname"|name="(?:max_hosts|server_count|hostnames)"/);
  assert.match(html,/prthak-agent-0\.10\.0-linux-amd64\.tar\.gz/);assert.match(f.c.agentInstallationArchive('arm64'),/0\.10\.0-linux-arm64/);
- f.c.state.data.meta.version='<script>wrong</script>';assert.equal(f.c.agentInstallationArchive('amd64'),'prthak-agent-0.17.0-linux-amd64.tar.gz');
+ f.c.state.data.meta.version='<script>wrong</script>';assert.equal(f.c.agentInstallationArchive('amd64'),'prthak-agent-0.18.0-linux-amd64.tar.gz');
  assert.match(html,/enrollment key grants no dashboard or firewall-policy authority/);
 });
 test('automatic OS detection keeps one installer command while CPU selection changes only the archive',async()=>{

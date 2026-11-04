@@ -12,12 +12,12 @@ The current private Git repository does not by itself supply built agent binarie
 
 ### Optional: copy the approved release
 
-Your release administrator supplies and verifies **prthak-controller-0.17.0.tar.gz** using independently trusted release identity. A source ZIP is not the installation archive. An approved graphical file-transfer tool can copy it to your Linux home folder.
+Your release administrator supplies and verifies **prthak-controller-0.18.0.tar.gz** using independently trusted release identity. A source ZIP is not the installation archive. An approved graphical file-transfer tool can copy it to your Linux home folder.
 
 **On your laptop - replace the path, user and address**
 
 ```sh
-scp /PATH/TO/prthak-controller-0.17.0.tar.gz \
+scp /PATH/TO/prthak-controller-0.18.0.tar.gz \
   YOUR_USER@CONTROLLER_IP:
 ```
 
@@ -32,9 +32,9 @@ ssh YOUR_USER@CONTROLLER_IP
 ```sh
 sudo install -d -o root -g root -m 0755 /opt/prthak/releases
 sudo tar --no-same-owner --no-same-permissions \
-  -xzf "$HOME/prthak-controller-0.17.0.tar.gz" \
+  -xzf "$HOME/prthak-controller-0.18.0.tar.gz" \
   -C /opt/prthak/releases
-cd /opt/prthak/releases/prthak-controller-0.17.0
+cd /opt/prthak/releases/prthak-controller-0.18.0
 ```
 
 Now run the **one installer command in Step 3**. It prepares missing dependencies automatically. Root/sudo, systemd and working approved repositories are required. No Git or manual .env file is needed.
@@ -62,12 +62,12 @@ Native OS, live firewalld/rollback, DC/DR and actual pilot acceptance remain pen
 
 ### Optional: copy the package and setup
 
-Your release administrator verifies the signed **0.17.0 agent archive** for the CPU. Use **amd64** for x86_64 or **arm64** for aarch64. The GUI supplies the private **prthak-agent-setup.json**. Keep it private.
+Your release administrator verifies the signed **0.18.0 agent archive** for the CPU. Use **amd64** for x86_64 or **arm64** for aarch64. The GUI supplies the private **prthak-agent-setup.json**. Keep it private.
 
 **On your laptop - example for AMD64; use arm64 if required**
 
 ```sh
-scp /PATH/TO/prthak-agent-0.17.0-linux-amd64.tar.gz \
+scp /PATH/TO/prthak-agent-0.18.0-linux-amd64.tar.gz \
   /PATH/TO/prthak-agent-setup.json YOUR_USER@SERVER_IP:
 ```
 
@@ -84,9 +84,9 @@ sudo install -o root -g root -m 0600 \
   "$HOME/prthak-agent-setup.json" /root/prthak-agent-setup.json
 sudo install -d -o root -g root -m 0755 /opt/prthak/agent-releases
 sudo tar --no-same-owner --no-same-permissions \
-  -xzf "$HOME/prthak-agent-0.17.0-linux-amd64.tar.gz" \
+  -xzf "$HOME/prthak-agent-0.18.0-linux-amd64.tar.gz" \
   -C /opt/prthak/agent-releases
-cd /opt/prthak/agent-releases/prthak-agent-0.17.0-linux-amd64
+cd /opt/prthak/agent-releases/prthak-agent-0.18.0-linux-amd64
 ```
 
 Then run the **one universal command in Step 6**. Your minimal OS must already supply tar/file-transfer tools to unpack media; an approved deployment tool can perform that step. Runtime dependencies are installed by Prṛthak. Do not edit the JSON.

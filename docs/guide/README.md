@@ -8,7 +8,7 @@ The **0.17 agent guide** has nine picture-led steps plus two reference sheets: [
 
 [Features in simple language](../features-in-simple-language.md) maps all 48 requirement groups through seven original diagrams. Every new guide page and current Markdown document carries the author note. Historical PDF/HTML exports and signed release archives remain unchanged.
 
-Screenshots are actual v0.17 local synthetic preview captures, explicitly labelled. Diagrams explain workflows and do not certify native OS, live IdP or DC acceptance. Setup downloads stay disabled in the synthetic preview. Native RHEL/Ubuntu validation and the real pilot remain deployment work.
+Screenshots are actual v0.17 local synthetic preview captures, explicitly labelled. For the 0.18 archive names, expanded agent profiles and current commands, use the [current command sheets](../installation-commands.md) and [agent OS table](../linux-agent-installation.md). Diagrams explain workflows and do not certify native OS, live IdP or DC acceptance. Setup downloads stay disabled in the synthetic preview. Native RHEL/Ubuntu validation and the real pilot remain deployment work.
 
 Rebuild the new assets with `scripts/build-simple-guide-diagrams.py`, then `scripts/build-simple-installation-guides.py`, using approved Python with Pillow and ReportLab. `simple/verification.json` records artifact hashes, original captures, pixel-preserving crops and layout measurements. HTML embeds every image, includes copyable commands, and can be read without a server.
 

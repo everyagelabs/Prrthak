@@ -2,7 +2,7 @@ package agent
 
 import "time"
 
-const Version = "0.17.0"
+const Version = "0.18.0"
 
 const LearningDiscoveryCapability = "learning_discovery_v1"
 const HostDefaultDenyCapability = "host_default_deny_v1"
@@ -31,6 +31,9 @@ type Session struct {
 	StoppedAt        *time.Time `json:"stopped_at,omitempty"`
 }
 type Policy struct {
+	EgressBundle          *EgressAssignment                `json:"egress_bundle,omitempty"`
+	Quarantine            *QuarantineAssignment            `json:"quarantine,omitempty"`
+	FirewallActivation    *FirewallActivationAssignment    `json:"firewall_activation,omitempty"`
 	PolicyVerification    *PolicyVerificationAssignment    `json:"policy_verification,omitempty"`
 	SourceBankPreparation *SourceBankPreparationAssignment `json:"source_bank_preparation,omitempty"`
 	AssignmentGeneration  int                              `json:"assignment_generation,omitempty"`
@@ -72,6 +75,9 @@ type Coverage struct {
 	Error         string     `json:"error,omitempty"`
 }
 type Report struct {
+	NetworkControl              *NetworkControlReport        `json:"network_control,omitempty"`
+	FirewallActivation          *FirewallActivationReport    `json:"firewall_activation,omitempty"`
+	FirewallCounters            *FirewallCounterSnapshot     `json:"firewall_counters,omitempty"`
 	PolicyVerification          *PolicyVerificationReport    `json:"policy_verification,omitempty"`
 	SourceBankPreparation       *SourceBankPreparationReport `json:"source_bank_preparation,omitempty"`
 	PreparationStatus           *HostPreparationStatus       `json:"preparation_status,omitempty"`

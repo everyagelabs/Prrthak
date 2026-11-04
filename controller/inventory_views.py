@@ -14,20 +14,44 @@ def rows(db, sql, parameters=(), *, batch_size=8):
         yield from db.execute(sql,parameters)
 
 
+MAINTENANCE_FIELDS = ("id", "operation", "target_operation", "status", "checked_at", "error", "baseline_digest")
+MAINTENANCE_FACTS = ("can_apply", "blockers", "firewalld_active", "ufw_active", "version", "backend")
+
+
+def maintenance_summary(receipt):
+    """Bounded public outcome; exact assessed rules use the paged maintenance API."""
+    result = {key: receipt[key] for key in MAINTENANCE_FIELDS if key in receipt}
+    facts = receipt.get("assessment")
+    if isinstance(facts, dict):
+        result["assessment"] = {key: facts[key] for key in MAINTENANCE_FACTS if key in facts}
+        # SQLite JSON extraction represents booleans as 0/1.
+        for key in ("can_apply", "firewalld_active", "ufw_active"):
+            if result["assessment"].get(key) in (0, 1):
+                result["assessment"][key] = bool(result["assessment"][key])
+    return result
+
+
 def server_rows(db):
-    """Project large evidence in SQL before decoding a fleet list in Python."""
+    """Project large/private evidence in SQL before decoding a fleet list."""
     fields = ("status", "digest", "collected_at", "last_attempt_at", "error")
+    removed = ("firewall_snapshot", "firewall_activation", "discovery_changes", "firewall_change_results", "_compiled", "_metadata_overrides", "risky_ports", "_risk_matches", "_source_bank_job", "_firewall_activation_job")
     if getattr(db, "dialect", "sqlite") == "postgresql":
+        base = "document - ARRAY["+",".join("'"+key+"'" for key in removed)+"]::text[]"
         pairs = ",".join("'%s',document->'firewall_snapshot'->'%s'" % (key,key) for key in fields)
-        base="document - ARRAY['firewall_snapshot','discovery_changes','firewall_change_results','_compiled','_metadata_overrides','risky_ports','_risk_matches','_source_bank_job']::text[]"
-        expression = "CASE WHEN document->'firewall_snapshot' IS NOT NULL THEN jsonb_set("+base+",'{firewall_snapshot}',jsonb_build_object("+pairs+",'rule_count',jsonb_array_length(COALESCE(document->'firewall_snapshot'->'rules','[]'::jsonb)),'summary_only',true)) ELSE "+base+" END"
-        # OFFSET0 is a projection barrier: parse a large stored TEXT snapshot
-        # into jsonb once per host, not once for every summary field.
+        expression = "CASE WHEN jsonb_typeof(document->'firewall_snapshot')='object' THEN jsonb_set("+base+",'{firewall_snapshot}',jsonb_build_object("+pairs+",'rule_count',jsonb_array_length(COALESCE(document->'firewall_snapshot'->'rules','[]'::jsonb)),'summary_only',true)) ELSE "+base+" END"
+        pairs = ",".join("'%s',document->'firewall_activation'->'%s'" % (key,key) for key in MAINTENANCE_FIELDS)
+        facts = ",".join("'%s',document->'firewall_activation'->'assessment'->'%s'" % (key,key) for key in MAINTENANCE_FACTS)
+        expression = "CASE WHEN jsonb_typeof(document->'firewall_activation')='object' THEN jsonb_set(("+expression+"),'{firewall_activation}',jsonb_build_object("+pairs+",'assessment',jsonb_build_object("+facts+"))) ELSE ("+expression+") END"
+        # OFFSET0 parses each large canonical TEXT snapshot once per host.
         sql = "SELECT ("+expression+")::text FROM servers CROSS JOIN LATERAL (SELECT data::jsonb AS document OFFSET 0) projected"
     else:
-        base = "json_remove(data,'$.firewall_snapshot','$.discovery_changes','$.firewall_change_results','$._compiled','$._metadata_overrides','$.risky_ports','$._risk_matches','$._source_bank_job')"
+        base = "json_remove(data,"+",".join("'$."+key+"'" for key in removed)+")"
         pairs = ",".join("'%s',json_extract(data,'$.firewall_snapshot.%s')" % (key,key) for key in fields)
         expression = "CASE WHEN json_type(data,'$.firewall_snapshot')='object' THEN json_set("+base+",'$.firewall_snapshot',json_object("+pairs+",'rule_count',COALESCE(json_array_length(data,'$.firewall_snapshot.rules'),0),'summary_only',json('true'))) ELSE "+base+" END"
+        pairs = ",".join("'%s',json_extract(data,'$.firewall_activation.%s')" % (key,key) for key in MAINTENANCE_FIELDS)
+        # json_extract preserves native JSON types for arrays and booleans.
+        facts = ",".join("'%s',json_extract(data,'$.firewall_activation.assessment.%s')" % (key,key) for key in MAINTENANCE_FACTS)
+        expression = "CASE WHEN json_type(data,'$.firewall_activation')='object' THEN json_set(("+expression+"),'$.firewall_activation',json_object("+pairs+",'assessment',json_object("+facts+"))) ELSE ("+expression+") END"
         sql = "SELECT "+expression+" FROM servers"
     for row in rows(db,sql):
         yield json.loads(row[0])

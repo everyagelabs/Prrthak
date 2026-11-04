@@ -164,7 +164,7 @@ class PlatformManager:
         Bind to the dedicated internal authority rather than mutable names or
         the endpoint issuer, so standalone-to-HA activation preserves access.
         """
-        if purpose not in ("notifications-v1", "policy-signing-v1", "recovery-v1"):
+        if purpose not in ("notifications-v1", "policy-signing-v1", "recovery-v1", "siem-export-v1"):
             raise ValueError("Unsupported shared secret purpose")
         from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.kdf.hkdf import HKDF

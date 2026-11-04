@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import re
 import logging
 import mimetypes
 import os
@@ -187,7 +188,17 @@ class App:
                     LOG.warning("Notification delivery is unavailable; durable outbox remains pending")
                 self.stop.wait(1)
 
-        targets = [evaluate, traffic, scheduled_backups, appliance_reconcile, notifications]
+        def siem_exports():
+            from .siem import run_once
+            while not self.stop.is_set():
+                try:
+                    if self.platform:
+                        run_once(self.platform, limit=5)
+                except Exception:
+                    LOG.warning("SIEM delivery is unavailable; bounded outbox status remains available")
+                self.stop.wait(5)
+
+        targets = [evaluate, traffic, scheduled_backups, appliance_reconcile, notifications, siem_exports]
         if self.store.ha:
             targets.append(registry)
         for target in targets:
@@ -334,7 +345,7 @@ def handler_for(app):
                                                        "csrf_token", "password_change_required")}
 
         def serve_static(self, path):
-            requested = "index.html" if path in ("/", "/index.html", "/overview", "/servers", "/policies", "/traffic", "/risk", "/alerts", "/activity", "/firewall", "/locations", "/access", "/services", "/settings") else unquote(path).lstrip("/")
+            requested = "index.html" if path in ("/", "/index.html", "/overview", "/servers", "/policies", "/traffic", "/risk", "/alerts", "/activity", "/firewall", "/locations", "/access", "/services", "/network-control", "/settings") else unquote(path).lstrip("/")
             target = (app.dashboard / requested).resolve()
             if not target.is_relative_to(app.dashboard) or not target.is_file() or target.suffix not in (".html", ".js", ".css", ".svg", ".ico", ".png", ".woff2", ".webmanifest"):
                 self.response(404, {"error": "Not found"})
@@ -495,6 +506,20 @@ def handler_for(app):
                     payload = self.body()
                     self.response(200, app.management_health._check(lambda: verify(app.store, identity, payload), payload,
                         ("server_id", "id", "plan_digest", "baseline_digest", "protection_digest")))
+                elif path == "/api/v1/agent/network-control/check" and method == "POST":
+                    from .network_control import witness
+                    if app.demo:
+                        raise PermissionError("Native network-control witnesses are unavailable in demo mode")
+                    payload = self.body()
+                    self.response(200, app.management_health._check(lambda: witness(app.store, identity, payload), payload,
+                        ("server_id", "kind", "id", "plan_digest", "generation", "protection_digest", "context_digest", "configuration_digest")))
+                elif path == "/api/v1/agent/firewall-activation/check" and method == "POST":
+                    from .firewall_activation import verify
+                    if app.demo:
+                        raise PermissionError("Native firewall maintenance witnesses are unavailable in demo mode")
+                    payload = self.body()
+                    self.response(200, app.management_health._check(lambda: verify(app.store, identity, payload), payload,
+                        ("server_id", "id", "plan_digest", "baseline_digest", "protection_digest", "configuration_digest")))
                 elif path == "/api/v1/agent/policy" and method == "GET":
                     value, etag = app.store.assignment(identity)
                     if app.platform:
@@ -548,7 +573,8 @@ def handler_for(app):
             if method in ("POST", "PUT", "PATCH", "DELETE"):
                 if principal.get("auth_type") == "session":
                     app.auth.require_csrf(self.headers, principal)
-                if path not in ("/api/v1/auth/logout", "/api/v1/auth/password", "/api/v1/firewall/query", "/api/v1/policies/query", "/api/v1/learning-policies/query", "/api/v1/policy-rollouts/query", "/api/v1/host-default-deny/query", "/api/v1/alerts/query", "/api/v1/flows/query", "/api/v1/flows/export.csv", "/api/v1/audit/query", "/api/v1/audit/export.csv", "/api/v1/source-banks/query") and role not in ("admin", "super_admin"):
+                existing_impact_read = bool(re.fullmatch(r"/api/v1/policies/[A-Za-z0-9_.-]{1,100}/impact", path))
+                if not existing_impact_read and path not in ("/api/v1/auth/logout", "/api/v1/auth/password", "/api/v1/firewall/query", "/api/v1/policies/query", "/api/v1/learning-policies/query", "/api/v1/policy-rollouts/query", "/api/v1/host-default-deny/query", "/api/v1/alerts/query", "/api/v1/flows/query", "/api/v1/flows/export.csv", "/api/v1/audit/query", "/api/v1/audit/export.csv", "/api/v1/source-banks/query", "/api/v1/firewall-activation/query") and role not in ("admin", "super_admin"):
                     raise PermissionError("Admin or Super Admin role required")
                 origin = self.headers.get("Origin")
                 scheme = "https" if isinstance(self.connection, ssl.SSLSocket) else "http"
@@ -669,6 +695,14 @@ def handler_for(app):
                     from .application_port import status
                     self.response(200, status(app.platform))
                     return
+                if parts == ["platform", "signing"] and method == "GET":
+                    from .signing_management import status
+                    self.response(200, status(app.platform))
+                    return
+                if parts == ["platform", "siem"] and method == "GET":
+                    from .siem import get
+                    self.response(200, get(app.platform))
+                    return
                 if role != "super_admin":
                     raise PermissionError("Only Super Admin can manage platform storage, backups, cluster installation or joining")
                 if len(parts) == 3 and parts[:2] == ["platform", "application-port"] and parts[2] in ("preview", "apply") and method == "POST":
@@ -684,6 +718,33 @@ def handler_for(app):
                     from .recovery import preview, confirm
                     action = preview if parts[2] == "preview" else confirm
                     self.response(200, action(app.platform, self.body(), actor, principal=principal))
+                    return
+                if parts[:2] == ["platform", "signing"]:
+                    from . import signing_management
+                    if parts[2:] in (["check"], ["checkpoints"]) and method == "POST":
+                        if self.body() != {}:
+                            raise ValueError("Signing health/checkpoint actions accept no key material")
+                        action = signing_management.check if parts[2] == "check" else signing_management.checkpoint
+                        self.response(200, action(app.platform, actor))
+                    elif parts[2:] == ["recovery", "preview"] and method == "POST":
+                        self.response(200, signing_management.recovery_preview(app.platform, self.body(), actor))
+                    elif parts[2:] == ["recovery", "apply"] and method == "POST":
+                        self.response(200, signing_management.recovery_apply(app.platform, self.body(), actor))
+                    else:
+                        self.response(404, {"error": "Signing operation not found"})
+                    return
+                if parts[:2] == ["platform", "siem"]:
+                    from . import siem
+                    if parts[2:] == ["preview"] and method == "POST":
+                        self.response(200, siem.preview(app.platform, self.body(), actor))
+                    elif parts[2:] == ["apply"] and method == "POST":
+                        self.response(200, siem.apply(app.platform, self.body(), actor))
+                    elif parts[2:] == ["deliveries"] and method == "GET":
+                        self.response(200, siem.deliveries(app.store, limit=int(query.get("limit", [50])[0]), offset=int(query.get("offset", [0])[0])))
+                    elif parts[2:] == ["retry"] and method == "POST":
+                        self.response(202, siem.retry(app.platform, self.body(), actor))
+                    else:
+                        self.response(404, {"error": "SIEM operation not found"})
                     return
                 if parts[:2] == ["platform", "notifications"]:
                     from . import notifications
@@ -865,9 +926,42 @@ def handler_for(app):
                     self.response(200, app.store.update_server(parts[1], value, actor))
                 else:
                     self.response(405, {"error": "Method not allowed"})
+            elif parts and parts[0] == "network-control":
+                from . import network_control
+                if len(parts) == 1 and method == "GET":
+                    self.response(200, network_control.listing(app.store, limit=int(query.get("limit", [50])[0]), offset=int(query.get("offset", [0])[0])))
+                elif parts[1:] in (["assess"], ["preview"]) and method == "POST":
+                    action = network_control.assess if parts[1] == "assess" else network_control.preview
+                    self.response(201, action(app.store, self.body(), actor, principal))
+                elif len(parts) == 2 and method == "GET":
+                    self.response(200, network_control.get(app.store, parts[1]))
+                elif len(parts) == 3 and parts[2] == "confirm" and method == "POST":
+                    self.response(200, network_control.confirm(app.store, parts[1], self.body(), actor, principal))
+                else:
+                    self.response(405, {"error": "Network-control method not allowed"})
+            elif parts and parts[0] == "firewall-activation":
+                from . import firewall_activation
+                if parts[1:] == ["query"] and method == "POST":
+                    self.response(200, firewall_activation.listing(app.store, self.body()))
+                elif parts[1:] in (["assess"], ["preview"]) and method == "POST":
+                    action = firewall_activation.assess if parts[1] == "assess" else firewall_activation.preview
+                    self.response(201, action(app.store, self.body(), actor, principal))
+                elif len(parts) == 3 and parts[2] == "confirm" and method == "POST":
+                    self.response(200, firewall_activation.confirm(app.store, parts[1], self.body(), actor, principal))
+                else:
+                    self.response(405, {"error": "Firewall maintenance method not allowed"})
             elif parts == ["firewall"] and method == "GET":
                 selected = query.get("server_id", []) + [identifier for part in query.get("server_ids", []) for identifier in part.split(",") if identifier]
                 self.response(200, app.store.firewall_inventory(set(selected) if selected else None,after=query.get("after",[""])[0],limit=int(query.get("limit",["50"])[0])))
+            elif len(parts) == 3 and parts[0] == "servers" and parts[2] == "firewall-counters" and method == "GET":
+                from .firewall_counters import view
+                with app.store.read_meta() as db:
+                    server = app.store._get(db, "servers", parts[1])
+                    if server is None:
+                        raise KeyError(parts[1])
+                    sample = app.store._get(db, "firewall_counter_samples", parts[1]) or {}
+                # Release the database snapshot before writing an HTTP response.
+                self.response(200, view({**server, **sample}, after=query.get("after", [""])[0], limit=int(query.get("limit", [50])[0]), search=query.get("search", [""])[0]))
             elif parts == ["firewall", "query"] and method == "POST":
                 from .firewall_views import options
                 value=options(self.body())
@@ -902,6 +996,12 @@ def handler_for(app):
                     self.response(200, managed_views.bundle(app.store, parts[1], int(parts[3])))
                 else:
                     self.response(404, {"error": "Managed history route not found"})
+            elif parts == ["policies", "impact"] and method == "POST":
+                from .policy_impact import preview
+                self.response(200, preview(app.store, self.body(), proposed=True))
+            elif len(parts) == 3 and parts[0] == "policies" and parts[2] == "impact" and method == "POST":
+                from .policy_impact import preview
+                self.response(200, preview(app.store, self.body(), policy_id=parts[1], proposed=False))
             elif len(parts) in (3, 4) and parts[0] == "policies" and parts[2] == "revisions" and method == "GET":
                 from . import managed_views
                 self.response(200, managed_views.revisions(app.store, parts[1], int(query.get("limit", [20])[0]), int(query.get("offset", [0])[0])) if len(parts) == 3 else managed_views.revision(app.store, parts[1], int(parts[3])))

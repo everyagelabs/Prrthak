@@ -285,6 +285,11 @@ class PostgresStore(Store):
             db.execute("CREATE TABLE IF NOT EXISTS runtime_deployment (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
             for table in ("servers", "policies", "groups", "sessions", "alerts", "audit", "tokens", "controller_nodes", "firewall_changes"):
                 db.execute(f"CREATE TABLE IF NOT EXISTS {table} (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS firewall_counter_samples (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
+            from .siem import initialize as initialize_siem
+            initialize_siem(db)
+            from .network_control import initialize as initialize_network_control
+            initialize_network_control(db)
             from .locations import initialize as initialize_locations
             initialize_locations(db)
             from .security import initialize

@@ -43,10 +43,12 @@ func (a *Agent) inventoryReport(ctx context.Context, now time.Time) Report {
 			snapshot.LearningDiscoverySessionIDs = append(snapshot.LearningDiscoverySessionIDs, s.ID)
 		}
 		if a.Simulate {
+			snapshot.FirewallCounters = unavailableFirewallCounters("unknown", "Simulation does not read native kernel rule counters.", now)
 			snapshot.FirewallSnapshot = &FirewallSnapshot{CollectedAt: now, Status: "ok", Rules: []FirewallRule{}, Capabilities: []string{"simulation", "view-only"}}
 			finishFirewallDigest(snapshot.FirewallSnapshot)
 		} else {
-			snapshot.FirewallSnapshot = CollectFirewallSnapshot(ctx, a.Commands, a.ownedFirewallObservationRules())
+			snapshot.FirewallSnapshot = CollectFirewallSnapshot(ctx, a.Commands, a.ownedFirewallObservationRules(), a.Config.StateDir)
+			snapshot.FirewallCounters = CollectFirewallCounters(ctx, a.Commands, snapshot.FirewallBackend, snapshot.FirewalldState, snapshot.FirewallSnapshot, now)
 			if previous != nil {
 				snapshot.FirewallSnapshot = retainFirewallSnapshot(previous.FirewallSnapshot, snapshot.FirewallSnapshot)
 			}
@@ -81,10 +83,14 @@ func (a *Agent) inventoryReport(ctx context.Context, now time.Time) Report {
 		report.ConfigurationState = configurationState(a.Config)
 	}
 	report.Capabilities = []string{LearningDiscoveryCapability, LearningAutoAllowCapability, PollingSettingsCapability, "managed_ipsets_v1", "signed_assignments_v1", LearningIPSetCapability}
+	report.Capabilities = append(report.Capabilities, FirewallCountersCapability)
 	if a.fastDiscoveryEnabled && !a.Simulate {
 		report.Capabilities = append(report.Capabilities, FastDiscoveryCapability)
 	}
 	if !a.Simulate {
+		report.NetworkControl = ReadNetworkControlReport(a.Config.StateDir)
+		report.FirewallActivation = ReadFirewallActivationStatus(a.Config.StateDir)
+		report.Capabilities = append(report.Capabilities, EgressControlCapability, QuarantineCapability, FirewallActivationCapability)
 		report.Capabilities = append(report.Capabilities, SourceBankPreparationCapability)
 		report.Capabilities = append(report.Capabilities, PolicyVerificationCapability)
 		report.Capabilities = append(report.Capabilities, "endpoint_configuration_v1", "approval_mode_proof_v1", HostDefaultDenyCapability)
@@ -100,6 +106,12 @@ func (a *Agent) inventoryReport(ctx context.Context, now time.Time) Report {
 	report.IPs = append([]string{}, a.inventory.IPs...)
 	report.Listeners = append([]Listener{}, a.inventory.Listeners...)
 	report.DiscoveryPerformed = a.discoveryPending
+	if !report.DiscoveryPerformed {
+		// Native rule samples are bounded but can be much larger than a control
+		// heartbeat. Retry the same sample until acknowledgement, then omit it
+		// until the next full inventory scan instead of uploading it each poll.
+		report.FirewallCounters = nil
+	}
 	report.LearningDiscoverySessionIDs = nil
 	if report.DiscoveryPerformed {
 		pending := map[string]bool{}

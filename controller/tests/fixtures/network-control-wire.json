@@ -1,0 +1,135 @@
+{
+  "egress_bundle": {
+    "approval_expires_at": "2026-11-04T02:13:09Z",
+    "approval_proof": {
+      "approved_at": "2026-11-04T01:58:09Z",
+      "approved_by": {
+        "actor": "entra:11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+        "auth_config": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc",
+        "display_name": "Same display name",
+        "object_id": "33333333-3333-3333-3333-333333333333",
+        "role": "admin",
+        "tenant_id": "11111111-1111-1111-1111-111111111111",
+        "user_id": "11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333"
+      },
+      "binding_digest": "6aa76ef86331bd94000c5b68d172d71d4154274d5b059ed480e247088a97f540",
+      "mode": "single_admin",
+      "plan_digest": "da712894c9a9280c3a99cb2122d723c1563a8eb5ff9e7331ca56176a38655aef",
+      "plan_id": "a83ac927eb164180aca2e53cfe153bf8",
+      "provider_authority": {
+        "epoch": "",
+        "fingerprint": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc"
+      },
+      "requested_at": "2026-11-04T01:58:09Z",
+      "requester": {
+        "actor": "entra:11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+        "auth_config": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc",
+        "display_name": "Same display name",
+        "object_id": "33333333-3333-3333-3333-333333333333",
+        "role": "admin",
+        "tenant_id": "11111111-1111-1111-1111-111111111111",
+        "user_id": "11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333"
+      },
+      "scheme": "prthak-maker-checker-v1",
+      "scope": {
+        "kind": "egress_policy",
+        "server_ids": [
+          "target"
+        ]
+      },
+      "stage": "approved",
+      "submitted_at": "2026-11-04T01:58:09Z",
+      "submitted_by": {
+        "actor": "entra:11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+        "auth_config": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc",
+        "display_name": "Same display name",
+        "object_id": "33333333-3333-3333-3333-333333333333",
+        "role": "admin",
+        "tenant_id": "11111111-1111-1111-1111-111111111111",
+        "user_id": "11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333"
+      }
+    },
+    "context_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "default_deny": true,
+    "downtime_ack": true,
+    "generation": 2,
+    "id": "a83ac927eb164180aca2e53cfe153bf8",
+    "issued_at": "2026-11-04T01:58:09Z",
+    "operation": "apply",
+    "plan_digest": "da712894c9a9280c3a99cb2122d723c1563a8eb5ff9e7331ca56176a38655aef",
+    "protection_digest": "60d476f81ab085da077c475646648796c48cc12c2c2a6b3a770d0c896291c8c3",
+    "schema_version": 1,
+    "services": [
+      {
+        "destinations": [
+          "10.20.0.0/16"
+        ],
+        "port": 443,
+        "protocol": "tcp"
+      }
+    ]
+  },
+  "issued_at": "2026-11-04T01:58:09Z",
+  "quarantine": {
+    "approval_expires_at": "2026-11-04T02:13:09Z",
+    "approval_proof": {
+      "approved_at": "2026-11-04T01:58:09Z",
+      "approved_by": {
+        "actor": "entra:11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+        "auth_config": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc",
+        "display_name": "Same display name",
+        "object_id": "33333333-3333-3333-3333-333333333333",
+        "role": "admin",
+        "tenant_id": "11111111-1111-1111-1111-111111111111",
+        "user_id": "11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333"
+      },
+      "binding_digest": "8b07d3a7d2dd2cbc072b8d11e6e6d4808610ffc157749f7cf0028ace210b39be",
+      "mode": "single_admin",
+      "plan_digest": "bf4399058a79383d1865a5098fa17cbaf3cd3f66145a86b62bce1f8f5fa7e64d",
+      "plan_id": "0c069160a3344bd5806d93cbc8448c51",
+      "provider_authority": {
+        "epoch": "",
+        "fingerprint": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc"
+      },
+      "requested_at": "2026-11-04T01:58:09Z",
+      "requester": {
+        "actor": "entra:11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+        "auth_config": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc",
+        "display_name": "Same display name",
+        "object_id": "33333333-3333-3333-3333-333333333333",
+        "role": "admin",
+        "tenant_id": "11111111-1111-1111-1111-111111111111",
+        "user_id": "11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333"
+      },
+      "scheme": "prthak-maker-checker-v1",
+      "scope": {
+        "kind": "emergency_quarantine",
+        "server_ids": [
+          "target"
+        ]
+      },
+      "stage": "approved",
+      "submitted_at": "2026-11-04T01:58:09Z",
+      "submitted_by": {
+        "actor": "entra:11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333",
+        "auth_config": "b66ff915f9964a40db12df04e0f78749294319b092593f70bf863019e0e553bc",
+        "display_name": "Same display name",
+        "object_id": "33333333-3333-3333-3333-333333333333",
+        "role": "admin",
+        "tenant_id": "11111111-1111-1111-1111-111111111111",
+        "user_id": "11111111-1111-1111-1111-111111111111:33333333-3333-3333-3333-333333333333"
+      }
+    },
+    "context_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "downtime_ack": true,
+    "expires_at": "2026-11-04T02:13:09Z",
+    "generation": 2,
+    "id": "0c069160a3344bd5806d93cbc8448c51",
+    "issued_at": "2026-11-04T01:58:09Z",
+    "operation": "enable",
+    "plan_digest": "bf4399058a79383d1865a5098fa17cbaf3cd3f66145a86b62bce1f8f5fa7e64d",
+    "protection_digest": "60d476f81ab085da077c475646648796c48cc12c2c2a6b3a770d0c896291c8c3",
+    "schema_version": 1
+  },
+  "server_id": "target"
+}

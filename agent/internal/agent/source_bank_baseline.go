@@ -348,6 +348,10 @@ func (a *Agent) sourceBankBaselineState(ctx context.Context, allowInactive bool)
 				return result, errors.New("invalid policy name")
 			}
 			details, err := a.Commands.Run(ctx, "firewall-cmd", firewallArgs(scope, "--policy="+name, "--list-all")...)
+			if name == egressPolicyName && err == nil && OwnedEgressPolicyContext(ctx, a.Commands, a.Config.StateDir) == nil {
+				contextValues[scope+":policy:"+name] = shaText(details)
+				continue
+			}
 			if err != nil || !safeHostIPv6Policy(details) {
 				return result, errors.New("only the verified default host-IPv6 policy is supported during activation")
 			}
@@ -461,7 +465,7 @@ func (a *Agent) sourceBankBaselineState(ctx context.Context, allowInactive bool)
 		}
 		contextValues["global-config"] = value
 	} else {
-		digest, err := sourceBankGlobalConfigDigest(ctx, a.Commands)
+		digest, err := firewallActivationGlobalConfigDigest(ctx, a.Config.StateDir, "", a.Commands)
 		if err != nil {
 			return result, err
 		}

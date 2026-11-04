@@ -138,7 +138,7 @@ func validateDirectApprovalScope(scope map[string]json.RawMessage, serverID stri
 		return errors.New("endpoint configuration requires its exact authorization kind")
 	}
 	switch kind {
-	case "endpoint_configuration", "managed_policy", "managed_rollout", "imported_firewall", "learning", "host_default_deny", "source_bank_preparation":
+	case "endpoint_configuration", "managed_policy", "managed_rollout", "imported_firewall", "learning", "host_default_deny", "source_bank_preparation", "egress_policy", "emergency_quarantine", "firewall_activation":
 	default:
 		return errors.New("single-admin scope cannot authorize this endpoint operation")
 	}
@@ -146,6 +146,9 @@ func validateDirectApprovalScope(scope map[string]json.RawMessage, serverID stri
 		var values []string
 		if json.Unmarshal(ids, &values) != nil || len(values) == 0 {
 			return errors.New("single-admin endpoint scope is empty")
+		}
+		if (kind == "egress_policy" || kind == "emergency_quarantine" || kind == "firewall_activation") && len(values) != 1 {
+			return errors.New("network and activation authority requires exactly one endpoint per signed job")
 		}
 		seen := map[string]bool{}
 		found := false
@@ -163,7 +166,7 @@ func validateDirectApprovalScope(scope map[string]json.RawMessage, serverID stri
 		}
 		return nil
 	}
-	if kind == "endpoint_configuration" {
+	if kind == "endpoint_configuration" || kind == "egress_policy" || kind == "emergency_quarantine" || kind == "firewall_activation" {
 		return errors.New("configuration authorization requires an exact endpoint")
 	}
 	var count int

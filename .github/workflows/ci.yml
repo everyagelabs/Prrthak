@@ -5,10 +5,13 @@ on:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
+  schedule:
+    # Daily at 02:00 Asia/Kolkata (20:30 UTC on the preceding day).
+    - cron: '30 20 * * *'
 permissions:
   contents: read
 concurrency:
-  group: pilot-${{ github.ref }}
+  group: pilot-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   regression:
@@ -85,7 +88,7 @@ jobs:
           path: .local/ci/*.json
           retention-days: 14
   image-assessment:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     needs: [regression, source-security]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -121,7 +124,7 @@ jobs:
         with:
           name: appliance-vulnerabilities-${{ github.sha }}
           path: .local/ci/images/*.json
-          retention-days: 14
+          retention-days: 30
   tagged-build:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [regression, source-security, image-assessment]

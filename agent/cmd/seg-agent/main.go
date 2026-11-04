@@ -50,7 +50,45 @@ func main() {
 	releaseTrust := flag.String("release-trust", "", "independently established public release signer trust")
 	releaseBinary := flag.String("release-binary", "", "candidate agent binary path")
 	releaseUnit := flag.String("release-unit", "", "candidate systemd unit path")
+	rollbackNetworkControl := flag.String("rollback-network-control", "", "independent owned network-control rollback journal")
+	expireQuarantine := flag.String("expire-quarantine", "", "independent original-deadline quarantine expiry journal")
+	networkControlNonce := flag.String("network-control-nonce", "", "owned network-control journal generation")
+	restoreQuarantine := flag.String("restore-quarantine", "", "boot reconciliation of the remaining original quarantine lease")
 	flag.Parse()
+	if *rollbackNetworkControl != "" || *expireQuarantine != "" || *networkControlNonce != "" || *restoreQuarantine != "" {
+		invalid := flag.NArg() != 0
+		modes := 0
+		for _, value := range []string{*rollbackNetworkControl, *expireQuarantine, *restoreQuarantine} {
+			if value != "" {
+				modes++
+			}
+		}
+		if modes != 1 || (*restoreQuarantine != "" && *networkControlNonce != "") || (*restoreQuarantine == "" && *networkControlNonce == "") {
+			invalid = true
+		}
+		flag.Visit(func(value *flag.Flag) {
+			if value.Name != "rollback-network-control" && value.Name != "expire-quarantine" && value.Name != "network-control-nonce" && value.Name != "restore-quarantine" {
+				invalid = true
+			}
+		})
+		if invalid {
+			log.Fatal("independent network rollback/expiry/boot recovery cannot be combined with another mode and needs its exact nonce")
+		}
+		var err error
+		switch {
+		case *restoreQuarantine != "":
+			err = agent.RestoreQuarantine(*restoreQuarantine, agent.ExecRunner{})
+		case *expireQuarantine != "":
+			err = agent.ExpireQuarantine(*expireQuarantine, *networkControlNonce, agent.ExecRunner{})
+		default:
+			err = agent.RollbackNetworkControl(*rollbackNetworkControl, *networkControlNonce, agent.ExecRunner{})
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
 	dependencyConsentSelected := false
 	flag.Visit(func(value *flag.Flag) {
 		if value.Name == "install-dependencies" {

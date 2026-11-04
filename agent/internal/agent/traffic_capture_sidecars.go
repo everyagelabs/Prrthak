@@ -149,7 +149,7 @@ func (a *Agent) plannedCaptureSidecars(ctx context.Context, scopes []capturePort
 	if err != nil {
 		return nil, nil, err
 	}
-	snapshot := CollectFirewallSnapshot(ctx, a.Commands, a.ownedFirewallObservationRules())
+	snapshot := CollectFirewallSnapshot(ctx, a.Commands, a.ownedFirewallObservationRules(), a.Config.StateDir)
 	if snapshot.Status != "ok" {
 		return nil, nil, errors.New("complete native inventory required before NFLOG deny classification")
 	}

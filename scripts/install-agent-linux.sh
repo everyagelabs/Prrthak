@@ -123,17 +123,19 @@ RELEASE=$(release_field VERSION_ID) || { echo 'Target os-release must contain on
 case "$RELEASE" in
   ''|*[!0-9.]*|.*|*.|*..*) echo 'Target VERSION_ID must be a literal numeric release.' >&2; exit 1 ;;
 esac
-if [ "$FAMILY" = auto ]; then
-  case "$DISTRO:$RELEASE" in
-    rhel:8|rhel:8.*|rhel:9|rhel:9.*) FAMILY=rhel ;;
-    ubuntu:26.04) FAMILY=ubuntu ;;
-    *) printf '%s\n' "$PROGRAM supports RHEL 8/9 or Ubuntu 26.04; this target is unsupported." >&2; exit 1 ;;
-  esac
-fi
-case "$FAMILY:$DISTRO:$RELEASE" in
-  rhel:rhel:8|rhel:rhel:8.*|rhel:rhel:9|rhel:rhel:9.*|ubuntu:ubuntu:26.04) ;;
-  *) printf '%s\n' "$PROGRAM supports RHEL 8/9 or Ubuntu 26.04 through its matching entrypoint; this target is unsupported." >&2; exit 1 ;;
+# Explicit agent profiles only. ID_LIKE never grants compatibility to an unknown OS.
+case "$DISTRO" in
+  rhel|rocky|almalinux|ol)
+    case "$RELEASE" in 8|8.*|9|9.*) DETECTED_FAMILY=rhel ;; *) DETECTED_FAMILY=unsupported ;; esac ;;
+  ubuntu)
+    case "$RELEASE" in 22.04|24.04|26.04) DETECTED_FAMILY=ubuntu ;; *) DETECTED_FAMILY=unsupported ;; esac ;;
+  *) DETECTED_FAMILY=unsupported ;;
 esac
+if [ "$FAMILY" = auto ]; then FAMILY=$DETECTED_FAMILY; fi
+if [ "$FAMILY" = unsupported ] || [ "$FAMILY" != "$DETECTED_FAMILY" ]; then
+  printf '%s\n' "$PROGRAM supports agent profiles RHEL/Rocky/Alma/Oracle Linux 8/9 and Ubuntu 22.04/24.04/26.04; this target is unsupported by the selected entrypoint." >&2
+  exit 1
+fi
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
@@ -190,17 +192,17 @@ available() {
   fi
 }
 MISSING=
-for command_name in systemctl systemd-run journalctl ss firewall-cmd flock; do
+for command_name in systemctl systemd-run journalctl ss firewall-cmd flock nft sysctl; do
   if ! available "$command_name"; then MISSING="$MISSING $command_name"; fi
 done
 if [ -n "$MISSING" ]; then
   printf '%s\n' "Missing target commands:$MISSING" >&2
   if [ "$FAMILY" = rhel ]; then
-    printf '%s\n' 'Required packages: systemd, iproute, firewalld, ca-certificates, util-linux (approved RHEL repositories/subscription).' >&2
+    printf '%s\n' 'Required packages: systemd, iproute, firewalld, ca-certificates, util-linux, nftables, procps-ng (approved RHEL repositories/subscription).' >&2
   else
-    printf '%s\n' 'Required packages: systemd, iproute2, firewalld, ca-certificates, util-linux (approved Ubuntu repositories).' >&2
+    printf '%s\n' 'Required packages: systemd, iproute2, firewalld, ca-certificates, util-linux, nftables, procps (approved Ubuntu repositories).' >&2
   fi
-  printf '%s\n' 'Prepare packages through your approved OS procedure, then rerun. Package post-install scripts may start firewalld: review existing UFW/rules and arrange service activation explicitly before installing it.' >&2
+  printf '%s\n' 'Use the automatic installer with a GUI-generated setup file to prepare dependencies with startup suppression. Check-only and staging do not install packages. Firewall activation remains a separate reviewed GUI operation.' >&2
   exit 1
 fi
 printf '%s\n' "Platform preflight passed: $DISTRO $RELEASE, $ARCH; required commands are installed."

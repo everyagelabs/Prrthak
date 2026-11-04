@@ -35,7 +35,7 @@ async function workspace(view='overview',options={}) {
  context.apiResponses=options.responses || {};
  context.FormData=class{constructor(form){this.values=form.values || {};}get(key){return this.values[key] ?? null;}getAll(key){const value=this.values[key];return Array.isArray(value)?value:value==null?[]:[value];}};
  vm.createContext(context);
- for(const file of ['locations.js','filters.js','topology.js','routing.js','services.js','firewall.js','firewall-page.js','managed.js','managed-page.js','default-deny-page.js','locations-page.js','metadata-page.js','access-page.js','server-lifecycle-page.js','service-groups-page.js','learning-page.js','hit-monitoring-page.js','recommendations.js','approvals-page.js','recommendations-page.js','platform.js','settings-setup-page.js','settings-page.js','settings-ha-page.js','settings-appliance-page.js','settings-certificates-page.js','settings-agents-page.js','settings-notifications-page.js','settings-endpoint-certificates-page.js','settings-recovery-page.js','settings-application-port-page.js','policy-catalogue-page.js','alerts-catalogue-page.js','account-menu.js','risk-page.js','agent-installation.js','traffic-catalogue-page.js','audit-catalogue-page.js','source-banks-page.js','policy-deployments-page.js','app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context,{filename:file});
+ for(const file of ['locations.js','filters.js','topology.js','routing.js','services.js','firewall.js','firewall-page.js','managed.js','managed-page.js','default-deny-page.js','locations-page.js','metadata-page.js','access-page.js','server-lifecycle-page.js','service-groups-page.js','learning-page.js','hit-monitoring-page.js','recommendations.js','approvals-page.js','recommendations-page.js','platform.js','settings-setup-page.js','settings-page.js','settings-ha-page.js','settings-appliance-page.js','settings-certificates-page.js','settings-agents-page.js','settings-notifications-page.js','settings-siem-page.js','settings-signing-page.js','firewall-counters-page.js','firewall-activation-page.js','network-control-page.js','settings-endpoint-certificates-page.js','settings-recovery-page.js','settings-application-port-page.js','policy-catalogue-page.js','alerts-catalogue-page.js','account-menu.js','risk-page.js','agent-installation.js','traffic-catalogue-page.js','audit-catalogue-page.js','source-banks-page.js','policy-deployments-page.js','app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context,{filename:file});
  await new Promise(setImmediate);
  const run=script=>vm.runInContext(script,context);
  async function click(action,dataset={}){context.testButton={disabled:false,dataset:{action,...dataset}};return run('handleAction({target:{closest:()=>testButton}})');}
@@ -71,7 +71,7 @@ test('account sign-out uses existing Entra flow while token disconnect and demo 
  const demo=await workspace('servers');await demo.click('account-toggle');assert.match(demo.element('#account-menu-panel').innerHTML,/No authenticated session to sign out/);assert.doesNotMatch(demo.element('#account-menu-panel').innerHTML,/data-action="account-signout"/);await demo.click('account-signout');assert.equal(demo.run('state.authType'),'demo');assert.equal(mutations(demo).length,0);
 });
 test('all eleven direct page components render with the actual shared shell and module contracts',async()=>{
- for(const view of ['overview','servers','locations','services','firewall','policies','traffic','alerts','activity','settings','access']){
+ for(const view of ['network-control','overview','servers','locations','services','firewall','policies','traffic','alerts','activity','settings','access']){
   const env=await workspace(view),html=env.element('#view-content').innerHTML;
   assert.ok(html.length>30,view+' has rendered content');assert.notEqual(env.element('#page-title').textContent,'',view+' has a title');
   assert.doesNotMatch(html,/\bNaN\b/);assert.equal(env.run('state.view'),view);
@@ -1368,4 +1368,22 @@ test('another Super Admin may reset built-in password but cannot submit a stale 
 test('built-in admin profile states immutable access and retains own password action',async()=>{
  const person=localPerson();person.user.protected_account=true;const env=await localWorkspace('servers',{identity:person});await env.click('account-profile');
  const html=env.element('#modal-content').innerHTML;assert.match(html,/Built-in admin · Password changes only/);assert.match(html,/cannot be deleted, disabled, renamed or assigned another role/);assert.match(html,/data-action="account-password"/);
+});
+
+test('network controls have a routed page and accurate per-server uncertainty badges',async()=>{
+ const env=await workspace('network-control',{mode:'entra',role:'read_only'});
+ assert.equal(env.run('state.view'),'network-control');assert.match(env.element('#navigation').innerHTML,/href="\/network-control"/);
+ assert.match(env.element('#view-content').innerHTML,/Outbound &amp; quarantine|Outbound & quarantine/);
+ assert.ok(env.requests.some(request=>request.url==='/api/v1/network-control?limit=50&offset=0'));
+ env.run(`state.data.servers[0].network_control={checked_at:"2026-11-04T00:00:00Z",stale:true,egress:{status:"enforced"},quarantine:{status:"expiry_unconfirmed",expiry_unconfirmed:true,expires_at:"2026-11-04T01:00:00Z",error:"<unsafe>"}};state.view="servers";render();`);
+ let html=env.element('#view-content').innerHTML;assert.match(html,/Quarantine expiry unconfirmed/);assert.match(html,/Outbound · stale receipt/);assert.doesNotMatch(html,/Quarantine released|Outbound applied/);
+ html=env.run('networkControlStatusHTML(state.data.servers[0],true)');assert.match(html,/&lt;unsafe&gt;/);assert.doesNotMatch(html,/<unsafe>/);
+ await assert.rejects(env.run(`api('/network-control/assess',{method:'POST',body:{}})`),/Read Only/);
+ const before=env.requests.length;await env.run(`api('/firewall-activation/query',{method:'POST',body:{}})`);assert.equal(env.requests.length,before+1);
+});
+
+test('failed quarantine replacement keeps prior active isolation visible',async()=>{
+ const env=await workspace('servers');
+ env.run(`state.data.servers[0].network_control={checked_at:new Date().toISOString(),stale:false,egress:{status:"rolled_back",last_operation_status:"rolled_back",active:true},quarantine:{status:"rolled_back",last_operation_status:"rolled_back",active:true,expires_at:new Date(Date.now()+60000).toISOString()}};render();`);
+ const html=env.element('#view-content').innerHTML;assert.match(html,/>Quarantined</);assert.match(html,/Quarantine Rolled Back|Quarantine Rolled back|Quarantine rolled back/);assert.match(html,/Outbound applied/);assert.match(html,/Outbound Rolled Back|Outbound Rolled back|Outbound rolled back/);assert.doesNotMatch(html,/Quarantine released/);
 });

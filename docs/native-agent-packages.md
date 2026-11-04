@@ -61,11 +61,11 @@ Use the established OS packaging process for the matching verified delivery pack
 Download one reusable **Fleet setup** from **Install agent** and copy the same private file to your servers as root-owned mode `0600` at `/root/prthak-agent-setup.json`. Each host creates its own key and certificate automatically. Run the matching family command on each host:
 
 ```sh
-# RHEL 8/9 amd64
+# RHEL / Rocky / Alma / Oracle Linux 8/9 amd64
 sudo /opt/prthak-agent/0.15.0-linux-amd64/scripts/install-agent-rhel.sh \
   --setup-file /root/prthak-agent-setup.json
 
-# Ubuntu 26.04 amd64
+# Ubuntu 22.04 / 24.04 / 26.04 amd64
 sudo /opt/prthak-agent/0.15.0-linux-amd64/scripts/install-agent-ubuntu.sh \
   --setup-file /root/prthak-agent-setup.json
 ```

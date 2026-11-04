@@ -1,4 +1,4 @@
-# Prṛthak (पृथक्) endpoint agent · 0.17.0 source
+# Prṛthak (पृथक्) endpoint agent · 0.18.0 source
 
 **पृथक् · Central service discovery and firewall policy automation**
 
@@ -27,7 +27,7 @@ verified, extracted root-owned release, run the same command on every endpoint:
 sudo ./scripts/install-agent-auto.sh --setup-file /root/prthak-agent-setup.json
 ```
 
-The command detects RHEL 8/9 or Ubuntu 26.04 and verifies the CPU package. It
+The command detects RHEL/Rocky/Alma/Oracle Linux 8/9 or Ubuntu 22.04/24.04/26.04 and verifies the CPU package. It
 validates the GUI kit and signed binary/service before automatically preparing
 missing OS dependencies through the native helper. The GUI keeps CPU selection;
 Linux family and required dependencies are automatic. Optional UFW assessment is
@@ -243,6 +243,14 @@ See [endpoint discovery, preparation and health](../docs/endpoint-discovery-and-
 
 ## Local and SSO controller users
 
-The current endpoint implementation is 0.17.0, with release validation in progress. Local, Entra OIDC and SAML user roles are managed by the controller; human passwords are never sent to endpoints. Existing 0.14 agents remain protocol-compatible with this login addition and do not need reinstallation solely for it. See [current authentication](../docs/local-and-saml-login.md).
+The current endpoint implementation is 0.18.0. Local, Entra OIDC and SAML user roles are managed by the controller; human passwords are never sent to endpoints. Existing 0.14 agents remain protocol-compatible with this login addition and do not need reinstallation solely for it. See [current authentication](../docs/local-and-saml-login.md).
+
+## Additional GUI workflows in 0.18
+
+The agent can report native packet/byte rule counters, including compatible firewalld defaults. Missing counters stay unavailable. Counter collection is bounded and does not reload or edit rules. Explicit reviewed GUI maintenance can activate an existing daemon, prepare the exact owned outbound template, enable compatible nft counters, or attempt only a supported narrow UFW conversion. The installer still preserves existing service activity; custom/routed/UFW hook contexts block automatic conversion.
+
+Separate signed outbound/quarantine assignments require exact native context and existing local policy opt-ins. Outbound changes update owned firewalld rules without a service restart. Quarantine uses early owned input/output/forward hooks, original-deadline kernel timeout gates, an independent watchdog/expiry timer and protected boot reconciliation; it does not flush conntrack. It covers established host application traffic except the exact protected paths. Unsupported router/container/namespace ownership remains blocked. Active native state is reported separately from the last operation outcome, including when a failed replacement restores the previous quarantine.
+
+See [GUI workflow and support limits](../docs/observability-and-network-controls.md). Native RHEL/Ubuntu/DC acceptance remains deferred.
 
 <sub>Created by Pratik Srivastava</sub>

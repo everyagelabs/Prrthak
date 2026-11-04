@@ -2,7 +2,7 @@
 
 **One place to see your Linux servers and control who may connect to their services.**
 
-This explains what you asked for and how Prṛthak does it. The current implementation is **0.17.0**, with release validation in progress. Start with the [controller picture guide](guide/simple/controller-installation.html), then follow the [agent picture guide](guide/simple/agent-installation.html).
+This explains what you asked for and how Prṛthak does it. The current implementation is **0.18.0**. Use the [current commands and support profiles](installation-commands.md). For the illustrated flow, start with the [controller picture guide](guide/simple/controller-installation.html), then follow the [agent picture guide](guide/simple/agent-installation.html).
 
 ## The controller is the control room
 
@@ -27,7 +27,7 @@ Download **one fleet setup file** from the GUI and reuse it with the matching CP
 
 The agent reports hostname, actual interface IPs, Linux version, firewall information and listening services. SSH on **2022** can be identified as SSH from its process, rather than guessed from port 22. Booting or restarting the agent refreshes this information. Business tags and DC names come from your dashboard.
 
-**You configure the product in the GUI.** Run `sudo ./scripts/install-controller.sh` for a RHEL 9 or Ubuntu 26.04 controller. It prepares missing protected Python, Docker Engine and Compose dependencies before opening GUI setup. Run `sudo ./scripts/install-agent-auto.sh --setup-file /root/prthak-agent-setup.json` on RHEL 8/9 or Ubuntu 26.04 endpoints. It validates the GUI kit and signed runtime, detects the OS and prepares required packages automatically. The server team provides genuine systemd, root/sudo access, approved repositories/network paths, storage and verified root-owned release files. Conflicting container stacks block controller installation without removal. Existing Ubuntu UFW and firewalld activity are preserved; optional UFW assessment starts off, and an approved firewall cutover is separate.
+**You configure the product in the GUI.** Run `sudo ./scripts/install-controller.sh` for a RHEL 9 or Ubuntu 26.04 controller. It prepares missing protected Python, Docker Engine and Compose dependencies before opening GUI setup. Run `sudo ./scripts/install-agent-auto.sh --setup-file /root/prthak-agent-setup.json` on RHEL, Rocky Linux, AlmaLinux and Oracle Linux 8/9, plus Ubuntu 22.04/24.04/26.04 endpoints. It validates the GUI kit and signed runtime, detects the OS and prepares required packages automatically. The server team provides genuine systemd, root/sudo access, approved repositories/network paths, storage and verified root-owned release files. Conflicting container stacks block controller installation without removal. Existing Ubuntu UFW and firewalld activity are preserved; optional UFW assessment starts off, and an approved firewall cutover is separate.
 
 ## Write one policy for a whole application
 
@@ -121,7 +121,9 @@ The recorded 0.16 isolated 5,000-identity container test delivered changed polic
 
 Code, GUI and isolated tests are available. The previous 0.16 signed pilot snapshot's four-image scans reported zero findings on its recorded ARM64 and AMD64 assessments; those results do not measure the new 0.17 images. Future or unknown vulnerabilities remain possible. Signed releases and startup checks detect changed bytes. They cannot prevent a host-root or Git owner from changing a system they control.
 
-**Still to do in your environment:** native RHEL 8/9 and Ubuntu acceptance, the real 20-server pilot, live organization SSO/MFA, DC/WAN/fencing and failover, and full fleet workload/endurance checks. The current firewall adapter covers **inbound host traffic**. Outbound, forwarded and container segmentation are outside its scope. Broad roadmap items such as canary rollouts and fleet upgrades are not claimed here as completed.
+The [November audit additions](observability-and-network-controls.md) explain policy impact preview, default-rule packet counters, SIEM export, GUI firewall maintenance and online signing management. No CLI file editing is needed for these workflows.
+
+**Still to do in your environment:** native RHEL 8/9 and Ubuntu acceptance, the real 20-server pilot, live organization SSO/MFA, DC/WAN/fencing and failover, and full fleet workload/endurance checks. The ordinary policy editor covers **inbound host traffic**. Separate reviewed Network controls add host outbound destination/port policies and expiring emergency quarantine. Forwarded/container segmentation remains unsupported. Broad roadmap items such as canary rollouts and fleet upgrades are not claimed here as completed.
 
 Inventory displays the interface IPs reported by the authenticated agent, even if agent/controller traffic crosses NAT. For application traffic, the destination sees the source left by the network: original clients hidden behind application-path NAT require network-side records.
 

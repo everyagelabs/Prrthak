@@ -140,6 +140,11 @@ class Store:
         with self.meta() as db:
             for table in ("servers", "policies", "groups", "sessions", "alerts", "audit", "tokens", "firewall_changes"):
                 db.execute(f"CREATE TABLE IF NOT EXISTS {table} (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS firewall_counter_samples (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
+            from .siem import initialize as initialize_siem
+            initialize_siem(db)
+            from .network_control import initialize as initialize_network_control
+            initialize_network_control(db)
             from .locations import initialize as initialize_locations
             initialize_locations(db)
             from .security import initialize
@@ -275,6 +280,7 @@ class Store:
 
     @staticmethod
     def _put(db, table, value):
+        previous_alert = Store._get(db, table, value["id"]) if table == "alerts" else None
         if table=="policies":
             from .policy_views import encoded_policy
             encoded=encoded_policy(value)
@@ -284,6 +290,9 @@ class Store:
                 encoded_size(value)
             encoded=json.dumps(value,separators=(",",":"))
         db.execute(f"INSERT INTO {table}(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data", (value["id"], encoded))
+        if table in ("audit", "alerts"):
+            from .siem import record as record_siem
+            record_siem(db, table, value, previous=previous_alert)
         if table == "policies":
             from .managed import policy_intent
             header = json.dumps({"id": value["id"], "digest": digest(policy_intent(value))}, separators=(",", ":"))
@@ -316,6 +325,12 @@ class Store:
     def public(server):
         result = {key: value for key, value in server.items() if not key.startswith("_")}
         Store._heartbeat_timeout(result)
+        if "network_control" in server:
+            from .network_control import public_summary
+            result["network_control"] = public_summary(server)
+        if "firewall_activation" in server:
+            from .inventory_views import maintenance_summary
+            result["firewall_activation"] = maintenance_summary(server["firewall_activation"])
         result["listeners"] = [dict(listener) for listener in server.get("listeners", [])]
         result["discovery_changes"] = [dict(change) for change in server.get("discovery_changes", [])]
         for listener in result["listeners"] + result["discovery_changes"]:
@@ -848,10 +863,23 @@ class Store:
                 if report_outcome(self, db, server, value["managed_enforcement"]) is False:
                     applied_version=previous_applied_version;apply_status=previous_apply_status
                     server["applied_version"]=applied_version;server["apply_status"]=apply_status
+            if "network_control" in value:
+                from .network_control import report as report_network_control
+                report_network_control(self, db, server, value["network_control"])
+            if "firewall_activation" in value:
+                from .firewall_activation import validate_receipt, report as report_firewall_activation
+                report_firewall_activation(self, db, server, validate_receipt(value["firewall_activation"]))
             from .firewall import ingest_snapshot, ingest_results
             from .security import ingest_events, monitor
             if "firewall_snapshot" in value:
                 ingest_snapshot(server, value["firewall_snapshot"])
+            if "firewall_counters" in value:
+                from .firewall_counters import ingest as ingest_counters
+                # Large native rule samples stay out of server/compiler JSON.
+                counter_state = self._get(db, "firewall_counter_samples", identifier) or {"id": identifier}
+                counter_state["discovery_interval_seconds"] = server.get("discovery_interval_seconds", 900)
+                if ingest_counters(counter_state, value["firewall_counters"]):
+                    self._put(db, "firewall_counter_samples", counter_state)
             if "security_monitor" in value:
                 server["security_monitor"] = monitor(value["security_monitor"])
             security_ack = ingest_events(self, db, server, value.get("security_events", []))
@@ -959,6 +987,12 @@ class Store:
         verification = verification_assignment(self, db, server)
         if verification is not None:
             result["policy_verification"] = verification
+        from .network_control import assignment as network_assignment
+        result.update(network_assignment(self, db, server))
+        from .firewall_activation import assignment as activation_assignment
+        activation = activation_assignment(self, db, server)
+        if activation is not None:
+            result["firewall_activation"] = activation
         return result
 
     def assignment(self, identifier):

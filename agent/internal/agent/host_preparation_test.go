@@ -160,6 +160,10 @@ type preparationFake struct {
 	ufwQueryUnknown   bool
 	tamperUFW         bool
 	unitMissing       bool
+	nftInstalled      bool
+	nftPreset         bool
+	nftActive         bool
+	nftMaskTamper     bool
 }
 
 func (f *preparationFake) Run(ctx context.Context, name string, args ...string) (string, error) {
@@ -174,6 +178,37 @@ func (f *preparationFake) Run(ctx context.Context, name string, args ...string) 
 			return "active", nil
 		}
 		return "inactive", errors.New("inactive")
+	}
+	if name == "/usr/bin/systemctl" && strings.HasSuffix(call, " nftables.service") {
+		link, _ := os.Readlink(f.root + "/run/systemd/system/nftables.service")
+		switch args[0] {
+		case "show":
+			if link == "/dev/null" {
+				return "masked", nil
+			}
+			if !f.nftInstalled {
+				return "not-found", nil
+			}
+			return "loaded", nil
+		case "is-active":
+			if f.nftActive {
+				return "active", nil
+			}
+			return "inactive", errors.New("inactive")
+		case "is-enabled":
+			if link == "/dev/null" {
+				return "masked-runtime", errors.New("masked")
+			}
+			if f.nftPreset {
+				return "enabled", nil
+			}
+			return "disabled", errors.New("disabled")
+		case "disable":
+			f.nftPreset = false
+			return "", nil
+		default:
+			return "", errors.New("unexpected nftables service mutation")
+		}
 	}
 	if name == "/usr/bin/systemctl" {
 		switch args[0] {
@@ -214,6 +249,9 @@ func (f *preparationFake) Run(ctx context.Context, name string, args ...string) 
 			if e != nil || link != "/dev/null" {
 				return "", errors.New("firewall startup was not suppressed")
 			}
+			if link, e := os.Readlink(f.root + "/run/systemd/system/nftables.service"); e != nil || link != "/dev/null" {
+				return "", errors.New("nftables startup was not suppressed")
+			}
 			if name == "/usr/bin/env" {
 				raw, e := os.ReadFile(f.root + "/usr/sbin/policy-rc.d")
 				if e != nil || string(raw) != preparationPolicy {
@@ -227,11 +265,20 @@ func (f *preparationFake) Run(ctx context.Context, name string, args ...string) 
 				return "", errors.New("APT removal protection is required")
 			}
 			f.preset = true
+			if strings.Contains(call, " nftables") {
+				f.nftInstalled = true
+				f.nftPreset = true
+			}
 			if f.failPackage {
 				return "private package output must not leak", errors.New("failed")
 			}
-			for _, p := range []string{"/usr/bin/firewall-cmd", "/usr/bin/ss", "/usr/bin/flock"} {
+			for _, p := range []string{"/usr/bin/firewall-cmd", "/usr/bin/ss", "/usr/bin/flock", "/usr/sbin/nft", "/usr/sbin/sysctl"} {
 				_ = os.WriteFile(f.root+p, []byte("test"), 0755)
+			}
+			if f.nftMaskTamper {
+				mask := f.root + "/run/systemd/system/nftables.service"
+				_ = os.Remove(mask)
+				_ = os.Symlink("/foreign/unit", mask)
 			}
 			if f.tamperUFW {
 				_ = os.WriteFile(f.root+"/etc/ufw/user.rules", []byte("changed unexpectedly"), 0644)
@@ -487,5 +534,100 @@ func TestPreparationInstallsWhenFirewalldUnitIsInitiallyAbsent(t *testing.T) {
 	}
 	if f.preset {
 		t.Fatal("new firewalld unit was left enabled")
+	}
+}
+
+// Explicit distro profiles share package behavior; unknown ID_LIKE and legacy
+// releases never acquire preparation authority by claiming a family string.
+func TestAgentPreparationOSProfilesAndLiteralVersions(t *testing.T) {
+	cases := []struct {
+		id, version, family string
+		allowed             bool
+	}{
+		{"rhel", "8.10", "rhel", true}, {"rhel", "9.6", "rhel", true},
+		{"rocky", "8.10", "rhel", true}, {"rocky", "9.6", "rhel", true},
+		{"almalinux", "8.10", "rhel", true}, {"almalinux", "9.6", "rhel", true},
+		{"ol", "8.10", "rhel", true}, {"ol", "9.6", "rhel", true},
+		{"ubuntu", "22.04", "ubuntu", true}, {"ubuntu", "24.04", "ubuntu", true}, {"ubuntu", "26.04", "ubuntu", true},
+		{"rhel", "7.9", "rhel", false}, {"rhel", "10.0", "rhel", false},
+		{"untrustedclone", "9.6", "rhel", false}, {"ubuntu", "20.04", "ubuntu", false},
+		{"rhel", "8.$(id)", "rhel", false}, {"rhel", "8..1", "rhel", false},
+		{"ubuntu", "24.04", "rhel", false}, {"ol", "9.6", "ubuntu", false},
+	}
+	for _, c := range cases {
+		t.Run(c.id+"/"+c.version+"/"+c.family, func(t *testing.T) {
+			root, _, _ := preparationFixture(t, c.family)
+			if err := os.WriteFile(root+"/etc/os-release", []byte("ID="+c.id+"\nID_LIKE=rhel\nVERSION_ID="+c.version+"\n"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			err := validatePreparationFamily(root, c.family)
+			if (err == nil) != c.allowed {
+				t.Fatalf("allowed=%v err=%v", c.allowed, err)
+			}
+		})
+	}
+}
+
+func TestNativeToolsPreparationNeverStartsAnotherFirewall(t *testing.T) {
+	for _, family := range []string{"rhel", "ubuntu"} {
+		t.Run(family, func(t *testing.T) {
+			root, c, f := preparationFixture(t, family)
+			if err := prepareHostUnder(context.Background(), root, family, c, HostPreparationOptions{true, "preserve"}, f, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			calls := strings.Join(f.calls, "\n")
+			want := "procps-ng"
+			if family == "ubuntu" {
+				want = "procps"
+			}
+			if !strings.Contains(calls, " nftables "+want) || f.nftPreset || !preparationCommandExists(root, "/usr/sbin/nft") || !preparationCommandExists(root, "/usr/sbin/sysctl") {
+				t.Fatalf("native utility preparation failed: %s", calls)
+			}
+			for _, op := range []string{" start ", " stop ", " enable ", " restart ", " reload "} {
+				if strings.Contains(calls, op+"nftables.service") {
+					t.Fatalf("unexpected %s", op)
+				}
+			}
+			for _, name := range []string{"/run/systemd/system/nftables.service", preparationDirectory + "/nftables-suppression.json"} {
+				if _, err := os.Lstat(root + name); !os.IsNotExist(err) {
+					t.Fatalf("owned temporary state remains: %s %v", name, err)
+				}
+			}
+		})
+	}
+}
+func TestNativeToolsPreparationRefusesActiveOrForeignNFTablesAuthority(t *testing.T) {
+	for _, mode := range []string{"active", "override", "changed-mask"} {
+		t.Run(mode, func(t *testing.T) {
+			root, c, f := preparationFixture(t, "rhel")
+			f.nftInstalled = mode == "active"
+			f.nftActive = mode == "active"
+			f.nftMaskTamper = mode == "changed-mask"
+			mask := root + "/run/systemd/system/nftables.service"
+			if mode == "override" {
+				if err := os.Symlink("/foreign/unit", mask); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err := prepareHostUnder(context.Background(), root, "rhel", c, HostPreparationOptions{true, "preserve"}, f, time.Now())
+			if err == nil {
+				t.Fatal("unsafe nftables context allowed")
+			}
+			calls := strings.Join(f.calls, "\n")
+			if mode != "changed-mask" && strings.Contains(calls, "/usr/bin/dnf") {
+				t.Fatal("ran packages before protection")
+			}
+			if mode != "active" {
+				target, _ := os.Readlink(mask)
+				if target != "/foreign/unit" {
+					t.Fatal("foreign mask overwritten")
+				}
+			}
+			if mode == "changed-mask" {
+				if _, err := os.Lstat(root + preparationDirectory + "/nftables-suppression.json"); err != nil {
+					t.Fatal("uncertain preparation must retain its journal")
+				}
+			}
+		})
 	}
 }

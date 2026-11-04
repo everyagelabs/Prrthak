@@ -135,7 +135,7 @@ func rollbackSourceBanks(ctx context.Context, commands CommandRunner, path strin
 	}
 	// Verify all access-policy context before deletion. If another writer added
 	// references or changed a policy, preserve evidence rather than delete it.
-	inspection := &Agent{Commands: commands, sourceBankConfigDigest: configDigest, sourceBankSkipInventory: true, sourceBankOwnedRulesOverride: bank.Baseline.OwnedRules}
+	inspection := &Agent{Config: Config{StateDir: filepath.Dir(filepath.Dir(filepath.Dir(path)))}, Commands: commands, sourceBankConfigDigest: configDigest, sourceBankSkipInventory: true, sourceBankOwnedRulesOverride: bank.Baseline.OwnedRules}
 	current, err := inspection.sourceBankBaseline(ctx)
 	if err != nil || current.ContextDigest != bank.Baseline.ContextDigest || !reflect.DeepEqual(current.PermanentBindings, bank.Baseline.PermanentBindings) {
 		return failure(errors.New("firewall policy changed outside source-bank preparation; rollback scope is uncertain"))

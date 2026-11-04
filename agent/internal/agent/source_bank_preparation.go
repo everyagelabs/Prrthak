@@ -118,7 +118,7 @@ func (a *Agent) validateSourceBankAssignment(p *Policy, request *SourceBankPrepa
 
 func (a *Agent) sourceBankProtection(ctx context.Context) Protection {
 	report := Discover(ctx, a.Commands, false, "")
-	report.FirewallSnapshot = CollectFirewallSnapshot(ctx, a.Commands, nil)
+	report.FirewallSnapshot = CollectFirewallSnapshot(ctx, a.Commands, nil, a.Config.StateDir)
 	protection := a.managedProtectionFromReport(report)
 	a.enrichHostDefaultDenyProtection(ctx, &protection)
 	zone, _, topologyErr := a.managedTopology(ctx)

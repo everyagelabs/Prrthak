@@ -1,6 +1,18 @@
 # 5,000-server controller capacity
 
-## Current 0.16 actual Alpine-image acceptance - 3 November 2026
+## Current 0.18 local source measurement · 4 November 2026
+
+Five thousand virtual mTLS endpoint identities verified Local Admin policy authority and exact signed policy delivery with 100 retained expired sessions (500,000 memberships). Two Gunicorn workers × 32 threads, 64 clients, metadata/traffic pools 8/2 and the 30-second control profile used one private PostgreSQL 16 instance on the development host.
+
+| Phase | Verified identities | Elapsed |
+| --- | ---: | ---: |
+| Initial signed delivery | 5,000 | 23.554 s |
+| Policy edit, publication and full 30-second polling window | 5,000 | **34.955 s** |
+| Mixed discovery and observations | 5,000 | 23.501 s |
+
+Publication took 4.429 s and is included in the changed-policy measurement. The harness verified every changed source matrix and recorded zero final failures. The mixed phase sent 100 discovery reports and 10,000 synthetic observations; no flow batch remained pending. Both owned databases were removed. The [0.18 measurement record](../output/capacity/controller-5000-0.18-local-result.json) binds the exact runtime source and reports the limits. Optional network controls and SIEM were at their defaults. This is a local source measurement; native hosts, packaged image performance, WAN and DC failover are separate acceptance work.
+
+## Historical 0.16 actual Alpine-image acceptance - 3 November 2026
 
 The final signed controller image (`fb9cf66d…1fe5`, Python 3.14.10 / Alpine 3.24.3) and database image (`35cb4850…86f7`, PostgreSQL 16.15) passed the 60-second ordinary delivery target with 5,000 virtual mTLS endpoint identities. Both runs retained 100 expired full-fleet sessions / 500,000 memberships before timing and checked every endpoint's current Local or SAML Admin authority and signed passive observation lease in each phase.
 

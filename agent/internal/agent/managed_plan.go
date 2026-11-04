@@ -228,7 +228,7 @@ func (a *Agent) managedPreflight(ctx context.Context, protection Protection, who
 	if a.State.ManagedBundle != nil && a.State.ManagedBundle.TopologyDigest != "" && a.State.ManagedBundle.TopologyDigest != topology {
 		return errors.New("committed zone/interface binding drift detected")
 	}
-	snapshot := CollectFirewallSnapshot(ctx, a.Commands, a.ownedFirewallObservationRules())
+	snapshot := CollectFirewallSnapshot(ctx, a.Commands, a.ownedFirewallObservationRules(), a.Config.StateDir)
 	if snapshot.Status != "ok" {
 		return errors.New("managed enforcement requires complete fresh firewall inventory")
 	}
@@ -284,6 +284,9 @@ func (a *Agent) managedPreflight(ctx context.Context, protection Protection, who
 			return errors.New("ambiguous active policy configuration")
 		}
 		for _, name := range active {
+			if name == egressPolicyName && OwnedEgressPolicyContext(ctx, a.Commands, a.Config.StateDir) == nil {
+				continue
+			}
 			for _, scope := range []string{"runtime", "permanent"} {
 				details, e := a.Commands.Run(ctx, "firewall-cmd", firewallArgs(scope, "--policy="+name, "--list-all")...)
 				if e != nil || !safeHostIPv6Policy(details) {

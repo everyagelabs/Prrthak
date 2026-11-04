@@ -1,6 +1,6 @@
 # Prṛthak · पृथक् controller
 
-The 0.17.0 implementation uses Python 3.10+, local SQLite or shared PostgreSQL, and the controller requirements. Release validation is in progress. The installed serving path is bounded Gunicorn HTTPS; the explicit development backend is for fixtures. The appliance image supplies its pinned runtime/dependencies.
+The 0.18.0 implementation uses Python 3.10+, local SQLite or shared PostgreSQL, and the controller requirements. The installed serving path is bounded Gunicorn HTTPS; the explicit development backend is for fixtures. The appliance image supplies its pinned runtime/dependencies.
 
 ## Install and configure through the GUI
 

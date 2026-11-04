@@ -31,6 +31,8 @@ FENCE_NAME = ".prthak-storage-fence.json"
 MARKER_TABLE = "runtime_deployment"
 META_TABLES = (
     "agent_polling_settings", "agent_polling_revisions",
+    "network_control_plans", "network_control_assignments",
+    "firewall_counter_samples", "siem_settings", "siem_reviews", "siem_cursor", "siem_events", "siem_deliveries",
     "endpoint_configuration_reviews",
     "hit_monitors", "hit_monitor_targets", "hit_monitor_reviews",
     "notification_settings", "notification_revisions", "notification_reviews", "notification_deliveries",
@@ -47,6 +49,10 @@ META_TABLES = (
 )
 TRAFFIC_TABLES = ("batches", "flows", "hit_batches", "hit_events", "hit_limits")
 SPECIAL_COLUMNS = {
+    "network_control_plans": ("id", "created_at", "status", "data"),
+    "siem_cursor": ("id", "sequence", "queued", "overflow", "last_dropped_sequence", "acknowledged", "stream_id"),
+    "siem_events": ("sequence", "event_key", "batch_id", "configuration_revision", "binding", "destination", "data"),
+    "siem_deliveries": ("id", "status", "next_attempt_at", "lease_until", "created_at", "data"),
     "learning_session_targets": ("id", "session_id", "server_id", "status", "starts_at", "expires_at", "cutoff_at", "state_digest"),
     "policy_deployments": ("id", "created_at", "deadline_at", "data"),
     "policy_deployment_targets": ("id", "deployment_id", "server_id", "created_at", "deadline_at", "apply_status", "traffic_status", "data"),

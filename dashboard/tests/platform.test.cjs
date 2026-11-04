@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const P=require('../platform.js');
 test('platform privileges remain exclusive to Super Admin while all tabs have stable fallbacks',()=>{
  for(const role of ['admin','read_only','operator','viewer','Super Admin',undefined])assert.equal(P.canConfigure(role),false);
- assert.equal(P.canConfigure('super_admin'),true);assert.equal(P.tab('database'),'database');assert.equal(P.tab('unexpected'),'overview');assert.equal(P.tabs.length,10);assert.equal(P.tab('approvals'),'overview');
+ assert.equal(P.canConfigure('super_admin'),true);assert.equal(P.tab('database'),'database');assert.equal(P.tab('unexpected'),'overview');assert.equal(P.tabs.length,12);assert.equal(P.tab('approvals'),'overview');
 });
 test('connection summaries never display usernames, passwords or query secrets',()=>{
  assert.equal(P.connectionLabel('postgresql://operator:private-password@database.example.test:5432/inventory?sslpassword=hidden'),'postgresql://database.example.test:5432/inventory');

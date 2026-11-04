@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"syscall"
@@ -289,9 +290,11 @@ func prepareHostUnder(ctx context.Context, root, family string, c Config, option
 			resultErr = errors.New("host preparation receipt could not be persisted")
 		}
 	}()
-	if _, e := os.Lstat(directory + "/suppression.json"); !os.IsNotExist(e) {
-		status.Status = "blocked"
-		return errors.New("an unfinished package preparation exists; inspect suppression.json before retrying")
+	for _, name := range []string{"suppression.json", "nftables-suppression.json"} {
+		if _, e := os.Lstat(filepath.Join(directory, name)); !os.IsNotExist(e) {
+			status.Status = "blocked"
+			return errors.New("an unfinished package preparation exists; inspect the private suppression journals before retrying")
+		}
 	}
 	for _, name := range []string{"/usr/bin/systemctl", "/usr/bin/systemd-run", "/usr/bin/journalctl"} {
 		if !preparationCommandExists(root, name) {
@@ -335,6 +338,16 @@ func prepareHostUnder(ctx context.Context, root, family string, c Config, option
 			}
 		}
 	}
+	if !preparationCommandExists(root, "/usr/sbin/nft") && !preparationCommandExists(root, "/usr/bin/nft") {
+		packages = append(packages, "nftables")
+	}
+	if !preparationCommandExists(root, "/usr/sbin/sysctl") && !preparationCommandExists(root, "/usr/bin/sysctl") {
+		if family == "rhel" {
+			packages = append(packages, "procps-ng")
+		} else {
+			packages = append(packages, "procps")
+		}
+	}
 	caPath := "/etc/pki/tls/certs/ca-bundle.crt"
 	if family == "ubuntu" {
 		caPath = "/etc/ssl/certs/ca-certificates.crt"
@@ -367,6 +380,18 @@ func prepareHostUnder(ctx context.Context, root, family string, c Config, option
 			return errors.New("UFW configuration cannot be preserved safely before dependency installation")
 		}
 	}
+	nftCleanup, err := suppressNFTPreparationStartup(ctx, root, directory, commands, lease)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		cleanCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		cleanCtx = withManagedLease(cleanCtx, lease)
+		if e := nftCleanup(cleanCtx); e != nil {
+			resultErr = e
+		}
+	}()
 	cleanup, err := suppressPreparationStartup(ctx, root, directory, family, enabled, *status.Firewalld.Active, ufwBaseline, status.UFW.Active, commands, lease)
 	if err != nil {
 		return err
@@ -407,6 +432,12 @@ func prepareHostUnder(ctx context.Context, root, family string, c Config, option
 	if !preparationCommandExists(root, "/usr/bin/ss") && !preparationCommandExists(root, "/usr/sbin/ss") {
 		return errors.New("package manager returned success but socket discovery is still unavailable")
 	}
+	if !preparationCommandExists(root, "/usr/sbin/nft") && !preparationCommandExists(root, "/usr/bin/nft") {
+		return errors.New("package manager returned success but nftables CLI is still unavailable")
+	}
+	if !preparationCommandExists(root, "/usr/sbin/sysctl") && !preparationCommandExists(root, "/usr/bin/sysctl") {
+		return errors.New("package manager returned success but sysctl is still unavailable")
+	}
 	if info, e := os.Stat(root + caPath); e != nil || !info.Mode().IsRegular() || info.Size() == 0 {
 		return errors.New("package manager returned success but the OS CA bundle is still unavailable")
 	}
@@ -444,13 +475,17 @@ func validatePreparationFamily(root, family string) error {
 		values[parts[0]] = value
 	}
 	version := values["VERSION_ID"]
-	if family == "rhel" && values["ID"] == "rhel" && (version == "8" || version == "9" || strings.HasPrefix(version, "8.") || strings.HasPrefix(version, "9.")) {
+	if !regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)*$`).MatchString(version) {
+		return errors.New("native OS version must contain only numeric components")
+	}
+	rpmIDs := map[string]bool{"rhel": true, "rocky": true, "almalinux": true, "ol": true}
+	if family == "rhel" && rpmIDs[values["ID"]] && (version == "8" || version == "9" || strings.HasPrefix(version, "8.") || strings.HasPrefix(version, "9.")) {
 		return nil
 	}
-	if family == "ubuntu" && values["ID"] == "ubuntu" && version == "26.04" {
+	if family == "ubuntu" && values["ID"] == "ubuntu" && (version == "22.04" || version == "24.04" || version == "26.04") {
 		return nil
 	}
-	return errors.New("host preparation requires its matching RHEL 8/9 or Ubuntu 26.04 installer")
+	return errors.New("host preparation requires an explicit RHEL/Rocky/Alma/Oracle Linux 8/9 or Ubuntu 22.04/24.04/26.04 agent profile")
 }
 
 // Suppression is journaled before changes. An interrupted/uncertain package

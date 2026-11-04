@@ -255,6 +255,7 @@ def delete_confirm(store, identifier, body, actor):
                    "plan_id": plan["id"], "kind": plan["kind"], "server": copy.deepcopy(server)}
         store._put(db, "retired_endpoints", archive)
         db.execute(f"DELETE FROM {table} WHERE id=?", (server_id,))
+        db.execute("DELETE FROM firewall_counter_samples WHERE id=?", (server_id,))
         for group in store._all(db, "groups"):
             if group.get("type") == "static" and server_id in group.get("server_ids", []):
                 group["server_ids"] = [item for item in group["server_ids"] if item != server_id]

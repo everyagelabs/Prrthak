@@ -178,7 +178,7 @@ func (a *Agent) hostDefaultDenyContext(ctx context.Context, protection Protectio
 			}
 		}
 	}
-	snapshot := CollectFirewallSnapshot(ctx, a.Commands, a.ownedFirewallObservationRules())
+	snapshot := CollectFirewallSnapshot(ctx, a.Commands, a.ownedFirewallObservationRules(), a.Config.StateDir)
 	if snapshot.Status != "ok" {
 		add("complete fresh firewall inventory is required")
 	}
@@ -211,6 +211,10 @@ func (a *Agent) hostDefaultDenyContext(ctx context.Context, protection Protectio
 				add("masquerading is unsupported for whole-server deny")
 			}
 		case "policy":
+			name, _, _ := strings.Cut(rule.Value, "\n")
+			if name == egressPolicyName && OwnedEgressPolicyContext(ctx, a.Commands, a.Config.StateDir) == nil {
+				continue
+			}
 			_, detail, ok := strings.Cut(rule.Value, "\n")
 			if !ok || !safeHostIPv6Policy(detail) {
 				add("only the verified default host IPv6 control policy is supported")
@@ -268,7 +272,7 @@ func managedRulesContain(rules []ManagedRule, candidate ManagedRule) bool {
 }
 
 func (a *Agent) verifyHostDefaultDenyRemoved(ctx context.Context) error {
-	snapshot := CollectFirewallSnapshot(ctx, a.Commands, a.ownedFirewallObservationRules())
+	snapshot := CollectFirewallSnapshot(ctx, a.Commands, a.ownedFirewallObservationRules(), a.Config.StateDir)
 	if snapshot.Status != "ok" {
 		return errors.New("whole-server cleanup absence could not be read back")
 	}

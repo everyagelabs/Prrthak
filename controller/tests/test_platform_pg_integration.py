@@ -128,6 +128,9 @@ class PlatformPostgresAcceptance(unittest.TestCase):
                                   event_digest="e" * 64,capture_kind="legacy_log",capture_backend="journal",count_unit="log_records",address_family="ipv4",capture_processed=1,capture_expires_at=expiry)
                     values.update(deadline_at=expiry, deployment_id="preserve-deployment", apply_status="pending", traffic_status="awaiting_apply",
                                   starts_at=at, cutoff_at=expiry, state_digest="f" * 64)
+                    values.update(sequence=73, queued=1, overflow=0, last_dropped_sequence=0, acknowledged=0,
+                                  stream_id="preserve-stream", event_key="preserve-siem-event", batch_id=None,
+                                  configuration_revision=1, binding="a" * 64, destination="preserve-destination")
                     db.execute(f'INSERT INTO "{table}" ({",".join(columns)}) VALUES ({",".join("?" for _ in columns)})', tuple(values[column] for column in columns))
         result = self._migrate(source)
         target = self._bound()

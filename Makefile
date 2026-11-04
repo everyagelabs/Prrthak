@@ -46,6 +46,11 @@ check:
 	node --check dashboard/audit-catalogue-page.js
 	node --check dashboard/source-banks-page.js
 	node --check dashboard/policy-deployments-page.js
+	node --check dashboard/firewall-activation-page.js
+	node --check dashboard/firewall-counters-page.js
+	node --check dashboard/network-control-page.js
+	node --check dashboard/settings-siem-page.js
+	node --check dashboard/settings-signing-page.js
 	node --check dashboard/app.js
 	node --check dashboard/filters.js
 	node --check dashboard/topology.js

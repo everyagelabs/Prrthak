@@ -100,7 +100,7 @@ func validManagedNonce(value string) bool { return len(value) == 32 && validDige
 func readManagedJournal(path, nonce string) (*managedJournal, error) {
 	area := filepath.Base(filepath.Dir(filepath.Dir(path)))
 	directory := filepath.Base(filepath.Dir(path))
-	if !validManagedNonce(nonce) || !filepath.IsAbs(path) || filepath.Base(path) != nonce+".json" || (directory != "transactions" && !(directory == "source-bank-transactions" && area == "managed")) || (area != "managed" && area != "learning-allow") {
+	if !validManagedNonce(nonce) || !filepath.IsAbs(path) || filepath.Base(path) != nonce+".json" || (directory != "transactions" && !((directory == "source-bank-transactions" || directory == "firewall-activation-transactions") && area == "managed")) || (area != "managed" && area != "learning-allow") {
 		return nil, errors.New("invalid managed watchdog journal path/nonce")
 	}
 	raw, e := readPrivateSetupBound(path, 16*1024*1024)
@@ -119,6 +119,12 @@ func readManagedJournal(path, nonce string) (*managedJournal, error) {
 	}
 	if (directory == "source-bank-transactions") != (journal.SourceBankPreparation != nil) {
 		return nil, errors.New("source-bank journal area/type mismatch")
+	}
+	if (directory == "firewall-activation-transactions") != (journal.FirewallActivation != nil) {
+		return nil, errors.New("firewall maintenance journal area/type mismatch")
+	}
+	if e := validateFirewallActivationJournal(&journal); e != nil {
+		return nil, e
 	}
 	if e := validateSourceBankJournal(&journal); e != nil {
 		return nil, e
@@ -145,6 +151,9 @@ func managedOwned(rule string) bool {
 	return managedOwnershipPriority(info.Priority) && strings.HasPrefix(info.LogPrefix, "PRTM") && len(info.LogPrefix) == 17 && strings.HasSuffix(info.LogPrefix, ":") && info.LogLevel == "debug" && info.LogLimit == "1/m" && (info.Action == "accept" || info.Action == "reject")
 }
 func rollbackManaged(ctx context.Context, runner CommandRunner, path string, journal *managedJournal) error {
+	if journal.FirewallActivation != nil {
+		return rollbackFirewallActivation(ctx, runner, path, journal, nil)
+	}
 	if journal.SourceBankPreparation != nil {
 		return rollbackSourceBanks(ctx, runner, path, journal, nil)
 	}
@@ -447,7 +456,7 @@ func bootElapsedSeconds() float64 {
 }
 
 func managedCommittedSuccessor(path string, journal *managedJournal) bool {
-	if journal.SourceBankPreparation != nil {
+	if journal.SourceBankPreparation != nil || journal.FirewallActivation != nil {
 		return false
 	}
 	if journal.Next.Generation == "" {
@@ -481,6 +490,9 @@ func managedCommittedSuccessor(path string, journal *managedJournal) bool {
 func (a *Agent) recoverAllEnforcementLocked(ctx context.Context) error {
 	if err := checkManagedCommandFence(ctx); err != nil {
 		return err
+	}
+	if e := a.recoverFirewallActivationLocked(ctx); e != nil {
+		return e
 	}
 	if e := a.recoverSourceBankPreparationLocked(ctx); e != nil {
 		return e

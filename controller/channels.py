@@ -7,6 +7,8 @@ from urllib.parse import urlsplit, urlunsplit
 import os
 
 CONTROL = {
+    "/api/v1/agent/network-control/check": "POST",
+    "/api/v1/agent/firewall-activation/check": "POST",
     "/api/v1/agent/policy": "GET",
     "/api/v1/agent/certificates/renew": "POST",
     "/api/v1/agent/firewall/check": "POST",

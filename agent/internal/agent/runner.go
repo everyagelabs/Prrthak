@@ -14,6 +14,7 @@ import (
 )
 
 type Agent struct {
+	firewallActivation                   *firewallActivationHooks
 	policyVerificationTimestampAvailable func() bool
 	checkSourceBankHealth                func(context.Context, *Policy, *SourceBankPreparationAssignment, Protection) error
 	sourceBankConfigDigest               func() (string, error)
@@ -241,6 +242,9 @@ func (a *Agent) Startup(ctx context.Context) error {
 	}
 	a.State.Cursor = ""
 	a.State.JournalSince = time.Now().UTC()
+	if e := a.recoverNetworkControls(ctx); e != nil {
+		return fmt.Errorf("network controls recovery failed: %w", e)
+	}
 	if e := a.recoverFirewallChanges(ctx); e != nil {
 		a.firewallRecoveryError = e.Error()
 		log.Printf("approved firewall-change recovery: %v", e)
@@ -293,6 +297,17 @@ func (a *Agent) Sync(ctx context.Context) error {
 		}
 		if e := a.validateAssignmentReplay(a.State.Policy, time.Now().UTC()); e != nil {
 			return e
+		}
+		for _, process := range []func(context.Context, *Policy) (bool, error){a.processFirewallActivation, a.processNetworkControls} {
+			if handled, err := process(ctx, a.State.Policy); handled {
+				if reportErr := a.report(ctx); reportErr != nil {
+					return reportErr
+				}
+				if err != nil {
+					return err
+				}
+				return a.writeReadyStatus("ready", nil)
+			}
 		}
 		if handled, err := a.processSourceBankPreparation(ctx, a.State.Policy); handled {
 			if reportErr := a.report(ctx); reportErr != nil {

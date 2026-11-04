@@ -1,0 +1,40 @@
+'use strict';
+
+// Kernel packet/byte counters stay distinct from logical policy/flow totals.
+function firewallCounterNumber(value){
+  if(typeof value!=='string'||!/^(0|[1-9][0-9]{0,19})$/.test(value))return 'Unavailable';
+  try{const number=BigInt(value);return number<=18446744073709551615n?number.toLocaleString('en-US'):'Unavailable';}catch{return 'Unavailable';}
+}
+function firewallCounterRowsHTML(rows=[]){
+  return rows.map(row=>`<tr><td><strong>${h(row.chain)}</strong><small>${h(row.family)} / ${h(row.table)} · ${h(row.zone||'Base/default chain')}</small><small>${h(row.kind)} · ${h(row.basis)}</small></td><td>${h(row.action)}</td><td>${h(firewallCounterNumber(row.packets))}</td><td>${h(firewallCounterNumber(row.bytes))}</td><td>${row.delta_status==='observed'?h(firewallCounterNumber(row.delta_packets)):`<span class="help-text">${h(row.reset_detected?'Counter reset':row.delta_status==='baseline'?'First sample':row.delta_status==='generation_unknown'?'Generation unknown':'Unavailable')}</span>`}</td><td><details><summary>Exact native rule</summary><pre>${h(row.expression)}</pre><small>Rule ${h(String(row.id||'').slice(0,16))} · handle ${h(row.handle)}</small></details>${row.reason?`<small>${h(row.reason)}</small>`:''}</td></tr>`).join('');
+}
+function firewallCounterPageHTML(id,result,search=''){
+  const rows=Array.isArray(result.items)?result.items:[],hasSample=!!result.collected_at;
+  return `<div class="modal-body"><p>Native firewalld runtime counters include existing default, zone and policy rules. One configured service may compile into multiple kernel rules. Packet counts are not connection counts or logical-policy totals.</p><p><strong>${h(serverName(id))}</strong> · Backend: ${h(result.backend||'Not reported')} · ${h(result.status||'unavailable')}</p><p class="help-text">Last sample: ${h(hasSample?timestamp(result.collected_at):'Not reported')} · Full inventory interval: ${h(result.sample_interval_seconds??900)} seconds. Refresh reads the latest controller receipt; it does not run a command on the endpoint.</p>${canWrite()&&result.backend==='nftables'?`<p><button class="button secondary small" data-action="firewall-activation-open" data-id="${h(id)}" data-operation="enable_native_counters">Assess native counter enablement</button></p><p class="help-text">This opens separate maintenance review. Enabling supported counters requires a reviewed reload and downtime acknowledgement.</p>`:''}${result.stale?'<p class="inline-notice warning">This sample is stale or the endpoint is offline. It does not describe current traffic.</p>':''}${result.reason?`<p class="inline-notice">${h(result.reason)}</p>`:''}${result.truncated?'<p class="inline-notice warning">The endpoint truncated this sample at its safety budget. Coverage is partial.</p>':''}<div class="field-row"><div class="field"><label for="firewall-counter-search">Filter native chain, zone or rule</label><input id="firewall-counter-search" maxlength="256" value="${h(search)}"></div><button class="button secondary small" data-action="firewall-counters-filter" data-id="${h(id)}">Filter counters</button></div><div class="table-scroll"><table><thead><tr><th>Native chain / scope</th><th>Action</th><th>Packets</th><th>Bytes</th><th>Packet increase since previous sample</th><th>Rule / availability</th></tr></thead><tbody>${firewallCounterRowsHTML(rows)||'<tr><td colspan="6">No native counter rows are available for this selection. Missing or disabled counters are never reported as zero.</td></tr>'}</tbody></table></div><p class="help-text">${h(result.coverage_note||'No historical counts are reconstructed.')} Values may reset after reload, reboot or rule replacement; resets entirely between samples can be missed. A rule with a real zero counter is displayed as 0.</p></div><div class="modal-footer"><span>${format(rows.length)} rows on this page · ${format(result.total??rows.length)} matching</span><button class="button secondary" data-action="firewall-counters-open" data-id="${h(id)}">Refresh</button><button class="button secondary" data-action="firewall-counters-next" data-id="${h(id)}" ${result.has_more&&result.next_after?'':'disabled'}>Next rules</button><button class="button secondary" data-action="close-modal">Close</button></div>`;
+}
+function firewallCounterPicker(search='',offset=0){
+  const term=String(search).slice(0,256).toLowerCase(),servers=(state.data?.servers||[]).filter(server=>[server.hostname,server.id,...(server.ips||[])].join(' ').toLowerCase().includes(term)).sort((a,b)=>String(a.hostname||a.id).localeCompare(String(b.hostname||b.id))),page=servers.slice(offset,offset+50);
+  state.firewallCounterPicker={search:term,offset};
+  showModal('Choose endpoint for native counters',`<div class="modal-body"><p>Select a server to inspect its existing firewalld rule counters. Counts require native backend support and an agent counter report.</p><div class="field"><label for="firewall-counter-host-search">Hostname or agent-reported IP</label><input id="firewall-counter-host-search" maxlength="256" value="${h(term)}"></div><button class="button secondary small" data-action="firewall-counters-find">Find servers</button><div class="firewall-host-list">${page.map(server=>`<button class="firewall-host-link" data-action="firewall-counters-open" data-id="${h(server.id)}"><span>${h(server.hostname||server.id)}</span><small>${h((server.ips||[]).join(', '))}</small><span>Native rule counters ↗</span></button>`).join('')||'<p>No known endpoint matches this search.</p>'}</div></div><div class="modal-footer"><span>${format(servers.length)} matching servers</span><button class="button secondary" data-action="firewall-counters-picker-page" data-offset="${Math.max(0,offset-50)}" ${offset?'':'disabled'}>Previous servers</button><button class="button secondary" data-action="firewall-counters-picker-page" data-offset="${offset+50}" ${offset+50<servers.length?'':'disabled'}>Next servers</button><button class="button secondary" data-action="close-modal">Close</button></div>`,'NATIVE FIREWALL COUNTERS');
+}
+async function firewallCounterOpen(id,after='',search=''){
+  if(!id)return firewallCounterPicker();
+  const generation=(state.firewallCounterGeneration||0)+1;state.firewallCounterGeneration=generation;
+  state.firewallCounterPage={id,after,search};
+  showModal('Native firewalld rule counters',`<div class="modal-body"><p>Loading the latest native counter sample for ${h(serverName(id))}…</p></div><div class="modal-footer"><button class="button secondary" data-action="close-modal">Close</button></div>`,'READ ONLY · PACKETS AND BYTES');
+  try{
+    const query=new URLSearchParams({after,limit:'50',search}),result=await api(`/servers/${encodeURIComponent(id)}/firewall-counters?${query}`);
+    if(generation!==state.firewallCounterGeneration||!$('#modal')?.open)return;
+    if(!result||result.server_id!==id||!Array.isArray(result.items)||result.items.length>100)throw new Error('The controller returned an invalid native counter page.');
+    state.firewallCounterResult=result;
+    showModal('Native firewalld rule counters',firewallCounterPageHTML(id,result,search),'READ ONLY · PACKETS AND BYTES');
+  }catch(error){if(generation===state.firewallCounterGeneration&&$('#modal')?.open)formError(error);}
+}
+async function firewallCounterAction(button){
+  const {action,id}=button.dataset;
+  if(action==='firewall-counters-open')return firewallCounterOpen(id);
+  if(action==='firewall-counters-find')return firewallCounterPicker($('#firewall-counter-host-search')?.value||'');
+  if(action==='firewall-counters-picker-page')return firewallCounterPicker(state.firewallCounterPicker?.search||'',Math.max(0,Number(button.dataset.offset)||0));
+  if(action==='firewall-counters-filter')return firewallCounterOpen(id,'',String($('#firewall-counter-search')?.value||'').slice(0,256));
+  if(action==='firewall-counters-next'&&state.firewallCounterResult?.has_more&&state.firewallCounterResult?.next_after)return firewallCounterOpen(id,state.firewallCounterResult.next_after,state.firewallCounterPage?.search||'');
+}
