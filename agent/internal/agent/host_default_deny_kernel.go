@@ -131,11 +131,13 @@ func nftHostInputKernelProof(raw, zone string, tailscaleOnly bool, read tailscal
 		return bad()
 	}
 	input, zonePre, established, loopback, dispatch := false, false, false, false, false
+	zoneStockIPv6Pre := false
 	base := map[string][]json.RawMessage{}
+	stockIPv6 := newNftStockIPv6Policy()
 	compat := make(nftTailscaleContext)
 	legacyNAT := make(legacyFirewalldNAT)
 	probes := make(inertXTablesProbes)
-	dispatchChains := map[string]bool{"filter_INPUT_POLICIES": true, "filter_INPUT_ZONES": true, "filter_INPUT_ZONES_SOURCE": true, "filter_INPUT_POLICIES_pre": true, "filter_INPUT_POLICIES_post": true}
+	dispatchChains := map[string]bool{"filter_INPUT_POLICIES": true, "filter_INPUT_ZONES": true, "filter_INPUT_ZONES_SOURCE": true, nftStockIPv6Dispatch: true, "filter_INPUT_POLICIES_post": true}
 	for _, object := range document.Objects {
 		if len(object) != 1 {
 			return bad()
@@ -173,6 +175,12 @@ func nftHostInputKernelProof(raw, zone string, tailscaleOnly bool, read tailscal
 				return bad()
 			}
 			if kind == "chain" {
+				if chain := stockIPv6[item.Name]; chain != nil {
+					if chain.declared || item.Hook != "" || item.Prio != nil || item.Type != "" || item.Policy != "" {
+						return bad()
+					}
+					chain.declared = true
+				}
 				if item.Hook == "input" {
 					if input || item.Name != "filter_INPUT" || *item.Prio != 10 || item.Type != "filter" || item.Policy != "accept" {
 						return bad()
@@ -201,6 +209,9 @@ func nftHostInputKernelProof(raw, zone string, tailscaleOnly bool, read tailscal
 				expressions = append(expressions, expression)
 			}
 			canonical, _ := json.Marshal(expressions)
+			if chain := stockIPv6[item.Chain]; chain != nil {
+				chain.rules = append(chain.rules, expressions)
+			}
 			if item.Chain == "filter_INPUT" {
 				base[item.Chain] = append(base[item.Chain], canonical)
 				text := string(canonical)
@@ -250,7 +261,7 @@ func nftHostInputKernelProof(raw, zone string, tailscaleOnly bool, read tailscal
 					}
 					last = last[1:]
 				}
-				allowed := map[string]bool{"filter_IN_" + zone: true, "filter_IN_policy_allow-host-ipv6": true}
+				allowed := map[string]bool{"filter_IN_" + zone: true, nftStockIPv6Policy: true}
 				for name := range dispatchChains {
 					allowed[name] = true
 				}
@@ -259,8 +270,19 @@ func nftHostInputKernelProof(raw, zone string, tailscaleOnly bool, read tailscal
 				}
 			} else if item.Chain == "filter_IN_"+zone {
 				base[item.Chain] = append(base[item.Chain], canonical)
+				if nftJumpAllowed(expressions, map[string]bool{nftStockIPv6Dispatch: true}) {
+					// Firewalld 1.3 places the host policy dispatch inside
+					// the zone, immediately before its rich-rule pre chain.
+					if len(base[item.Chain]) != 1 || !equalNftRule(expressions, nftStockIPv6Jump(nftStockIPv6Dispatch)) {
+						return bad()
+					}
+					zoneStockIPv6Pre = true
+					continue
+				}
 				if !zonePre {
-					if !nftJumpAllowed(expressions, map[string]bool{"filter_IN_" + zone + "_pre": true}) {
+					target := "filter_IN_" + zone + "_pre"
+					if !nftJumpAllowed(expressions, map[string]bool{target: true}) ||
+						zoneStockIPv6Pre && !equalNftRule(expressions, nftStockIPv6Jump(target)) {
 						return bad()
 					}
 					zonePre = true
@@ -270,6 +292,13 @@ func nftHostInputKernelProof(raw, zone string, tailscaleOnly bool, read tailscal
 	}
 	if !probes.complete() || tailscaleOnly && len(compat) == 0 || !tailscaleOnly && (!input || !zonePre || !established || !loopback || !dispatch) {
 		return bad()
+	}
+	if zoneStockIPv6Pre {
+		proof, ok := stockIPv6.proof()
+		if !ok {
+			return bad()
+		}
+		base["stock IPv6 pre-policy"] = []json.RawMessage{proof}
 	}
 	if len(compat) > 0 {
 		proof, ok := compat.proof(read)
