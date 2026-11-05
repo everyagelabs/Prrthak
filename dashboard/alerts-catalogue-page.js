@@ -42,3 +42,42 @@ function alertCatalogueFooter(page){
   const total=page.total===null?'…':format(page.total),start=page.items.length?page.offset+1:0,end=page.offset+page.items.length;
   return `${page.error?`<p class="form-error" role="alert">${h(page.error)} <button class="text-button" data-action="alert-page" data-offset="${page.offset}">Retry</button></p>`:''}<div class="table-footer" aria-live="polite"><span>${page.loading?'Refreshing · ':''}${start}–${end} of ${total} matching alerts${state.alertIncludeResolved?' · includes recovered / resolved':''}</span><div><button class="text-button" data-action="alert-page" data-offset="${Math.max(0,page.offset-page.limit)}" ${page.loading||!page.offset?'disabled':''}>Previous</button><button class="text-button" data-action="alert-page" data-offset="${page.offset+page.items.length}" ${page.loading||!page.has_more?'disabled':''}>Next</button></div></div>`;
 }
+
+let alertBulkAcknowledgement=null;
+let alertBulkAcknowledgementSequence=0;
+function alertBulkToolbarHTML(page){
+  const count=page.remote?(page.loading||page.error?null:page.unacknowledged_count):page.items.filter(alert=>!acknowledged(alert)&&F.unresolved(alert)).length;
+  const filteredReady=!page.loading&&!page.error&&Number.isSafeInteger(count)&&count>0;
+  return `<div class="toolbar-group bulk-alert-controls" role="group" aria-label="Bulk alert acknowledgement"><button type="button" class="button secondary small" data-action="alert-bulk-ack-review" data-scope="filtered" ${!canWrite()||!filteredReady?'disabled':''}>Acknowledge filtered${Number.isSafeInteger(count)?` (${format(count)})`:''}</button><button type="button" class="button secondary small" data-action="alert-bulk-ack-review" data-scope="all" ${!canWrite()?'disabled':''}>Acknowledge all</button></div>`;
+}
+function alertBulkAcknowledgementCurrent(operation){
+  return operation===alertBulkAcknowledgement&&!!state.authType&&canWrite()&&operation.identity===alertCatalogueIdentity()&&state.view==='alerts'&&(operation.scope==='all'||operation.scopeKey===alertCatalogueScopeKey())&&$('#modal').open&&String($('#modal-content').innerHTML).includes(`data-alert-ack-generation="${operation.generation}"`);
+}
+function showAlertBulkAcknowledgement(scope){
+  if(!canWrite()||!state.authType||state.view!=='alerts'||!['all','filtered'].includes(scope))return;
+  const page=alertCataloguePage(),count=page.remote?page.unacknowledged_count:page.items.filter(alert=>!acknowledged(alert)&&F.unresolved(alert)).length;
+  if(scope==='filtered'&&(page.loading||page.error||!Number.isSafeInteger(count)||count<1))return;
+  const query=scope==='filtered'?alertCatalogueQuery(0):null;
+  const operation={scope,identity:alertCatalogueIdentity(),scopeKey:alertCatalogueScopeKey(),generation:++alertBulkAcknowledgementSequence,busy:false,body:scope==='all'?{scope}:{scope,query}};
+  alertBulkAcknowledgement=operation;
+  showModal(scope==='all'?'Acknowledge all alerts?':'Acknowledge filtered alerts?',`<div data-alert-ack-generation="${operation.generation}"><div class="modal-body">${errorSlot}<p>${scope==='all'?'Acknowledge every unacknowledged, unresolved alert across the entire platform. Current filters do not restrict this action.':`Acknowledge unacknowledged, unresolved alerts matching the current filters across all result pages. ${format(count)} currently match.`}</p><p class="help-text">Alerts stay in history. Acknowledgement does not resolve the underlying issue or change firewall policies.</p></div><div class="modal-footer"><button type="button" class="button secondary" data-action="close-modal">Cancel</button><button type="button" class="button primary" data-action="alert-bulk-ack-confirm">${scope==='all'?'Acknowledge all':'Acknowledge filtered'}</button></div></div>`,'ALERT ACKNOWLEDGEMENT');
+}
+async function alertBulkAcknowledgementAction(button){
+  if(button.disabled)return;
+  if(button.dataset.action==='alert-bulk-ack-review')return showAlertBulkAcknowledgement(button.dataset.scope);
+  if(button.dataset.action!=='alert-bulk-ack-confirm')return;
+  const operation=alertBulkAcknowledgement;
+  if(!operation||operation.busy||!alertBulkAcknowledgementCurrent(operation))return;
+  operation.busy=true;button.disabled=true;
+  try{
+    const result=await api('/alerts/ack',{method:'POST',body:operation.body});
+    if(operation.identity!==alertCatalogueIdentity()||!state.authType)return;
+    if(!Number.isSafeInteger(result.acknowledged_count)||result.acknowledged_count<0||result.scope!==operation.scope)throw new Error('The controller did not confirm the acknowledgement result. Refresh alerts before retrying.');
+    const ownDialog=alertBulkAcknowledgementCurrent(operation);
+    if(ownDialog)closeModal();
+    toast(`${format(result.acknowledged_count)} alert${result.acknowledged_count===1?'':'s'} acknowledged.`);
+    await load({quiet:true});
+    if(operation.identity===alertCatalogueIdentity()&&state.authType&&state.view==='alerts')await loadAlertCatalogue(ownDialog?0:(state.alertCatalogue?.offset||0));
+  }catch(error){if(alertBulkAcknowledgementCurrent(operation))formError(error);}
+  finally{operation.busy=false;button.disabled=false;}
+}

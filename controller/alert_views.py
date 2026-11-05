@@ -3,6 +3,7 @@ import json
 import re
 
 from .approval_views import _expression
+from .store import stamp
 
 FIELDS = ("id", "kind", "type", "severity", "server_id", "title", "message", "status", "created_at", "updated_at", "resolved_at", "resolution_reason", "acknowledged_at", "acknowledged_by", "occurrence_id")
 
@@ -115,3 +116,67 @@ def listing(store, value=None):
             item["details"] = details if isinstance(details, dict) else {"omitted": True, "reason": "Alert detail exceeds the bounded navigation page"}
             items.append(item)
     return {"items": items, "total": total, **counts, "limit": value["limit"], "offset": value["offset"], "has_more": value["offset"] + len(items) < total, "include_resolved": value["include_resolved"], "summary_only": True}
+
+
+def _acknowledgement_scope(value):
+    if not isinstance(value, dict) or value.get("scope") not in ("all", "filtered"):
+        raise ValueError("Choose all alerts or the current filtered alert scope")
+    if value["scope"] == "all":
+        if set(value) != {"scope"}:
+            raise ValueError("All-alert acknowledgement does not accept a filtered query")
+        return "all", None
+    if set(value) != {"scope", "query"} or not isinstance(value["query"], dict):
+        raise ValueError("Filtered acknowledgement requires the current alert query")
+    query = _validate(value["query"])
+    # A navigation page is not acknowledgement scope. Reuse its exact filters,
+    # while recovered records remain untouched even when visible in that page.
+    return "filtered", {key: item for key, item in query.items() if key not in ("limit", "offset", "include_resolved")}
+
+
+def acknowledge(store, value, actor):
+    scope, query = _acknowledgement_scope(value)
+    acknowledged_at = stamp()
+    changed = 0
+    with store.lock, store.meta() as db:
+        if getattr(db, "dialect", "sqlite") == "sqlite":
+            db.execute("BEGIN IMMEDIATE")
+        field = lambda key: _expression(db, (key,), "a")
+        where, args = ("1=1", ()) if scope == "all" else _where(db, query)
+        eligible = "(" + where + ") AND " + field("resolved_at") + " IS NULL AND COALESCE(" + field("status") + ",'') NOT IN ('resolved','acknowledged')"
+        # Read bounded keyset batches inside the same write transaction. The
+        # all-alert path never loads endpoint inventory and includes system or
+        # orphan alerts that have no currently registered server.
+        after = None
+        while True:
+            tail = " AND a.id>?" if after is not None else ""
+            rows = db.execute("SELECT a.id,a.data FROM alerts a WHERE " + eligible + tail + " ORDER BY a.id LIMIT 100",
+                              args + ((after,) if after is not None else ())).fetchall()
+            if not rows:
+                break
+            discovery = {}
+            for row in rows:
+                identifier, encoded = row[0], row[1]
+                alert = json.loads(encoded)
+                alert.update(status="acknowledged", acknowledged_at=acknowledged_at, acknowledged_by=actor, updated_at=acknowledged_at)
+                store._put(db, "alerts", alert)
+                changed += 1
+                if alert.get("kind") in ("service_discovered", "service_changed") and isinstance(alert.get("server_id"), str):
+                    discovery.setdefault(alert["server_id"], set()).add(identifier)
+            for server_id, identifiers in discovery.items():
+                server = store._get(db, "servers", server_id)
+                if server is None:
+                    continue
+                updated = False
+                for listener in [*server.get("listeners", []), *server.get("discovery_changes", [])]:
+                    if listener.get("discovery_alert_id") in identifiers and listener.get("is_new"):
+                        listener["is_new"] = False
+                        updated = True
+                if updated:
+                    store._put(db, "servers", server)
+            after = rows[-1][0]
+        if changed:
+            details = {"scope": scope, "acknowledged_count": changed, "acknowledged_at": acknowledged_at}
+            if query is not None:
+                details["query"] = query
+            store.audit("alerts.bulk_acknowledged", actor, details, db)
+    return {"scope": scope, "acknowledged_count": changed, "acknowledged_at": acknowledged_at}

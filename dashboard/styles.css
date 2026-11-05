@@ -668,3 +668,5 @@ th { background: linear-gradient(#fffafa, #fff0f3); color: #55343f; font-weight:
 .selected-tag{cursor:pointer;gap:8px;color:#97162d!important;border:1px solid #e9b6c1;background:#fff4f6!important;font:inherit;max-width:100%;overflow-wrap:anywhere}
 .selected-tag span{font-size:18px;line-height:1}
 @media(max-width:760px){.tag-catalogue-toolbar{padding:14px}.saved-tag-picker{padding:12px}.saved-tag-options{grid-template-columns:1fr}}
+.alert-view-controls{flex-wrap:wrap;gap:12px}
+.bulk-alert-controls{display:flex;flex-wrap:wrap;gap:8px}

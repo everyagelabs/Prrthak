@@ -1434,6 +1434,11 @@ def handler_for(app):
             elif parts == ["alerts", "query"] and method == "POST":
                 from .alert_views import listing as public_alerts
                 self.response(200, public_alerts(app.store, self.body()))
+            elif parts == ["alerts", "ack"] and method == "POST":
+                if role not in ("admin", "super_admin"):
+                    raise PermissionError("Admin role required to acknowledge alerts")
+                from .alert_views import acknowledge as acknowledge_alerts
+                self.response(200, acknowledge_alerts(app.store, self.body(), actor))
             elif len(parts) == 3 and parts[0] == "alerts" and parts[2] == "ack" and method == "POST":
                 self.response(200, app.store.acknowledge(unquote(parts[1]), actor))
             elif parts == ["flows", "query"] and method == "POST":

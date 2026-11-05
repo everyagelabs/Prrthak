@@ -127,6 +127,92 @@ class AlertPageChecks:
         self.assertEqual(sum(row["kind"] == "recovered" for row in history["items"]), 1)
         self.assertTrue(all(row["status"] == "resolved" for row in history["items"]))
 
+    def test_bulk_all_acknowledges_entire_history_including_orphans_once_and_preserves_resolved_records(self):
+        self.seed_alerts(247, status="open", prefix="active")
+        self.seed_alerts(5, status="resolved", prefix="resolved")
+        self.seed_alerts(4, status="acknowledged", prefix="already")
+        with self.store.meta() as db:
+            for identifier, server_id in (("orphan", "retired-host"), ("system", None)):
+                self.store._put(db, "alerts", {"id": identifier, "server_id": server_id, "status": "open", "created_at": stamp(), "details": {"keep": identifier}})
+            self.store._put(db, "alerts", {"id": "resolved-with-open-status", "status": "open", "resolved_at": stamp(), "created_at": stamp()})
+        before = {row["id"]: row for row in self.store.all("alerts")}
+        with patch.object(self.store, "all", side_effect=AssertionError("bulk must not load full inventory/history")):
+            result = alert_views.acknowledge(self.store, {"scope": "all"}, "admin-one")
+        self.assertEqual((result["scope"], result["acknowledged_count"]), ("all", 249))
+        after = {row["id"]: row for row in self.store.all("alerts")}
+        self.assertEqual(set(before), set(after))
+        for identifier, previous in before.items():
+            if previous.get("resolved_at") or previous.get("status") in ("resolved", "acknowledged"):
+                self.assertEqual(after[identifier], previous)
+            else:
+                self.assertEqual(after[identifier]["status"], "acknowledged")
+                self.assertEqual(after[identifier]["acknowledged_by"], "admin-one")
+                self.assertEqual(after[identifier]["acknowledged_at"], result["acknowledged_at"])
+                self.assertEqual(after[identifier].get("details"), previous.get("details"))
+        audits = [row for row in self.store.all("audit") if row["action"] == "alerts.bulk_acknowledged"]
+        self.assertEqual(len(audits), 1)
+        self.assertEqual(audits[0]["details"]["acknowledged_count"], 249)
+        self.assertNotIn("query", audits[0]["details"])
+        self.assertEqual(alert_views.acknowledge(self.store, {"scope": "all"}, "admin-two")["acknowledged_count"], 0)
+        self.assertEqual({row["id"]: row for row in self.store.all("alerts")}, after)
+        self.assertEqual(len([row for row in self.store.all("audit") if row["action"] == "alerts.bulk_acknowledged"]), 1)
+
+    def test_bulk_filtered_acknowledgement_reuses_exact_query_scope_beyond_navigation_page(self):
+        with self.store.meta() as db:
+            for index in range(145):
+                self.store._put(db, "alerts", {"id": f"match-{index:04d}", "server_id": "billing", "status": "open", "created_at": stamp(), "message": "needle%_ literal", "details": {"port": 443, "protocol": "tcp"}})
+            for value in (
+                {"id": "host-wide", "server_id": "billing", "details": {}},
+                {"id": "lateral", "server_id": "payments", "kind": "possible_lateral_movement", "details": {"ports": [22, 443], "protocol": "tcp", "target_server_ids": ["billing"]}},
+                {"id": "wrong-protocol", "server_id": "billing", "details": {"port": 443, "protocol": "udp"}},
+                {"id": "wrong-port", "server_id": "billing", "details": {"port": 22, "protocol": "tcp"}},
+                {"id": "wrong-server", "server_id": "payments", "details": {"port": 443, "protocol": "tcp"}},
+                {"id": "orphan", "server_id": "retired", "details": {"port": 443, "protocol": "tcp"}},
+                {"id": "resolved", "server_id": "billing", "status": "resolved", "resolved_at": stamp(), "details": {"port": 443, "protocol": "tcp"}},
+            ):
+                self.store._put(db, "alerts", {"status": "open", "created_at": stamp(), "message": "needle%_ literal", **value})
+        query = {"server_ids": ["billing"], "listener_server_ids": ["billing"], "ports": ["443/tcp"], "search": "needle%_", "limit": 1, "offset": 120, "include_resolved": True}
+        page = alert_views.listing(self.store, query)
+        self.assertEqual((len(page["items"]), page["unacknowledged_count"]), (1, 147))
+        result = alert_views.acknowledge(self.store, {"scope": "filtered", "query": query}, "scope-admin")
+        self.assertEqual(result["acknowledged_count"], 147)
+        self.assertEqual(alert_views.listing(self.store, query)["unacknowledged_count"], 0)
+        for identifier in ("wrong-protocol", "wrong-port", "wrong-server", "orphan"):
+            self.assertEqual(self.store.get("alerts", identifier)["status"], "open")
+        self.assertEqual(self.store.get("alerts", "resolved")["status"], "resolved")
+        audit = next(row for row in self.store.all("audit") if row["action"] == "alerts.bulk_acknowledged")
+        self.assertEqual(audit["details"]["query"], {"server_ids": ["billing"], "listener_server_ids": ["billing"], "search_server_ids": [], "ports": ["443/tcp"], "search": "needle%_"})
+
+    def test_bulk_acknowledgement_clears_only_matching_new_service_markers_and_is_atomic(self):
+        with self.store.meta() as db:
+            server = self.store._get(db, "servers", "billing")
+            server["listeners"] = [{"port": 443, "protocol": "tcp", "is_new": True, "discovery_alert_id": "new-service"}, {"port": 22, "protocol": "tcp", "is_new": True, "discovery_alert_id": "other-service"}]
+            server["discovery_changes"] = [{"is_new": True, "discovery_alert_id": "new-service"}]
+            self.store._put(db, "servers", server)
+            for identifier, port in (("new-service", 443), ("other-service", 22)):
+                self.store._put(db, "alerts", {"id": identifier, "kind": "service_discovered", "server_id": "billing", "status": "open", "created_at": stamp(), "details": {"port": port, "protocol": "tcp"}})
+        value = {"scope": "filtered", "query": {"server_ids": ["billing"], "ports": ["443/tcp"]}}
+        with patch.object(self.store, "audit", side_effect=RuntimeError("synthetic audit failure")):
+            with self.assertRaisesRegex(RuntimeError, "audit failure"):
+                alert_views.acknowledge(self.store, value, "admin")
+        self.assertEqual(self.store.get("alerts", "new-service")["status"], "open")
+        self.assertTrue(self.store.get("servers", "billing")["listeners"][0]["is_new"])
+        self.assertEqual(alert_views.acknowledge(self.store, value, "admin")["acknowledged_count"], 1)
+        server = self.store.get("servers", "billing")
+        self.assertFalse(server["listeners"][0]["is_new"])
+        self.assertTrue(server["listeners"][1]["is_new"])
+        self.assertFalse(server["discovery_changes"][0]["is_new"])
+
+    def test_bulk_acknowledgement_rejects_widening_unsupported_or_ambiguous_scope(self):
+        self.seed_alerts(2, status="open", prefix="untouched")
+        for value in ({}, None, {"scope": "page"}, {"scope": "all", "query": {}}, {"scope": "all", "ids": []},
+                      {"scope": "filtered"}, {"scope": "filtered", "query": None},
+                      {"scope": "filtered", "query": {"ids": []}}, {"scope": "filtered", "query": {"limit": 101}}):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                alert_views.acknowledge(self.store, value, "admin")
+        self.assertEqual(alert_views.acknowledge(self.store, {"scope": "filtered", "query": {"server_ids": []}}, "admin")["acknowledged_count"], 0)
+        self.assertTrue(all(row["status"] == "open" for row in self.store.all("alerts")))
+
 
 class SQLiteAlertPages(AlertPageChecks, unittest.TestCase):
     def test_overview_counts_and_default_rows_ignore_resolved_history(self):

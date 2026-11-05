@@ -43,3 +43,49 @@ test('malformed count metadata and oversized pages fail visibly without treating
  const f=fixture(async()=>page(Array.from({length:101},()=>alert()),{limit:100}));await f.c.loadAlertCatalogue(0);assert.match(f.c.alertsHTML(),/bounded alert page/);assert.match(f.c.alertsHTML(),/Retry/);assert.equal(f.c.alertCatalogueCounts().total,507);
  assert.throws(()=>f.c.alertCatalogueRecord(page([],{critical_count:508}),'scope'),/inconsistent/);assert.throws(()=>f.c.alertCatalogueRecord(page([],{total:'507'}),'scope'),/exact alert counts/);
 });
+
+function bulkFixture(request){
+ const f=fixture(request),messages=[],errors=[];let loads=0,closes=0;
+ f.c.canWrite=()=>f.c.state.role==='admin';f.c.state.role='admin';f.c.errorSlot='<div id="form-error"></div>';
+ f.c.showModal=(title,html)=>{f.element('#modal').open=true;f.element('#modal-title').textContent=title;f.element('#modal-content').innerHTML=html;};
+ f.c.closeModal=()=>{closes++;f.element('#modal').open=false;f.element('#modal-content').innerHTML='';};
+ f.c.toast=message=>messages.push(message);f.c.formError=error=>errors.push(error.message);f.c.load=async()=>{loads++;};
+ const action=(name,scope)=>f.c.alertBulkAcknowledgementAction({disabled:false,dataset:{action:name,scope}});
+ return {...f,action,messages,errors,loads:()=>loads,closes:()=>closes};
+}
+test('bulk filtered acknowledgement uses the whole exact query scope and refreshes counts after confirmation',async()=>{
+ const f=bulkFixture(async(url,options)=>url==='/alerts/ack'?{scope:'filtered',acknowledged_count:506}:page([],{total:0,all_count:0,unresolved_count:0,critical_count:0,unacknowledged_count:0,open_count:0,has_more:false}));
+ f.c.state.filters.application=['billing'];f.c.state.filters.ports=['443/tcp'];f.c.state.search='billing';
+ // Mark this page as the current remote scope rather than allowing a background query.
+ f.c.state.alertCatalogue=f.c.alertCatalogueRecord(page(),f.c.alertCatalogueScopeKey());
+ assert.match(f.c.alertsHTML(),/Acknowledge filtered \(506\)/);
+ await f.action('alert-bulk-ack-review','filtered');assert.equal(f.requests.length,0);assert.match(f.element('#modal-content').innerHTML,/across all result pages/);
+ await f.action('alert-bulk-ack-confirm');
+ const mutation=f.requests.find(({url})=>url==='/alerts/ack');assert.equal(mutation.options.method,'POST');
+ assert.deepEqual(JSON.parse(JSON.stringify(mutation.options.body)),{scope:'filtered',query:{limit:50,offset:0,include_resolved:false,server_ids:['billing'],listener_server_ids:['billing'],search_server_ids:['billing'],ports:['443/tcp'],search:'billing'}});
+ assert.deepEqual(f.messages,['506 alerts acknowledged.']);assert.equal(f.closes(),1);assert.equal(f.loads(),1);assert.equal(f.c.state.alertCatalogue.unacknowledged_count,0);
+});
+test('acknowledge all explicitly ignores current endpoint filters and reports the actual count',async()=>{
+ const f=bulkFixture(async url=>url==='/alerts/ack'?{scope:'all',acknowledged_count:812}:page());f.c.state.filters.application=['billing'];
+ await f.action('alert-bulk-ack-review','all');assert.match(f.element('#modal-content').innerHTML,/Current filters do not restrict/);
+ await f.action('alert-bulk-ack-confirm');
+ assert.deepEqual(JSON.parse(JSON.stringify(f.requests.find(row=>row.url==='/alerts/ack').options.body)),{scope:'all'});assert.deepEqual(f.messages,['812 alerts acknowledged.']);
+});
+test('read only and changed filtered scopes cannot perform a bulk acknowledgement',async()=>{
+ const f=bulkFixture(async()=>page());f.c.state.role='read_only';assert.match(f.c.alertsHTML(),/data-scope="all" disabled/);
+ await f.action('alert-bulk-ack-review','all');await f.action('alert-bulk-ack-confirm');assert.equal(f.requests.length,0);
+ f.c.state.role='admin';f.c.state.alertCatalogue=f.c.alertCatalogueRecord(page(),f.c.alertCatalogueScopeKey());await f.action('alert-bulk-ack-review','filtered');assert.match(f.element('#modal-content').innerHTML,/data-alert-ack-generation/);f.c.state.filters.ports=['22/tcp'];await f.action('alert-bulk-ack-confirm');assert.equal(f.requests.filter(row=>row.url==='/alerts/ack').length,0);
+});
+test('a pending acknowledgement cannot close another dialog or cross an identity change',async()=>{
+ for(const mode of ['new-dialog','identity']){
+  const pending=deferred(),f=bulkFixture(async url=>url==='/alerts/ack'?pending.promise:page());await f.action('alert-bulk-ack-review','all');const operation=f.action('alert-bulk-ack-confirm');
+  if(mode==='new-dialog')f.c.showModal('Keep my new draft','<input value="new draft">');else f.c.state.user={id:'different-admin'};
+  pending.resolve({scope:'all',acknowledged_count:7});await operation;
+  assert.equal(f.closes(),0);
+  if(mode==='new-dialog')assert.match(f.element('#modal-content').innerHTML,/new draft/);else {assert.equal(f.messages.length,0);assert.equal(f.loads(),0);}
+ }
+});
+test('bulk acknowledgement refuses duplicate clicks while busy and exposes failures for retry',async()=>{
+ const pending=deferred(),f=bulkFixture(async url=>{if(url==='/alerts/ack')return pending.promise;return page();});await f.action('alert-bulk-ack-review','all');const first=f.action('alert-bulk-ack-confirm');await f.action('alert-bulk-ack-confirm');assert.equal(f.requests.filter(row=>row.url==='/alerts/ack').length,1);
+ pending.resolve({scope:'all',acknowledged_count:-1});await first;assert.match(f.errors[0],/did not confirm/);assert.equal(f.closes(),0);assert.equal(f.loads(),0);
+});
