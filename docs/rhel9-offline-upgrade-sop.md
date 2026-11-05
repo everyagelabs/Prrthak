@@ -13,7 +13,7 @@ This procedure covers standalone Prṛthak controllers on RHEL 9 x86_64. The tar
 
 The browser updater checks the exact signed filename. Use the full archive from the RHEL shell.
 
-[0.18.22 release](https://github.com/everyagelabs/Prrthak/releases/tag/v0.18.22-pilot.1) · [0.18.0 to 0.18.14 migration guide](https://github.com/everyagelabs/Prrthak/releases/download/v0.18.14-pilot.2/prthak-rhel9-migration-0.18.0-to-0.18.14.pdf) · [HA runbook](ha.md)
+[0.18.22 release](https://github.com/everyagelabs/Prrthak/releases/tag/v0.18.22-pilot.2) · [0.18.0 to 0.18.14 migration guide](https://github.com/everyagelabs/Prrthak/releases/download/v0.18.14-pilot.2/prthak-rhel9-migration-0.18.0-to-0.18.14.pdf) · [HA runbook](ha.md)
 
 ## 2. Verify the download and prepare recovery
 

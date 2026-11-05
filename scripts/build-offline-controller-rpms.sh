@@ -35,6 +35,24 @@ fi
 staging=$(mktemp -d "$(dirname -- "$output")/.prthak-rpm-build.XXXXXX")
 trap 'rm -rf -- "$staging"' EXIT
 
+# UBI 10 omits GPG by default. Prepare one native build helper before either
+# collection or offline signature verification. Its base remains digest-pinned.
+if [ "$rhel_major" = 10 ]; then
+    helper_context=$staging/.resolver
+    mkdir -m 0700 "$helper_context"
+    cat > "$helper_context/Dockerfile" <<DOCKERFILE
+FROM $ubi_image
+RUN if ! command -v gpg >/dev/null 2>&1 && ! command -v gpg2 >/dev/null 2>&1; then dnf --noplugins -y --setopt=install_weak_deps=False install gnupg2 && dnf --noplugins clean all; fi
+DOCKERFILE
+    helper_image=$(docker build --platform linux/amd64 --quiet "$helper_context")
+    if [[ ! "$helper_image" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+        echo 'The native RPM verification helper has no verified image identity.' >&2
+        exit 1
+    fi
+    ubi_image=$helper_image
+    rm -rf -- "$helper_context"
+fi
+
 # Keep the resolver's RPM database empty so the output includes dependencies
 # that happen to be installed in the builder, too. Enable only public sources.
 if [ -z "$compatibility_source" ]; then
@@ -50,7 +68,8 @@ curl --fail --silent --show-error --location --proto '=https' --proto-redir '=ht
     --output /media/keys/docker.asc https://download.docker.com/linux/rhel/gpg
 
 key_home=$(mktemp -d)
-gpg --no-options --batch --no-autostart --homedir "$key_home" --with-colons \
+gpg_tool=$(command -v gpg || command -v gpg2)
+"$gpg_tool" --no-options --batch --no-autostart --homedir "$key_home" --with-colons \
     --show-keys --fingerprint /media/keys/docker.asc > "$key_home/key.txt"
 primary_fingerprint=$(awk -F: '
     $1 == "pub" { primary = 1; count++ }
@@ -69,7 +88,7 @@ dnf --noplugins --releasever="$rhel_major" --installroot=/tmp/prthak-resolve \
     --setopt="$baseos_repo.gpgcheck=1" --setopt="$appstream_repo.gpgcheck=1" \
     --setopt=prthak-docker.gpgcheck=1 --setopt=prthak-docker.gpgkey=file:///media/keys/docker.asc \
     --downloadonly --downloaddir=/media/rpms -y install \
-    python3 ca-certificates shadow-utils tar \
+    python3 ca-certificates shadow-utils tar curl gnupg2 \
     docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >&2
 tar -C /media -cf - keys rpms
 COLLECT
@@ -99,7 +118,8 @@ else
 set -euo pipefail
 export LC_ALL=C
 key_home=$(mktemp -d)
-gpg --no-options --batch --no-autostart --homedir "$key_home" --with-colons \
+gpg_tool=$(command -v gpg || command -v gpg2)
+"$gpg_tool" --no-options --batch --no-autostart --homedir "$key_home" --with-colons \
     --show-keys --fingerprint /media/keys/docker.asc > "$key_home/key.txt"
 primary_fingerprint=$(awk -F: '
     $1 == "pub" { primary = 1; count++ }

@@ -114,9 +114,12 @@ class OfflineRPMBuilderTests(unittest.TestCase):
             docker.write_text("#!" + sys.executable + "\n" + '''
 import io, json, os, sys, tarfile
 from pathlib import Path
-body = sys.stdin.read()
+body = (Path(sys.argv[-1]) / "Dockerfile").read_text() if sys.argv[1] == "build" else sys.stdin.read()
 with Path(os.environ["PRTHAK_TEST_CALLS"]).open("a") as log:
     log.write(json.dumps({"args": sys.argv[1:], "body": body}) + "\\n")
+if sys.argv[1] == "build":
+    print("sha256:" + "1" * 64)
+    raise SystemExit(0)
 major = os.environ["PRTHAK_TEST_PACKAGE_MAJOR"]
 files = {"repodata/repomd.xml": b"metadata"} if "createrepo_c" in body else {
     "keys/docker.asc": b"public fixture", "rpms/docker-ce-1.0-1.el" + major + ".x86_64.rpm": b"package"}
@@ -143,8 +146,16 @@ with tarfile.open(fileobj=sys.stdout.buffer, mode="w|") as bundle:
                         self.assertFalse(output.exists())
                         continue
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    first = json.loads(calls.read_text().splitlines()[0])
-                    self.assertTrue(any(f"/ubi{selected}/ubi@sha256:" in arg for arg in first["args"]))
+                    records = [json.loads(line) for line in calls.read_text().splitlines()]
+                    first = next(call for call in records if "dnf --noplugins --releasever" in call["body"])
+                    if selected == "10":
+                        helper = next(call for call in records if call["args"][0] == "build")
+                        self.assertIn("FROM registry.access.redhat.com/ubi10/ubi@sha256:", helper["body"])
+                        self.assertIn("command -v gpg2", helper["body"])
+                        self.assertIn("install gnupg2", helper["body"])
+                    else:
+                        self.assertTrue(any("/ubi9/ubi@sha256:" in arg for arg in first["args"]))
+                    self.assertIn("python3 ca-certificates shadow-utils tar curl gnupg2", first["body"])
                     self.assertEqual(first["args"][-3], selected)
                     self.assertIn('rhel/$rhel_major/x86_64/stable', first["body"])
                     self.assertEqual((output / "target.json").exists(), selected == "10")
