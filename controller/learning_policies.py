@@ -713,6 +713,8 @@ def apply(store, session_id, value, actor, *, principal=None):
     if not isinstance(value, dict) or value.get("confirm") is not True:
         raise ValueError("Explicit confirmation of the exact reviewed suggestion is required")
     with store.lock, store.meta() as db:
+        if getattr(db, "dialect", "sqlite") == "sqlite":
+            db.execute("BEGIN IMMEDIATE")
         plan = store._get(db, "learning_policy_previews", value.get("preview_id"))
         if plan is None or plan["session_id"] != session_id or plan["digest"] != value.get("digest"):
             raise WorkflowConflict("Suggestion preview is missing or does not match", {})
@@ -725,8 +727,6 @@ def apply(store, session_id, value, actor, *, principal=None):
         if plan["status"] == "applied":
             return {"policies": [store._get(db, "learning_allow_policies", identifier) for identifier in plan["policy_ids"]], "target_server_ids": plan["target_server_ids"], "duplicate": True}
         targets, group_state = _selection(store, db, plan["selection"])
-        from .host_default_deny import guarded
-        if any(guarded(target) for target in targets):raise ValueError("Learning mutations are held while whole-server deny is enabled or being removed")
         if parse_time(plan["expires_at"]) <= now() or session.get("evidence_revision", 0) != plan["evidence_revision"] or group_state != plan["group_state"] or [target["id"] for target in targets] != plan["target_server_ids"] or any(_target_fingerprint(target) != plan["target_fingerprints"][target["id"]] for target in targets):
             raise WorkflowConflict("Evidence, target membership or protected state changed; preview again", {})
         if plan["warnings"]:
@@ -741,8 +741,16 @@ def apply(store, session_id, value, actor, *, principal=None):
             plan["confirmation_count"] = 1
             plan["confirmation_nonce"] = ""
             decision = approvals.proof(plan)
+        from .host_default_deny import guarded
         policies = []
-        for target in targets:
+        for selected in targets:
+            # The fleet projection omits private fields needed by the deny
+            # guard and by refresh_host when it saves the endpoint record.
+            target = store._get(db, "servers", selected["id"])
+            if target is None:
+                raise WorkflowConflict("An enrolled target changed; preview again", {})
+            if guarded(target):
+                raise ValueError("Learning mutations are held while whole-server deny is enabled or being removed")
             existing = set().union(*(_triples(policy["services"]) for policy in _all_policies(store, db, target["id"])))
             if _capacity_error(target, _services(existing | _triples(plan["services"]))):
                 raise WorkflowConflict("Endpoint overlay capacity changed; preview again", {})

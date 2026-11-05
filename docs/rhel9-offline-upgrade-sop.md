@@ -1,19 +1,19 @@
 # Prṛthak offline controller upgrade SOP
 
-This procedure covers standalone Prṛthak controllers on RHEL 9 x86_64. The target release is **0.18.20**. Keep the active data path, the existing dashboard address and the current controller identity. Schedule a maintenance window for the controller and TLS router restart.
+This procedure covers standalone Prṛthak controllers on RHEL 9 x86_64. The target release is **0.18.21**. Keep the active data path, the existing dashboard address and the current controller identity. Schedule a maintenance window for the controller and TLS router restart.
 
 ## 1. Choose the package
 
 | Starting point | Package and path |
 | --- | --- |
-| A standalone controller with **Platform settings → Updates**, including the private 0.18.19 build | Use `prthak-controller-0.18.20-offline-rhel9-x86_64.tar.gz` and its detached signature for the browser update. |
-| A standalone controller using the full host installer | Use `prthak-controller-0.18.20-offline-rhel9-x86_64-full.tar.gz` and its detached signature. The CLI archive includes the offline host RPM repository and appliance images. |
-| A standalone 0.18.0 controller without **Updates** | Follow the published 0.18.0 to 0.18.14 full-installer migration first. Verify the intermediate version, take a new snapshot, and then continue to 0.18.20. |
+| A standalone controller with **Platform settings → Updates**, including the private 0.18.19 build | Use `prthak-controller-0.18.21-offline-rhel9-x86_64.tar.gz` and its detached signature for the browser update. |
+| A standalone controller using the full host installer | Use `prthak-controller-0.18.21-offline-rhel9-x86_64-full.tar.gz` and its detached signature. The CLI archive includes the offline host RPM repository and appliance images. |
+| A standalone 0.18.0 controller without **Updates** | Follow the published 0.18.0 to 0.18.14 full-installer migration first. Verify the intermediate version, take a new snapshot, and then continue to 0.18.21. |
 | A PostgreSQL or HA controller | Follow the cluster and database runbook. |
 
 The browser updater checks the exact signed filename. Use the full archive from the RHEL shell.
 
-[0.18.20 release](https://github.com/everyagelabs/Prrthak/releases/tag/v0.18.20-pilot.1) · [0.18.0 to 0.18.14 migration guide](https://github.com/everyagelabs/Prrthak/releases/download/v0.18.14-pilot.2/prthak-rhel9-migration-0.18.0-to-0.18.14.pdf) · [HA runbook](ha.md)
+[0.18.21 release](https://github.com/everyagelabs/Prrthak/releases/tag/v0.18.21-pilot.1) · [0.18.0 to 0.18.14 migration guide](https://github.com/everyagelabs/Prrthak/releases/download/v0.18.14-pilot.2/prthak-rhel9-migration-0.18.0-to-0.18.14.pdf) · [HA runbook](ha.md)
 
 ## 2. Verify the download and prepare recovery
 
@@ -26,7 +26,7 @@ Run the following on the connected workstation from the download folder. For the
 ```sh
 (
   set -eu
-  version=0.18.20
+  version=0.18.21
   package="prthak-controller-${version}-offline-rhel9-x86_64-full.tar.gz"
   python3 /approved/tools/verify-release.py \
     --public-trust-file /approved/trust/prthak-release-public-trust.json \
@@ -44,7 +44,7 @@ Use an authorized root shell. Confirm RHEL 9 and `x86_64`. Stage the archive and
 ```sh
 (
   set -eu
-  version=0.18.20
+  version=0.18.21
   package="prthak-controller-${version}-offline-rhel9-x86_64-full.tar.gz"
   stage="/opt/prthak/releases/migrate-$version"
   cd /root
@@ -71,7 +71,7 @@ Run the next block after the snapshot completes. It stops the appliance manager 
 ```sh
 (
   set -eu
-  version=0.18.20
+  version=0.18.21
   data_root=$(cat /etc/prthak/data-root)
   test -f "$data_root/runtime/compose.json"
   test ! -e "$data_root/config/manifest.json"

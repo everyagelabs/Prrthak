@@ -253,6 +253,53 @@ class LearningPolicyTests(unittest.TestCase):
             self.assertEqual(policy["services"], [{"port": 80, "protocol": "tcp", "sources": ["10.20.0.1/32"]}, {"port": 5432, "protocol": "tcp", "sources": ["10.20.0.2/32"]}])
         self.assertEqual(self.store.all("managed_approvals"), [])
 
+    def test_reviewed_allow_preserves_canonical_endpoint_state_and_ordinary_assignment(self):
+        self.store.save_policy({"name": "Database access", "selector": {}, "mode": "monitor",
+                                "services": [{"port": 5432, "protocol": "tcp", "sources": ["10.30.0.1"]}]}, "admin")
+        session = self.session(False)
+        self.batch(session, [("10.20.0.1", 80, 1)])
+        evidence = lp.recommendations(self.store, session["id"])
+        plan = lp.preview(self.store, session["id"], {"server_ids": ["a"], "row_ids": [evidence["rows"][0]["id"]],
+                                                        "expected_evidence_revision": evidence["evidence_revision"]}, "admin")
+        # Private endpoint updates after preview are unrelated to the review.
+        with self.store.meta() as db:
+            before = self.store._get(db, "servers", "a")
+            before.update(_metadata_overrides={"name": "Database server"},
+                          _firewall_activation_job={"id": "activation", "status": "completed"},
+                          firewall_snapshot={"runtime": {"zones": {"public": {"ports": ["5432/tcp"]}}}})
+            self.store._put(db, "servers", before)
+        ordinary = self.store.assignment("a")[0]
+        lp.apply(self.store, session["id"], {"preview_id": plan["id"], "digest": plan["digest"], "confirm": True}, "admin")
+        with self.store.read_meta() as db:
+            after = self.store._get(db, "servers", "a")
+        self.assertEqual(after.pop("policy_expected_services"), [{"port": 80, "protocol": "tcp"}, {"port": 5432, "protocol": "tcp"}])
+        before.pop("policy_expected_services")
+        self.assertEqual(after.pop("_policy_health")["ordinary"], before.pop("_policy_health")["ordinary"])
+        self.assertEqual(after, before)
+        assigned = self.store.assignment("a")[0]
+        for key in ("version", "digest", "mode", "services", "enforcement"):
+            self.assertEqual(assigned[key], ordinary[key])
+        self.assertEqual(assigned["learning_allow"]["services"], [{"port": 80, "protocol": "tcp", "sources": ["10.20.0.1/32"]}])
+
+    def test_reviewed_allow_rejects_compiled_default_deny_without_partial_apply(self):
+        session = self.session(False)
+        self.batch(session, [("10.20.0.1", 80, 1)])
+        evidence = lp.recommendations(self.store, session["id"])
+        plan = lp.preview(self.store, session["id"], {"server_ids": ["a", "b"], "row_ids": [evidence["rows"][0]["id"]],
+                                                        "expected_evidence_revision": evidence["evidence_revision"]}, "admin")
+        with self.store.meta() as db:
+            before = self.store._get(db, "servers", "a")
+            guarded = self.store._get(db, "servers", "b")
+            guarded["_compiled"]["host_default_deny"] = True
+            self.store._put(db, "servers", guarded)
+        with self.assertRaisesRegex(ValueError, "whole-server deny"):
+            lp.apply(self.store, session["id"], {"preview_id": plan["id"], "digest": plan["digest"], "confirm": True}, "admin")
+        self.assertEqual(lp.listing(self.store), [])
+        with self.store.read_meta() as db:
+            self.assertEqual(self.store._get(db, "servers", "a"), before)
+            self.assertIsNone(self.store._get(db, "learning_allow_hosts", "a"))
+            self.assertEqual(self.store._get(db, "learning_policy_previews", plan["id"])["status"], "reviewed")
+
     def test_authority_binds_exact_historical_generation_and_protected_ips(self):
         session = self.session()
         self.batch(session, [("10.20.0.1", 80, 1)])

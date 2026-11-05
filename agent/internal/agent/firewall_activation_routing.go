@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -106,6 +107,16 @@ func activationRouteSupported(row map[string]any, family string, tailscale bool)
 		}
 		if family == "-6" && (row["dst"] == "fe80::/64" || table == "local" && row["dst"] == "ff00::/8" && row["type"] == "multicast") {
 			return true
+		}
+		if family == "-6" && table == "local" && row["type"] == "local" {
+			dst, _ := row["dst"].(string)
+			address, err := netip.ParseAddr(dst)
+			if err == nil && address.Zone() == "" && netip.MustParsePrefix("fe80::/64").Contains(address) {
+				// The kernel adds a local host route for the tunnel's
+				// link-local address. Admit only the observed plain route.
+				flags, ok := row["flags"].([]any)
+				return len(row) == 8 && row["metric"] == json.Number("0") && row["pref"] == "medium" && ok && len(flags) == 0
+			}
 		}
 		return activationTailscalePeerRoute(row["dst"], family)
 	case "52":

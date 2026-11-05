@@ -257,6 +257,37 @@ func activationTailscaleRoutingFixture(runner CommandRunner) activationTailscale
 	}
 }
 
+func TestFirewallActivationAcceptsKernelTailscaleIPv6LinkLocalHostRoute(t *testing.T) {
+	const linkLocal = `{"type":"local","dst":"fe80::1234:5678","dev":"tailscale0","table":"local","protocol":"kernel","metric":0,"flags":[],"pref":"medium"}`
+	ctx := context.Background()
+	runner := activationTailscaleRoutingFixture(activationContextRunner{})
+	runner.routes6 = strings.TrimSuffix(runner.routes6, "]") + "," + linkLocal + "]"
+	if _, err := readNativeNetworkTopology(ctx, runner, true); err != nil {
+		t.Fatal("the kernel's Tailscale link-local host route was rejected", err)
+	}
+	for _, tc := range []struct {
+		name, from, to string
+	}{
+		{"foreign address", `"fe80::1234:5678"`, `"2001:db8::1234"`},
+		{"subnet route", `"fe80::1234:5678"`, `"fe80::/96"`},
+		{"zoned address", `"fe80::1234:5678"`, `"fe80::1234:5678%tailscale0"`},
+		{"policy table", `"table":"local"`, `"table":"52"`},
+		{"wrong route type", `"type":"local"`, `"type":"unicast"`},
+		{"wrong protocol", `"protocol":"kernel"`, `"protocol":"static"`},
+		{"unknown flag", `"flags":[]`, `"flags":["onlink"]`},
+		{"gateway", `"metric":0`, `"metric":0,"gateway":"fe80::1"`},
+		{"nexthop object", `"metric":0`, `"metric":0,"nhid":15`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			changed := runner
+			changed.routes6 = strings.Replace(runner.routes6, linkLocal, strings.Replace(linkLocal, tc.from, tc.to, 1), 1)
+			if _, err := readNativeNetworkTopology(ctx, changed, true); err == nil {
+				t.Fatal("unrecognized Tailscale link-local host route admitted")
+			}
+		})
+	}
+}
+
 func TestFirewallActivationRequiresExactTailscaleRoutingAndTunnel(t *testing.T) {
 	ctx := context.Background()
 	runner := activationTailscaleRoutingFixture(activationContextRunner{})
