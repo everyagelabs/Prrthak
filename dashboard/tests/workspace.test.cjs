@@ -1433,8 +1433,64 @@ test('endpoint revocation is typed and exact while recovery credentials are show
  const plan={id:'endpoint_revoke:one',digest:'d'.repeat(64),confirmation_nonce:'endpoint-revoke-nonce',confirmation_phrase:'REVOKE lab-api',certificate_ids:[endpointCertificate.id],expires_at:new Date(Date.now()+60000).toISOString(),message:'Registered identities will stop authenticating; existing firewall rules remain.'},env=await applianceWorkspace({'/api/v1/platform/endpoint-certificates':{items:[endpointCertificate],renewal_window_days:30,old_certificate_overlap_hours:24},'POST /api/v1/platform/endpoint-certificates/revoke-preview':plan,'POST /api/v1/platform/endpoint-certificates/revoke-apply':{status:'revoked'},'POST /api/v1/platform/endpoint-certificates/recovery-token':{token:'private-one-time-recovery-token',server_id:'host-1',expires_at:new Date(Date.now()+900000).toISOString(),one_time:true}});await env.click('platform-tab',{tab:'certificates'});await new Promise(setImmediate);assert.match(env.element('#view-content').innerHTML,/Endpoint certificate identities/);assert.match(env.element('#view-content').innerHTML,/old|Previous-credential overlap/);await env.click('platform-endpoint-revoke',{id:'host-1'});assert.equal(mutations(env)[0].url,'/api/v1/platform/endpoint-certificates/revoke-preview');const form=renderedForm(env,'platform-endpoint-revoke-form',{confirmation_phrase:'REVOKE somebody-else'});await submitRendered(env,form);assert.equal(mutations(env).length,1);form.values.confirmation_phrase=plan.confirmation_phrase;await submitRendered(env,form);const request=mutations(env)[1];assert.equal(request.url,'/api/v1/platform/endpoint-certificates/revoke-apply');assert.deepEqual(JSON.parse(request.options.body),{preview_id:plan.id,digest:plan.digest,confirmation_nonce:plan.confirmation_nonce,confirmation_phrase:plan.confirmation_phrase});assertCookieMutation(request);
  await env.click('platform-endpoint-recovery',{id:'host-1'});assert.match(env.element('#modal-content').innerHTML,/private-one-time-recovery-token/);assert.equal(env.storageChanges.some(change=>String(change.value).includes('private-one-time-recovery-token')),false);env.run('closeModal()');assert.doesNotMatch(env.element('#modal-content').innerHTML,/private-one-time-recovery-token/);
 });
+function captureCertificateTabLoad(env){
+ // The tab action intentionally starts its loader without awaiting it. Observe
+ // that exact promise rather than guessing how long WebCrypto will take.
+ env.run('const originalCertificateLoader=loadPlatformCertificates; let certificateLoaderPromise; loadPlatformCertificates=(...args)=>(certificateLoaderPromise=originalCertificateLoader(...args));');
+ return ()=>env.run('certificateLoaderPromise');
+}
 test('endpoint status and signing trust show actual expiry, full public-key fingerprint and an exact public JSON download',async()=>{
- const bytes=Buffer.alloc(32,7),trust={deployment_id:'trust-deployment',keys:{'signing-key':bytes.toString('base64')}},env=await applianceWorkspace({'/api/v1/platform/endpoint-certificates':{items:[{...endpointCertificate,not_after:'2020-01-01T00:00:00Z'},{...endpointCertificate,id:'revoked',status:'revoked'}]},'/api/v1/platform/policy-signing-trust':trust});env.context.crypto=require('node:crypto').webcrypto;env.context.atob=globalThis.atob;await env.click('platform-tab',{tab:'certificates'});await new Promise(resolve=>setTimeout(resolve,20));const html=env.element('#view-content').innerHTML;assert.match(html,/Expired/);assert.match(html,/Revoked/);assert.match(html,new RegExp(require('node:crypto').createHash('sha256').update(bytes).digest('hex')));let download;env.context.URL.createObjectURL=blob=>{download=blob;return 'blob:public-trust';};env.context.URL.revokeObjectURL=()=>{};await env.click('platform-policy-trust-download');assert.deepEqual(JSON.parse(await download.text()),trust);assert.equal(env.element('created:a').download,'prthak-policy-trust.json');assert.equal(mutations(env).length,0);
+ const bytes=Buffer.alloc(32,7),trust={deployment_id:'trust-deployment',keys:{'signing-key':bytes.toString('base64')}};
+ const env=await applianceWorkspace({
+  '/api/v1/platform/endpoint-certificates':{items:[{...endpointCertificate,not_after:'2020-01-01T00:00:00Z'},{...endpointCertificate,id:'revoked',status:'revoked'}]},
+  '/api/v1/platform/policy-signing-trust':trust
+ });
+ env.context.crypto=require('node:crypto').webcrypto;
+ env.context.atob=globalThis.atob;
+ const certificateLoad=captureCertificateTabLoad(env);
+ await env.click('platform-tab',{tab:'certificates'});
+ await certificateLoad();
+ const html=env.element('#view-content').innerHTML;
+ assert.match(html,/Expired/);
+ assert.match(html,/Revoked/);
+ assert.match(html,new RegExp(require('node:crypto').createHash('sha256').update(bytes).digest('hex')));
+ let download;
+ env.context.URL.createObjectURL=blob=>{download=blob;return 'blob:public-trust';};
+ env.context.URL.revokeObjectURL=()=>{};
+ await env.click('platform-policy-trust-download');
+ assert.deepEqual(JSON.parse(await download.text()),trust);
+ assert.equal(env.element('created:a').download,'prthak-policy-trust.json');
+ assert.equal(mutations(env).length,0);
+});
+test('certificate tab completion waits for fingerprint hashing before asserting rendered identities',{timeout:5000},async()=>{
+ const bytes=Buffer.alloc(32,7),trust={deployment_id:'trust-deployment',keys:{'signing-key':bytes.toString('base64')}};
+ const env=await applianceWorkspace({
+  '/api/v1/platform/endpoint-certificates':{items:[{...endpointCertificate,not_after:'2020-01-01T00:00:00Z'},{...endpointCertificate,id:'revoked',status:'revoked'}]},
+  '/api/v1/platform/policy-signing-trust':trust
+ });
+ let digestStarted,releaseDigest;
+ const started=new Promise(resolve=>{digestStarted=resolve;}),gate=new Promise(resolve=>{releaseDigest=resolve;});
+ env.context.atob=globalThis.atob;
+ env.context.crypto={subtle:{digest:async(...args)=>{digestStarted();await gate;return require('node:crypto').webcrypto.subtle.digest(...args);}}};
+ const certificateLoad=captureCertificateTabLoad(env);
+ await env.click('platform-tab',{tab:'certificates'});
+ await started;
+ const completion=certificateLoad();
+ assert.ok(completion&&typeof completion.then==='function','observe the real tab-triggered load');
+ let completed=false;
+ completion.then(()=>{completed=true;});
+ assert.equal(env.run('state.platformEndpointCertificates.items.length'),2);
+ assert.equal(completed,false);
+ assert.doesNotMatch(env.element('#view-content').innerHTML,/Expired|Revoked/);
+ releaseDigest();
+ await completion;
+ assert.equal(completed,true);
+ const html=env.element('#view-content').innerHTML;
+ assert.match(html,/Expired/);
+ assert.match(html,/Revoked/);
+ assert.match(html,new RegExp(require('node:crypto').createHash('sha256').update(bytes).digest('hex')));
+ assert.equal(env.requests.filter(row=>row.url==='/api/v1/platform/endpoint-certificates').length,1,'no duplicate refresh is used to synchronize the test');
+ assert.equal(mutations(env).length,0);
 });
 test('Read Only and Admin cannot revoke identities or obtain endpoint recovery credentials through GUI actions',async()=>{
  for(const role of ['read_only','admin']){const env=await workspace('settings',{mode:'entra',role});await env.click('platform-endpoint-revoke',{id:'host-1'});await env.click('platform-endpoint-recovery',{id:'host-1'});await env.listeners.submit.at(-1)({preventDefault(){},target:{id:'platform-endpoint-revoke-form',values:{}}});assert.equal(mutations(env).length,0);}
