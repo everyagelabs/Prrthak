@@ -570,7 +570,9 @@ func (a *Agent) LearningTick(ctx context.Context, now time.Time) error {
 		a.nextRuleCheck = now.Add(30 * time.Second)
 	}
 	active := map[string]Session{}
+	collecting := map[string]bool{}
 	for _, s := range sessions {
+		collecting[s.ID] = true
 		if len(s.ObservationKinds) > 0 {
 			continue
 		}
@@ -617,9 +619,9 @@ func (a *Agent) LearningTick(ctx context.Context, now time.Time) error {
 	}
 	a.State.Rules = kept
 	for id, cov := range a.State.Coverage {
-		if _, ok := active[id]; !ok && cov.EndedAt == nil {
+		if !collecting[id] && cov.EndedAt == nil {
 			ended := now
-			if stopping, ok := a.State.PendingDrains[id]; ok && SessionCutoff(stopping).Before(ended) {
+			if stopping, ok := a.sessionByID(id); ok && SessionCutoff(stopping).Before(ended) {
 				ended = SessionCutoff(stopping)
 			}
 			cov.EndedAt = &ended

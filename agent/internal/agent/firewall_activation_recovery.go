@@ -18,7 +18,7 @@ func validateFirewallActivationJournal(journal *managedJournal) error {
 	if value == nil {
 		return nil
 	}
-	if journal.SourceBankPreparation != nil || journal.Previous != nil || journal.Next.Generation != "" || len(journal.Mutations) > 0 || len(journal.SetMutations) > 0 || !validManagedNonce(journal.Nonce) || value.Assignment.Operation == "assess" || !firewallActivationOperation(value.Assignment.Operation) || value.Assignment.TargetOperation != value.Assignment.Operation || !validDigest(value.Assignment.PlanDigest) || !validDigest(value.Assignment.BaselineDigest) || !validDigest(value.Assignment.ProtectionDigest) || !validDigest(value.Assignment.ConfigurationDigest) || value.Baseline.Digest != value.Assignment.BaselineDigest || activationDigest(value.Baseline) != value.Baseline.Digest || !changeIDValid(value.Assignment.ID) {
+	if journal.SourceBankPreparation != nil || journal.Previous != nil || journal.Next.Generation != "" || len(journal.Mutations) > 0 || len(journal.SetMutations) > 0 || !validManagedNonce(journal.Nonce) || value.Assignment.Operation == "assess" || !firewallActivationOperation(value.Assignment.Operation) || value.Assignment.TargetOperation != value.Assignment.Operation || !validDigest(value.Assignment.PlanDigest) || !validDigest(value.Assignment.BaselineDigest) || !validDigest(value.Assignment.ProtectionDigest) || !validDigest(value.Assignment.ConfigurationDigest) || value.Baseline.Digest != value.Assignment.BaselineDigest || !activationRecordedDigestValid(value.Baseline) || !changeIDValid(value.Assignment.ID) {
 		return errors.New("invalid exact firewall-maintenance rollback journal")
 	}
 	if len(value.Baseline.Files) > 8192 || len(value.ChangedFiles) > 2 {

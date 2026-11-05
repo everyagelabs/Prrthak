@@ -18,6 +18,7 @@ type CommandRunner interface {
 	Run(context.Context, string, ...string) (string, error)
 }
 type ExecRunner struct{}
+type commandOutputLimitKey struct{}
 type limitedBuffer struct {
 	bytes.Buffer
 	limit int
@@ -38,6 +39,9 @@ func (ExecRunner) Run(ctx context.Context, name string, args ...string) (string,
 	}
 	var out limitedBuffer
 	out.limit = 4 << 20
+	if limit, ok := ctx.Value(commandOutputLimitKey{}).(int); ok && limit > 0 && limit < out.limit {
+		out.limit = limit
+	}
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	e = runFencedCommand(cmd)
@@ -71,7 +75,20 @@ func ParseSockets(text string) []Listener {
 		if e != nil || port < 1 || port > 65535 {
 			continue
 		}
-		addr := strings.Trim(m[1], "[]")
+		addr := m[1]
+		if strings.HasPrefix(addr, "[") {
+			closing := strings.IndexByte(addr, ']')
+			if closing < 0 {
+				continue
+			}
+			// ss may print [IPv6]%interface:port or [IPv6%interface]:port.
+			// Strip the actual brackets, preserving either scoped form.
+			suffix := addr[closing+1:]
+			if suffix != "" && (!strings.HasPrefix(suffix, "%") || len(suffix) == 1) {
+				continue
+			}
+			addr = addr[1:closing] + suffix
+		}
 		proc := ""
 		if p := processPattern.FindStringSubmatch(line); len(p) == 2 {
 			proc = p[1]

@@ -58,7 +58,17 @@ func safeHostIPv6Policy(text string) bool {
 		fields[key] = strings.Join(strings.Fields(value), " ")
 		inRich = key == "rich rules"
 	}
-	if !header || len(fields) != 12 || baseRules != 4 || (mldRules != 0 && mldRules != 4) {
+	// Firewalld 2.4 adds this explicit stock setting. A disabled policy is
+	// not the active IPv6 control policy we are proving, and unknown fields
+	// must still fail closed.
+	expectedFields := 12
+	if disabled, present := fields["disable"]; present {
+		if disabled != "no" {
+			return false
+		}
+		expectedFields++
+	}
+	if !header || len(fields) != expectedFields || baseRules != 4 || (mldRules != 0 && mldRules != 4) {
 		return false
 	}
 	priority, e := strconv.Atoi(fields["priority"])

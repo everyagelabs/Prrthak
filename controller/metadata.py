@@ -16,6 +16,8 @@ from .firewall import WorkflowConflict
 def initialize(db):
     for table in ("metadata_ip_profiles", "metadata_subnets", "metadata_plans"):
         db.execute(f"CREATE TABLE IF NOT EXISTS {table} (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
+    from .tag_catalogue import seed_existing
+    seed_existing(db)
 
 
 def ensure_overrides(server):
@@ -309,6 +311,9 @@ def bulk_apply(store, identifier, body, actor):
             apply_manual(store, db, server, value["payload"]["patch"], excluded_ids=value["payload"]["server_ids"])
             store._put(db, "servers", server)
         reconcile_all(store, db)
+        from .tag_catalogue import register
+        register(db, ((store._get(db, "servers", identifier) or {}).get("tags", {})
+                      for identifier in value["payload"]["server_ids"]), actor, "central_assignment")
         store.compile_all(db)
         return consume_plan(store, db, value, actor)
 

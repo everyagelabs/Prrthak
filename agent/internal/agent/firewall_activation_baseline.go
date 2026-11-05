@@ -130,9 +130,22 @@ func activationUnitState(ctx context.Context, commands CommandRunner, name strin
 }
 
 func activationDigest(baseline firewallActivationBaseline) string {
+	// Listener inventory is informational. Ephemeral non-SSH sockets must not
+	// invalidate a review of unchanged firewall configuration and protection.
+	baseline.Assessment.DiscoveredPorts = nil
+	return activationFullDigest(baseline)
+}
+
+func activationFullDigest(baseline firewallActivationBaseline) string {
 	baseline.Digest = ""
 	raw, _ := json.Marshal(baseline)
 	return shaText(string(raw))
+}
+
+func activationRecordedDigestValid(baseline firewallActivationBaseline) bool {
+	// A durable rollback journal from an older agent bound the full inventory.
+	// Keep that exact digest valid for recovery across the agent upgrade.
+	return baseline.Digest == activationDigest(baseline) || baseline.Digest == activationFullDigest(baseline)
 }
 
 func inactiveActivationZone(ctx context.Context, commands CommandRunner, configured string, useDefault bool) (string, error) {

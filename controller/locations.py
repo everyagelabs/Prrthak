@@ -15,6 +15,8 @@ def reserved(key):
 
 def initialize(db):
     db.execute("CREATE TABLE IF NOT EXISTS locations (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
+    from .tag_catalogue import initialize as initialize_tags
+    initialize_tags(db)
 
 
 def tags(value):

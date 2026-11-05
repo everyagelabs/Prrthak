@@ -83,6 +83,25 @@ func TestDenyJournalEntryRequiresExactOwnedScopeAndLocalDestination(t *testing.T
 	}
 }
 
+func TestDenyJournalUDPAllowsRepeatedLengthButRejectsAmbiguousIdentity(t *testing.T) {
+	now := time.Date(2026, 11, 5, 6, 40, 0, 0, time.UTC)
+	rule, scope, entry := denyJournalFixture(now)
+	rule.Port.Protocol, scope.Port.Protocol = "udp", "udp"
+	entry.Message = rule.Prefix + "IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=192.0.2.44 DST=127.0.0.1 LEN=45 TOS=0x00 PREC=0x00 TTL=64 ID=47280 DF PROTO=UDP SPT=41374 DPT=18080 LEN=25"
+	local := map[netip.Addr]bool{netip.MustParseAddr("127.0.0.1"): true}
+	flow, ok := parseDenyJournalEntry(entry, "kernel", []captureSidecar{rule}, []capturePortScope{scope}, local, now)
+	if !ok || flow.Protocol != "udp" || flow.CaptureKind != captureDeniedLog || flow.CountUnit != "log_records" || flow.Count != 1 {
+		t.Fatalf("normal UDP IP/transport length fields lost sampled evidence: %+v, %v", flow, ok)
+	}
+	for _, repeated := range []string{"IN=eth1", "OUT=eth1", "SRC=192.0.2.44", "DST=127.0.0.1", "PROTO=UDP", "SPT=41374", "DPT=18080"} {
+		changed := entry
+		changed.Message += " " + repeated
+		if _, ok := parseDenyJournalEntry(changed, "kernel", []captureSidecar{rule}, []capturePortScope{scope}, local, now); ok {
+			t.Fatalf("repeated identity/routing field accepted: %s", repeated)
+		}
+	}
+}
+
 func TestDenyJournalNativeIPv6AndStableReplayIdentity(t *testing.T) {
 	now := time.Now().UTC()
 	rule, scope, entry := denyJournalFixture(now)

@@ -4,7 +4,7 @@
   else root.PrithakRoutes = api;
 }(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
-  const pages = ['overview', 'servers', 'locations', 'services', 'firewall', 'policies', 'traffic', 'risk', 'alerts', 'activity', 'settings', 'access'];
+  const pages = ['overview', 'servers', 'tags', 'locations', 'services', 'firewall', 'policies', 'traffic', 'risk', 'alerts', 'activity', 'settings', 'access'];
   const advancedPoliciesHref = '/policies?section=advanced';
   function href(view) { return '/' + (pages.includes(view) ? view : 'overview'); }
   function viewFromPath(pathname) {

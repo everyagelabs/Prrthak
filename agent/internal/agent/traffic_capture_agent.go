@@ -411,6 +411,9 @@ func (a *Agent) updateCaptureReceipts(now time.Time, failure error) {
 			continue
 		}
 		coverage := a.captureSessionCoverage(session.ID, now)
+		// Active typed capture is maintained separately from legacy log rules.
+		// Reopen saved receipts after restart (including older false-ended receipts).
+		coverage.EndedAt = nil
 		coverage.TrafficCaptureCoverage = scopedCaptureCoverage(session.ObservationKinds, a.captureCoverage, session.DenyLogCompatibility)
 		coverage.RateLimited = captureKindSelected(session.ObservationKinds, captureDenied)
 		coverage.Error = ""

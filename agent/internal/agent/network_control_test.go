@@ -609,12 +609,12 @@ func TestNetworkNamespacesAndResolverPinsUseLocalEvidenceOnly(t *testing.T) {
 	}
 	_ = os.WriteFile(filepath.Join(root, "proc/sys/net/ipv4/ip_forward"), []byte("0\n"), 0600)
 	_ = os.WriteFile(filepath.Join(root, "proc/sys/net/ipv6/conf/all/forwarding"), []byte("0\n"), 0600)
-	if _, err := networkNamespace(root); err != nil {
+	if _, err := networkNamespace(context.Background(), &fakeRunner{}, root); err != nil {
 		t.Fatal(err)
 	}
 	_ = os.Remove(filepath.Join(root, "proc/2/ns/net"))
 	_ = os.Symlink("net:[456]", filepath.Join(root, "proc/2/ns/net"))
-	if _, err := networkNamespace(root); err == nil {
+	if _, err := networkNamespace(context.Background(), &fakeRunner{}, root); err == nil {
 		t.Fatal("foreign container network namespace accepted")
 	}
 	_ = os.WriteFile(filepath.Join(root, "etc/resolv.conf"), []byte("nameserver 127.0.0.53\nnameserver 10.10.0.53\n"), 0600)

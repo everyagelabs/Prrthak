@@ -198,7 +198,7 @@ func TestFirewallActivationNativeHostPreflightRejectsForwardingBridgeNamespaceAn
 	if err := os.MkdirAll(root+"/proc/2/ns", 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("net:[foreign]", root+"/proc/2/ns/net"); err != nil {
+	if err := os.Symlink("net:[456]", root+"/proc/2/ns/net"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := activationInactiveContext(context.Background(), activationContextRunner{}, root, false, nil); err == nil {
@@ -214,7 +214,7 @@ func writeActivationNetworkFixture(t *testing.T, root string) {
 		}
 	}
 	for _, name := range []string{"/proc/self/ns/net", "/proc/1/ns/net"} {
-		if err := os.Symlink("net:[fixture-host]", root+name); err != nil {
+		if err := os.Symlink("net:[123]", root+name); err != nil {
 			t.Fatal(err)
 		}
 	}

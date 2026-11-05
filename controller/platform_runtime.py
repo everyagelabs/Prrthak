@@ -40,7 +40,7 @@ META_TABLES = (
     "alerts", "audit", "auth_sessions", "auth_states", "auth_users", "auth_local_attempts", "bundle_history",
     "controller_nodes", "firewall_changes", "groups", "learning_allow_history",
     "learning_allow_hosts", "learning_allow_policies", "learning_evidence",
-    "learning_evidence_receipts", "learning_policy_previews", "locations",
+    "learning_evidence_receipts", "learning_policy_previews", "locations", "tag_catalogue",
     "maintenance_backups", "maintenance_plans", "maintenance_settings",
     "managed_approvals", "managed_outcomes", "managed_rollouts", "metadata_ip_profiles",
     "metadata_plans", "metadata_subnets", "policies", "policy_intent_headers", "policy_revisions", "retired_endpoints",

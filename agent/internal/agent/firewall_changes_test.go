@@ -420,6 +420,26 @@ func TestDefaultHostIPv6PolicyRecognizedByFullDefinitionOnly(t *testing.T) {
 	}
 }
 
+func TestDefaultHostIPv6PolicyAcceptsOnlyExplicitEnabledSetting(t *testing.T) {
+	for _, base := range []string{defaultHostIPv6Policy, defaultHostIPv6PolicyWithMLD} {
+		enabled := strings.Replace(base, "  target: CONTINUE\n", "  target: CONTINUE\n  disable: no\n", 1)
+		if !safeHostIPv6Policy(enabled) {
+			t.Fatal("stock firewalld 2.4 disable:no setting rejected")
+		}
+		for _, changed := range []string{
+			strings.Replace(enabled, "disable: no", "disable: yes", 1),
+			strings.Replace(enabled, "disable: no", "disable: unknown", 1),
+			strings.Replace(enabled, "disable: no", "unknown: no", 1),
+			strings.Replace(enabled, "disable: no", "disable: no\n  disable: no", 1),
+			strings.Replace(enabled, "  services:", "  services: ssh", 1),
+		} {
+			if safeHostIPv6Policy(changed) {
+				t.Fatal("unknown, disabled, duplicate or overlapping stock policy accepted")
+			}
+		}
+	}
+}
+
 func TestDefaultHostIPv6PolicyRejectsModifiedMLDDefinitions(t *testing.T) {
 	const lastRule = `    rule family="ipv6" icmp-type name="mld2-listener-report" accept` + "\n"
 	for name, policy := range map[string]string{

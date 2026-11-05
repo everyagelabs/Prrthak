@@ -2,7 +2,7 @@
 
 **One place to see your Linux servers and control who may connect to their services.**
 
-This explains what you asked for and how Prṛthak does it. The current implementation is **0.18.0**. Use the [current commands and support profiles](installation-commands.md). For the illustrated flow, start with the [controller picture guide](guide/simple/controller-installation.html), then follow the [agent picture guide](guide/simple/agent-installation.html).
+This explains what you asked for and how Prṛthak does it. The current implementation is **0.18.24**. Use the [current commands and support profiles](installation-commands.md). For the illustrated flow, start with the [controller picture guide](guide/simple/controller-installation.html), then follow the [agent picture guide](guide/simple/agent-installation.html).
 
 ## The controller is the control room
 
@@ -27,7 +27,7 @@ Download **one fleet setup file** from the GUI and reuse it with the matching CP
 
 The agent reports hostname, actual interface IPs, Linux version, firewall information and listening services. SSH on **2022** can be identified as SSH from its process, rather than guessed from port 22. Booting or restarting the agent refreshes this information. Business tags and DC names come from your dashboard.
 
-**You configure the product in the GUI.** Run `sudo ./scripts/install-controller.sh` for a RHEL 9 or Ubuntu 26.04 controller. It prepares missing protected Python, Docker Engine and Compose dependencies before opening GUI setup. Run `sudo ./scripts/install-agent-auto.sh --setup-file /root/prthak-agent-setup.json` on RHEL, Rocky Linux, AlmaLinux and Oracle Linux 8/9, plus Ubuntu 22.04/24.04/26.04 endpoints. It validates the GUI kit and signed runtime, detects the OS and prepares required packages automatically. The server team provides genuine systemd, root/sudo access, approved repositories/network paths, storage and verified root-owned release files. Conflicting container stacks block controller installation without removal. Existing Ubuntu UFW and firewalld activity are preserved; optional UFW assessment starts off, and an approved firewall cutover is separate.
+**You configure the product in the GUI.** Run `sudo ./scripts/install-controller.sh` for a RHEL 9/10 or Ubuntu 26.04 controller. It prepares missing protected Python, Docker Engine and Compose dependencies before opening GUI setup. Run `sudo ./scripts/install-agent-auto.sh --setup-file /root/prthak-agent-setup.json` on RHEL 8/9/10, Rocky Linux, AlmaLinux and Oracle Linux 8/9, plus Ubuntu 22.04/24.04/26.04 endpoints. It validates the GUI kit and signed runtime, detects the OS and prepares required packages automatically. The server team provides genuine systemd, root/sudo access, approved repositories/network paths, storage and verified root-owned release files. Conflicting container stacks block controller installation without removal. Existing Ubuntu UFW and firewalld activity are preserved; optional UFW assessment starts off, and an approved firewall cutover is separate.
 
 ## Write one policy for a whole application
 
@@ -59,7 +59,9 @@ Create your DC/cloud locations and names first. Assign them manually, use exact-
 
 **Example:** map `10.241.0.0/16` to Noida and a smaller `10.241.24.0/24` to Pune. The smaller matching network wins. A manual assignment takes priority, then an exact-IP CSV assignment, then the most specific subnet. The same exact network cannot belong to two locations; conflicting reported-IP/DC claims are held for review.
 
-You can edit one server or a selected batch. Static groups contain chosen servers; dynamic groups follow matching tags. Combine filters such as **Billing + Noida + port 443**, and click overview counts to open the matching records.
+Open **Tags & groups** to create and list tags. In a single-server or bulk assignment form, search and tick saved tags; you do not need to type them again. A server can have several tags, with one value per tag key, and one separate DC/location. Existing assigned tags and CSV-profile tags are retained in the catalogue.
+
+Choose **Create Server Group** for selected servers or a dynamic group that follows matching tags. **Server Groups** shows how many groups exist and each group’s member count. **View servers** opens the member hostnames, full reported IP addresses, location and health. Static groups contain chosen servers; dynamic groups follow matching tags. Combine filters such as **Billing + Noida + port 443**, and click overview counts to open the matching records. The **Tags** filter has searchable saved choices; no custom-tag text is required. Discovered services are listed in alphabetical order.
 
 ## Watch traffic or learn new access
 
@@ -73,7 +75,7 @@ You can edit one server or a selected batch. Static groups contain chosen server
 
 **Example:** learn only **443** while leaving **22 and 80** outside the session. Monitoring is optional and disabled by default; its retained window is 1–24 hours. Protected management ports are excluded from automatic learned access. Observing a source does not make it trustworthy.
 
-New capture uses **conntrack** for accepted connection observations and verified **NFLOG** for denied packets. These have different count units and can have coverage gaps. The dashboard shows those limits; it is not a complete packet recorder. Older journal-based history remains labelled as older evidence.
+New capture uses **conntrack** for accepted connection observations and verified **NFLOG** for denied packets. Older firewalld builds can negotiate scoped, rate-limited **Deny log (sampled)** collection with an upgraded agent/controller. Those are log records, not native packet proof. The Traffic page keeps its latest 20 sessions behind **Session history**; policy-discovery progress stays on Policies. These have different count units and can have coverage gaps. The dashboard shows those limits; it is not a complete packet recorder. Older journal-based history remains labelled as older evidence.
 
 ## See changes and problems quickly
 

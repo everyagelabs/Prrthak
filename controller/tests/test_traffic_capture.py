@@ -144,6 +144,19 @@ class TrafficCaptureTests(unittest.TestCase):
         self.assertEqual(coverage['capture_gaps'],facts['capture_gaps'])
         with self.assertRaises(ValueError):self.upgraded(learning_coverage={'session_id':session['id'],'capture_backends':[{'backend':'conntrack','status':'active','ipv4':True,'ipv6':True,'lost_events':-1}]})
 
+    def test_active_capture_receipt_replaces_saved_false_end_and_stale_error(self):
+        session=self.session()
+        started=stamp(now()-timedelta(minutes=1))
+        self.upgraded(learning_coverage={'session_id':session['id'],'started_at':started,'ended_at':started,'error':'old kernel journal error'})
+        self.assertEqual(self.store.get('servers','a')['learning_coverage']['ended_at'],started)
+        facts={'backend':'conntrack','status':'active','ipv4':True,'ipv6':True,'lost_events':None}
+        self.upgraded(learning_coverage={'session_id':session['id'],'started_at':started,'error':'','capture_backends':[facts]})
+        coverage=self.store.get('servers','a')['learning_coverage']
+        self.assertNotIn('ended_at',coverage)
+        self.assertEqual(coverage['started_at'],started)
+        self.assertEqual(coverage['error'],'')
+        self.assertEqual(coverage['capture_backends'][0]['status'],'active')
+
     def test_ipv6_discovery_tag_group_sources_and_exact_recommendation_preview(self):
         self.fixture.report('a','2001:db8:10::1',listeners=[{'port':80,'protocol':'tcp','address':'::','service':'HTTP'}])
         self.fixture.report('b','2001:db8:10::2')

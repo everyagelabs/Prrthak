@@ -386,7 +386,7 @@ def handler_for(app):
                                                        "csrf_token", "password_change_required")}
 
         def serve_static(self, path):
-            requested = "index.html" if path in ("/", "/index.html", "/login", "/overview", "/servers", "/policies", "/traffic", "/risk", "/alerts", "/activity", "/firewall", "/locations", "/access", "/services", "/network-control", "/settings") else unquote(path).lstrip("/")
+            requested = "index.html" if path in ("/", "/index.html", "/login", "/overview", "/servers", "/policies", "/traffic", "/risk", "/alerts", "/activity", "/firewall", "/locations", "/tags", "/access", "/services", "/network-control", "/settings") else unquote(path).lstrip("/")
             target = (app.dashboard / requested).resolve()
             if not target.is_relative_to(app.dashboard) or not target.is_file() or target.suffix not in (".html", ".js", ".css", ".svg", ".ico", ".png", ".woff2", ".webmanifest"):
                 self.response(404, {"error": "Not found"})
@@ -1213,6 +1213,16 @@ def handler_for(app):
                     raise ValueError("Open the exact managed review before authorizing it")
                 result = app.store.confirm_managed_rollout(parts[1], value, actor, principal=principal) if parts[2] == "confirm" else app.store.cancel_managed_rollout(parts[1], actor)
                 self.response(200, result)
+            elif parts == ["tags"]:
+                from . import tag_catalogue
+                if method == "GET":
+                    self.response(200, tag_catalogue.listing(app.store, **tag_catalogue.options(query)))
+                elif method == "POST":
+                    if role not in ("admin", "super_admin"):
+                        raise PermissionError("Admin role required for tag catalogue changes")
+                    self.response(201, tag_catalogue.create(app.store, self.body(), actor))
+                else:
+                    self.response(405, {"error": "Method not allowed"})
             elif parts == ["locations"]:
                 if method == "GET":
                     self.response(200, {"items": app.store.locations()})

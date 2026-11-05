@@ -746,6 +746,9 @@ class Store:
                 server["expected_services"] = [validate_port(service) for service in services]
             self._put(db, "servers", server)
             reconcile_all(self, db)
+            if set(value) & metadata_fields:
+                from .tag_catalogue import register
+                register(db, [(self._get(db, "servers", identifier) or {}).get("tags", {})], actor, "central_assignment")
             self.compile_all(db)
             self.audit("server.updated", actor, {"server_id": identifier, "fields": sorted(set(value) & (metadata_fields | {"expected_services"}))}, db)
             from .locations import decorate

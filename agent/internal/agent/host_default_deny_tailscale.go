@@ -109,7 +109,9 @@ func validTailscaleChain(item nftKernelItem) bool {
 	case "mangle/PREROUTING", "mangle/INPUT", "mangle/FORWARD", "mangle/POSTROUTING":
 		return item.Type == "filter" && *item.Prio == -150
 	case "mangle/OUTPUT":
-		return item.Type == "route" && *item.Prio == -150
+		// Native Tailscale uses a filter chain; iptables-nft uses route.
+		// Its complete, exact save/restore pair is validated below.
+		return (item.Type == "route" || item.Type == "filter") && *item.Prio == -150
 	default:
 		return false
 	}
@@ -151,10 +153,12 @@ func (context nftTailscaleContext) proof(read tailscaleProofReader) (json.RawMes
 				request.opaqueMasquerade = len(rules) == 1 && opaqueTailscaleMasquerade(rules[0])
 			case "mangle/PREROUTING", "mangle/OUTPUT":
 				if len(rules) != 0 {
-					if !tailscaleConnmarkPair(chains) {
-						return nil, false
+					if !nativeTailscaleConnmarkPair(chains) {
+						if !tailscaleConnmarkPair(chains) {
+							return nil, false
+						}
+						request.connmark = true
 					}
-					request.connmark = true
 				}
 			default:
 				// No active destination NAT or competing input hook.
@@ -215,6 +219,25 @@ const nonTailscaleInterface = `{"match":{"op":"!=","left":{"meta":{"key":"iifnam
 const acceptNft = `{"accept":null}`
 
 func validTailscaleInput(family string, rules [][]json.RawMessage) (opaqueUDP, valid bool) {
+	// Native Tailscale nft rules use these two literal interface-prefix
+	// spellings. Only normalize the exact known expressions; arbitrary
+	// interface wildcards must not become trusted input templates.
+	normalized := make([][]json.RawMessage, len(rules))
+	for i, rule := range rules {
+		normalized[i] = append([]json.RawMessage{}, rule...)
+		for j, expression := range rule {
+			for _, alias := range []struct{ from, to string }{
+				{`{"match":{"op":"==","left":{"meta":{"key":"iifname"}},"right":"tailscale0*"}}`, tailscaleInterface},
+				{`{"match":{"op":"!=","left":{"meta":{"key":"iifname"}},"right":"tailscale0*"}}`, nonTailscaleInterface},
+				{`{"match":{"op":"==","left":{"meta":{"key":"iifname"}},"right":"lo*"}}`, `{"match":{"op":"==","left":{"meta":{"key":"iifname"}},"right":"lo"}}`},
+			} {
+				if nftExpressionEqual(string(expression), alias.from) {
+					normalized[i][j] = json.RawMessage(alias.to)
+				}
+			}
+		}
+	}
+	rules = normalized
 	if len(rules) > 0 && tailscaleLoopbackRule(family, rules[0]) {
 		rules = rules[1:]
 	}
@@ -318,6 +341,23 @@ func tailscaleConnmarkPair(chains map[string]*nftTailscaleChain) bool {
 	return equalNftRule(pre.Rules[0], nftXTMatch("conntrack"), nftXTMatch("connmark"), target) &&
 		(equalNftRule(out.Rules[0], nftXTMatch("conntrack"), nftXTMatch("mark"), target) ||
 			equalNftRule(out.Rules[0], nftXTMatch("conntrack"), nonzeroMark, target))
+}
+
+// Native nft JSON exposes the complete masks and states, so no opaque
+// iptables readback is needed. Only this observed upstream pair is accepted;
+// arbitrary mark expressions, extra rules, and mixed native/xtables pairs fail.
+func nativeTailscaleConnmarkPair(chains map[string]*nftTailscaleChain) bool {
+	pre, out := chains["PREROUTING"], chains["OUTPUT"]
+	if pre == nil || out == nil || len(pre.Rules) != 1 || len(out.Rules) != 1 {
+		return false
+	}
+	const tracked = `{"match":{"op":"in","left":{"ct":{"key":"state"}},"right":["established","related"]}}`
+	const newFlow = `{"match":{"op":"in","left":{"ct":{"key":"state"}},"right":"new"}}`
+	const connmark = `{"match":{"op":"!=","left":{"&":[{"ct":{"key":"mark"}},16711680]},"right":0}}`
+	const packetmark = `{"match":{"op":"!=","left":{"&":[{"meta":{"key":"mark"}},16711680]},"right":0}}`
+	const restore = `{"mangle":{"key":{"meta":{"key":"mark"}},"value":{"&":[{"ct":{"key":"mark"}},16711680]}}}`
+	const save = `{"mangle":{"key":{"ct":{"key":"mark"}},"value":{"&":[{"meta":{"key":"mark"}},16711680]}}}`
+	return equalNftRule(pre.Rules[0], tracked, connmark, restore) && equalNftRule(out.Rules[0], newFlow, packetmark, save)
 }
 
 const tailscaleConnmarkRestore = "-A PREROUTING -m conntrack --ctstate RELATED,ESTABLISHED -m connmark ! --mark 0x0/0xff0000 -j CONNMARK --restore-mark --nfmask 0xff0000 --ctmask 0xff0000"

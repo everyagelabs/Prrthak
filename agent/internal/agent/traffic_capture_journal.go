@@ -81,6 +81,11 @@ func parseDenyJournalEntry(entry JournalEntry, transport string, rules []capture
 			if !ok {
 				continue
 			}
+			// UDP kernel logs contain both IP LEN and UDP LEN. Length is
+			// not used for attribution; identity/routing fields remain unique.
+			if key == "LEN" {
+				continue
+			}
 			if _, duplicate := fields[key]; duplicate {
 				return capturedFlow{}, false
 			}

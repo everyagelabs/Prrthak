@@ -2,7 +2,7 @@ package agent
 
 import "time"
 
-const Version = "0.18.23"
+const Version = "0.18.24"
 
 const LearningDiscoveryCapability = "learning_discovery_v1"
 const TrafficDiscoveryCapability = "traffic_discovery_30d_v1"

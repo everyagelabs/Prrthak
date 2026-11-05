@@ -123,7 +123,7 @@ test('opening a compact plan summary fetches full canonical review evidence lazi
 test('five thousand server rows render in200row pages while retaining full filter totals',()=>{
  const fleet=Array.from({length:5000},(_,i)=>({id:'host-'+i,hostname:'host-'+i,tags:{},listeners:[]}));
  const source=fs.readFileSync(require.resolve('../app.js'),'utf8');const fn=source.slice(source.indexOf('function serverRows('),source.indexOf('\nfunction inventoryHTML'));
- const context={state:{view:'servers',filters:{},search:'',flowServer:'all'},filteredServers:()=>fleet,JSON,Math,h:String,icon:()=>'',num:Number,metadataSelectionCell:()=>'',listenerChip:()=>'',serverLocationHTML:()=>'',tagsHTML:()=>'',serverHealth:()=>'',networkControlStatusHTML:()=>'',policyBadge:()=>'',L:{customTags:()=>({})}};
+ const context={state:{view:'servers',filters:{},search:'',flowServer:'all'},filteredServers:()=>fleet,D:require('../services.js'),JSON,Math,h:String,icon:()=>'',num:Number,metadataSelectionCell:()=>'',listenerChip:()=>'',serverLocationHTML:()=>'',tagsHTML:()=>'',serverHealth:()=>'',networkControlStatusHTML:()=>'',policyBadge:()=>'',L:{customTags:()=>({})}};
  vm.createContext(context);vm.runInContext(fs.readFileSync(require.resolve('../risk-page.js'),'utf8'),context);vm.runInContext(fn,context);
  let page=context.serverRows();assert.equal(page.list.length,5000);assert.equal((page.html.match(/<tr /g)||[]).length,200);assert.equal(page.offset,0);
  context.state.inventoryOffset=200;page=context.serverRows();assert.equal(page.offset,200);assert.match(page.html,/data-id="host-200"/);assert.doesNotMatch(page.html,/data-id="host-0"/);

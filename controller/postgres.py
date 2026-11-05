@@ -374,7 +374,7 @@ class PostgresStore(Store):
                         connection.execute(f"SELECT 1 FROM {required} LIMIT 0")
                     for required in ("learning_evidence", "learning_evidence_receipts", "learning_allow_policies", "learning_allow_hosts", "learning_allow_history", "learning_policy_previews"):
                         connection.execute(f"SELECT 1 FROM {required} LIMIT 0")
-                    for required in ("service_groups", "service_group_revisions", "auth_users", "auth_sessions", "auth_states", "server_reservations", "retired_endpoints", "server_lifecycle_plans", "metadata_subnets", "metadata_ip_profiles", "metadata_plans", "locations", "firewall_changes", "security_event_receipts", "security_alert_windows", "controller_nodes", "policy_revisions", "bundle_history", "managed_rollouts", "managed_approvals", "managed_outcomes"):
+                    for required in ("service_groups", "service_group_revisions", "auth_users", "auth_sessions", "auth_states", "server_reservations", "retired_endpoints", "server_lifecycle_plans", "metadata_subnets", "metadata_ip_profiles", "metadata_plans", "locations", "tag_catalogue", "firewall_changes", "security_event_receipts", "security_alert_windows", "controller_nodes", "policy_revisions", "bundle_history", "managed_rollouts", "managed_approvals", "managed_outcomes"):
                         connection.execute(f"SELECT 1 FROM {required} LIMIT 0")
                 else:
                     for required in ("hit_batches", "hit_events", "hit_limits"):

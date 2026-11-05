@@ -54,6 +54,27 @@ tcp LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("mystery",pid=316,fd=5))`)
 		t.Fatal("unknown process on22 was falsely labeled SSH")
 	}
 }
+
+func TestParseSocketsPreservesScopedIPv6BracketsAndBindingIdentity(t *testing.T) {
+	rows := ParseSockets(`tcp LISTEN 0 128 [fd7a:115c:a1e0::22c:f071]%tailscale0:50817 [::]:* users:(("tailscaled",pid=314,fd=3))
+udp UNCONN 0 0 [fe80::1234%eth0]:546 [::]:*
+tcp LISTEN 0 128 [::]:8443 [::]:*
+tcp LISTEN 0 128 [::]garbage:9443 [::]:*`)
+	if len(rows) != 3 {
+		t.Fatalf("valid scoped socket rejected or malformed brackets accepted: %+v", rows)
+	}
+	found := map[int]Listener{}
+	for _, row := range rows {
+		found[row.Port] = row
+	}
+	if found[50817].Address != "fd7a:115c:a1e0::22c:f071%tailscale0" || found[546].Address != "fe80::1234%eth0" || found[8443].Address != "::" {
+		t.Fatalf("scope or bracket normalization incorrect: %+v", found)
+	}
+	// inet_diag provides the canonical scoped address without brackets.
+	if listenerBindingKey(found[50817].Protocol, found[50817].Port, found[50817].Address) != listenerBindingKey("tcp", 50817, "fd7a:115c:a1e0::22c:f071") {
+		t.Fatal("ss listener cannot reconcile with native binding inventory")
+	}
+}
 func TestProcessCgroupIdentifiesOwningApplicationUnit(t *testing.T) {
 	rows := []Listener{{Port: 8443, Protocol: "tcp", Address: "::", Process: "nginx", PID: 41}, {Port: 8080, Protocol: "tcp", Address: "0.0.0.0", Process: "billing-api", PID: 42}}
 	result := EnrichListeners(rows, func(pid int) (string, error) {

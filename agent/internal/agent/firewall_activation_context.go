@@ -65,7 +65,7 @@ func (r activationForeignNftRunner) Run(ctx context.Context, name string, args .
 }
 
 func activationHostContext(ctx context.Context, commands CommandRunner, root string) (string, error) {
-	namespace, err := networkNamespace(root)
+	namespace, err := networkNamespace(ctx, commands, root)
 	if err != nil {
 		return "", err
 	}

@@ -636,3 +636,35 @@ th { background: linear-gradient(#fffafa, #fff0f3); color: #55343f; font-weight:
 .discovery-card--policy .learning-policy-behavior{color:#833442}
 .discovery-card .learning-top,.discovery-card .learning-evidence-actions{flex-wrap:wrap;gap:8px 14px}
 .discovery-card .learning-name{overflow-wrap:anywhere}
+
+/* Searchable saved tag filters share the endpoint picker styling. */
+.saved-tag-filter-button { min-height: 32px; gap: 8px; }
+.saved-tag-filter-button svg { width: 13px; height: 13px; }
+.tag-filter-count { border-radius: 4px; padding: 1px 5px; color: #ab172c; background: #ffecef; }
+.saved-tag-filter-list { max-height: 360px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.saved-tag-filter-list .host-check { display: flex; align-items: flex-start; gap: 12px; margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.saved-tag-filter-list .host-check:last-child { border-bottom: 0; }
+.saved-tag-filter-list .host-check:has(input:checked) { background: #fff4f5; }
+.saved-tag-filter-list input { flex: 0 0 auto; margin-top: 3px; width: 17px; height: 17px; accent-color: var(--brand); }
+.saved-tag-filter-list .host-check > span { min-width: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
+.saved-tag-filter-list strong { color: #4d3038; font-size: 13px; }
+.saved-tag-filter-list small { color: #66535a; font-size: 12px; }
+.saved-tag-filter-list > .help-text { padding: 16px; margin: 0; }
+.saved-tag-filter-footer { gap: 14px; padding: 13px 0 0; }
+.saved-tag-filter-footer > div { display: flex; gap: 8px; }
+/* Saved business tags and server-group membership use the shared card controls. */
+.tag-catalogue-toolbar,.tag-picker-search,.tag-picker-pager{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:18px 22px;color:#51434a}
+.tag-catalogue-toolbar .search-field,.tag-picker-search .search-field{flex:1;min-width:180px}
+.tag-catalogue-toolbar input,.tag-picker-search input{width:100%;min-height:40px;border:1px solid #e5cfd5;border-radius:9px;background:#fff;padding:9px 12px;color:#39272d;font:inherit}
+.saved-tag-picker{padding:16px;border:1px solid #ecced6;border-radius:12px;background:linear-gradient(145deg,#fff,#fff9fb);box-shadow:0 3px 12px #8d153207;margin-bottom:16px;min-width:0}
+.saved-tag-picker .field-label{font-size:14px;font-weight:700;color:#422a32;margin-bottom:10px}
+.saved-tag-picker .tag-picker-search{padding:12px 0}
+.saved-tag-options{max-height:260px;overflow:auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}
+.saved-tag-option{display:flex!important;gap:10px;align-items:flex-start;border:1px solid #f0dce2;border-radius:9px;padding:10px;background:#fff;cursor:pointer;min-width:0}
+.saved-tag-option input{width:18px!important;height:18px;min-height:18px;flex:0 0 18px;accent-color:#e90010;margin:1px 0 0!important;padding:0!important}
+.saved-tag-option span{overflow-wrap:anywhere;color:#5b3b45;font-size:13px;font-weight:500}
+.saved-tag-picker .tag-picker-pager{padding:12px 0 4px;font-size:12px;justify-content:space-between}
+.saved-tag-picker>small{display:block;color:#65515a;line-height:1.6;font-size:12px;margin-top:8px}
+.selected-tag{cursor:pointer;gap:8px;color:#97162d!important;border:1px solid #e9b6c1;background:#fff4f6!important;font:inherit;max-width:100%;overflow-wrap:anywhere}
+.selected-tag span{font-size:18px;line-height:1}
+@media(max-width:760px){.tag-catalogue-toolbar{padding:14px}.saved-tag-picker{padding:12px}.saved-tag-options{grid-template-columns:1fr}}

@@ -244,51 +244,6 @@ func nativeJSONArray(text string) ([]any, error) {
 	return rows, nil
 }
 
-func networkNamespace(root string) (string, error) {
-	under := func(path string) string {
-		if root == "" {
-			return path
-		}
-		return filepath.Join(root, strings.TrimPrefix(path, "/"))
-	}
-	self, err := os.Readlink(under("/proc/self/ns/net"))
-	if err != nil {
-		return "", errors.New("host network namespace could not be verified")
-	}
-	init, err := os.Readlink(under("/proc/1/ns/net"))
-	if err != nil || self != init {
-		return "", errors.New("agent is not in the host network namespace")
-	}
-	for _, path := range []string{"/.dockerenv", "/run/.containerenv"} {
-		if _, err := os.Stat(under(path)); err == nil {
-			return "", errors.New("containerized agents cannot claim whole-host isolation")
-		}
-	}
-	entries, err := os.ReadDir(under("/proc"))
-	if err != nil || len(entries) > 20000 {
-		return "", errors.New("process namespace inventory cannot be bounded and verified")
-	}
-	for _, entry := range entries {
-		if _, err := strconv.Atoi(entry.Name()); err != nil {
-			continue
-		}
-		namespace, err := os.Readlink(under("/proc/" + entry.Name() + "/ns/net"))
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil || namespace != self {
-			return "", errors.New("foreign or unreadable network namespaces prevent whole-host coverage")
-		}
-	}
-	for _, path := range []string{"/proc/sys/net/ipv4/ip_forward", "/proc/sys/net/ipv6/conf/all/forwarding"} {
-		raw, err := os.ReadFile(under(path))
-		if err != nil || strings.TrimSpace(string(raw)) != "0" {
-			return "", errors.New("forwarding/router mode requires a separately validated isolation adapter")
-		}
-	}
-	return self, nil
-}
-
 func nativeNetworkTopology(ctx context.Context, runner CommandRunner) ([]map[string]any, error) {
 	return readNativeNetworkTopology(ctx, runner, false)
 }
@@ -512,7 +467,7 @@ func (a *Agent) assessNetworkControl(ctx context.Context) (networkNativeContext,
 		return block(errors.New("fresh native nftables/firewalld inventory and protected SSH/controller readiness are required"))
 	}
 	result.Report.ProtectionDigest = result.Protection.Digest
-	namespace, err := networkNamespace("")
+	namespace, err := networkNamespace(ctx, a.Commands, "")
 	if err != nil {
 		return block(err)
 	}

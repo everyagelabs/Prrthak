@@ -41,7 +41,7 @@ async function workspace(view='overview',options={}) {
  context.apiResponses=options.responses || {};
  context.FormData=class{constructor(form){this.values=form.values || {};}get(key){return this.values[key] ?? null;}getAll(key){const value=this.values[key];return Array.isArray(value)?value:value==null?[]:[value];}};
  vm.createContext(context);
- for(const file of ['locations.js','filters.js','country-outlines.js','topology.js','routing.js','services.js','firewall.js','firewall-page.js','managed.js','managed-page.js','default-deny-page.js','locations-page.js','metadata-page.js','access-page.js','server-lifecycle-page.js','service-groups-page.js','learning-page.js','hit-monitoring-page.js','recommendations.js','approvals-page.js','recommendations-page.js','platform.js','settings-setup-page.js','settings-page.js','settings-ha-page.js','settings-appliance-page.js','settings-certificates-page.js','settings-agents-page.js','settings-notifications-page.js','settings-siem-page.js','settings-signing-page.js','firewall-counters-page.js','firewall-activation-page.js','network-control-page.js','settings-endpoint-certificates-page.js','settings-recovery-page.js','settings-application-port-page.js','settings-updates-page.js','settings-agent-upgrades-page.js','policy-catalogue-page.js','alerts-catalogue-page.js','account-menu.js','risk-page.js','agent-installation.js','traffic-catalogue-page.js','audit-catalogue-page.js','source-banks-page.js','policy-deployments-page.js','app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context,{filename:file});
+ for(const file of ['locations.js','filters.js','country-outlines.js','topology.js','routing.js','services.js','firewall.js','firewall-page.js','managed.js','managed-page.js','default-deny-page.js','locations-page.js','tag-catalogue-page.js','tag-filter-page.js','metadata-page.js','access-page.js','server-lifecycle-page.js','service-groups-page.js','learning-page.js','hit-monitoring-page.js','recommendations.js','approvals-page.js','recommendations-page.js','platform.js','settings-setup-page.js','settings-page.js','settings-ha-page.js','settings-appliance-page.js','settings-certificates-page.js','settings-agents-page.js','settings-notifications-page.js','settings-siem-page.js','settings-signing-page.js','firewall-counters-page.js','firewall-activation-page.js','network-control-page.js','settings-endpoint-certificates-page.js','settings-recovery-page.js','settings-application-port-page.js','settings-updates-page.js','settings-agent-upgrades-page.js','policy-catalogue-page.js','alerts-catalogue-page.js','account-menu.js','risk-page.js','agent-installation.js','traffic-catalogue-page.js','audit-catalogue-page.js','source-banks-page.js','policy-deployments-page.js','app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context,{filename:file});
  await new Promise(setImmediate);
  const run=script=>vm.runInContext(script,context);
  async function click(action,dataset={}){context.testButton={disabled:false,dataset:{action,...dataset}};return run('handleAction({target:{closest:()=>testButton}})');}
@@ -364,11 +364,11 @@ test('bulk remove and automatic reset are explicit, while reserved DC tags and e
   const body=JSON.parse(env.requests.filter(item=>item.url==='/api/v1/metadata/bulk/preview').at(-1).options.body);
   assert.deepEqual(body,{server_ids:['host-1'],...expected,location_mode:'automatic'});
  }
- const before=env.requests.length;
+ const mutations=()=>env.requests.filter(item=>item.options.method==='POST').length;const before=mutations();
  env.run('showMetadataBulk(["host-1"])');
  await env.listeners.submit.at(-1)(metadataForm(env,'metadata-bulk-form',{tag_mode:'merge',tags:'dc=Untrusted',location_mode:'keep'}));
- assert.equal(env.requests.length,before);assert.match(env.element('#form-error').textContent,/location|DC/i);
- await env.listeners.submit.at(-1)(metadataForm(env,'metadata-bulk-form',{tag_mode:'merge',tags:'',location_mode:'keep'}));assert.equal(env.requests.length,before);
+ assert.equal(mutations(),before);assert.match(env.element('#form-error').textContent,/location|DC/i);
+ await env.listeners.submit.at(-1)(metadataForm(env,'metadata-bulk-form',{tag_mode:'merge',tags:'',location_mode:'keep'}));assert.equal(mutations(),before);
 });
 test('single-server saves preserve automatic assignments unless the administrator explicitly pins or resets them',async()=>{
  const env=await workspace('servers');const values={expected:'2022/tcp',tags:'application=billing,owner=finance'};
@@ -765,7 +765,7 @@ test('read-only inventory and policy exports send complete current scopes with C
 function compactSession(id,extra={}){return {id,name:'Window '+id,status:'active',summary_only:true,server_ids:['host-1'],server_count:1,selection_mode:'discovered',policy_action:'observe',starts_at:new Date(Date.now()-60000).toISOString(),expires_at:new Date(Date.now()+600000).toISOString(),discovery_pending_count:0,discovery_error_count:0,discovery_no_listeners_count:0,...extra};}
 function compactSessionPage(items,extra={}){return {items,total:14,active_total:9,offset:0,limit:6,has_more:true,...extra};}
 function compactOverview(items,extra={}){const page=compactSessionPage(items,extra);return {...fixture,learning_sessions:items,learning_session_pagination:{...page,items:undefined},stats:{active_learning:page.active_total}};}
-test('discovery tabs show only their running sessions and load separate bounded history on demand',async()=>{
+test('traffic discovery sessions stay hidden until requested and remain separate from policy sessions',async()=>{
  const runningTraffic=compactSession('traffic-live',{purpose:'traffic',traffic_collection_mode:'sampled'});
  const runningPolicy=compactSession('policy-live',{policy_action:'auto_allow'});
  const endedTraffic=Array.from({length:20},(_,i)=>compactSession('traffic-ended-'+i,{purpose:'traffic',status:'stopped'}));
@@ -786,17 +786,27 @@ test('discovery tabs show only their running sessions and load separate bounded 
   const html=()=>env.element('#view-content').innerHTML,historyReads=()=>env.requests.filter(row=>row.url.includes('/learning?limit=20')&&!row.url.includes('active_only'));
   await new Promise(setImmediate);
   assert.match(html(),/aria-expanded="false" aria-controls="traffic-learning-sessions"/);
-  assert.match(html(),/Window traffic-live[\s\S]*View observed traffic[\s\S]*Stop collection/);
+  assert.doesNotMatch(html(),/Window traffic-live|discovery-status--traffic|Checking for active sessions|No active traffic discovery/);
   assert.doesNotMatch(html(),/Window policy-|Review policy recommendations|policy-learning-sessions|Window traffic-ended/);
   assert.match(env.element('#learn-button').innerHTML,/Discover traffic/);
   assert.equal(historyReads().length,0);
+  assert.equal(env.requests.filter(row=>row.url.includes('/learning?limit=20&offset=0&purpose=traffic')).length,0);
   await env.click('traffic-learning-sessions');
+  assert.match(html(),/Window traffic-live[\s\S]*View observed traffic[\s\S]*Stop collection/);
   assert.match(html(),/Latest|latest 20 traffic sessions/);
   assert.match(html(),/Window traffic-ended-18/);
   assert.doesNotMatch(html(),/Window traffic-ended-19|Window policy-ended|Previous sessions|Next sessions|id="traffic-history-purpose"/);
   assert.equal(historyReads().length,1);
   await env.run('load({quiet:true})');await new Promise(setImmediate);
   assert.match(html(),/Window traffic-ended-18/);
+  await env.click('traffic-learning-sessions');
+  assert.match(html(),/aria-expanded="false" aria-controls="traffic-learning-sessions"/);
+  assert.doesNotMatch(html(),/Window traffic-|discovery-status--traffic/);
+  const closedReads=env.requests.filter(row=>row.url.includes('/learning?limit=20&offset=0&purpose=traffic')).length;
+  await env.run('load({quiet:true})');await new Promise(setImmediate);
+  assert.equal(env.requests.filter(row=>row.url.includes('/learning?limit=20&offset=0&purpose=traffic')).length,closedReads);
+  await env.click('traffic-learning-sessions');
+  assert.match(html(),/Window traffic-live/);
   env.run('state.search="missing-endpoint";render()');
   assert.match(html(),/No matching ended sessions in recent history/);
   env.run('state.search="";navigate("policies")');await new Promise(setImmediate);
@@ -917,7 +927,7 @@ test('cached preview sends the exact port filter and hides unselected host liste
 test('saved service groups copy into the optional discovery limit and no-match session scopes stay explicit',async()=>{
  const env=await workspace('traffic');await env.click('learn');env.element('#learning-port-filter-enabled').checked=true;env.element('#learning-mode').value='discovered';env.context.filterChange={target:{id:'learning-port-filter-enabled'}};env.run('learningChange(filterChange)');assert.equal(env.element('#learning-port-filter-fields').hidden,false);assert.equal(env.element('#learning-port-filter').required,true);assert.equal(env.element('#learning-port-filter').disabled,false);
  env.context.filterChange={target:{id:'learning-filter-service-group',value:'web-ports'}};env.run('learningChange(filterChange)');assert.equal(env.element('#learning-port-filter').value,'443/tcp, 8443/tcp');
- env.context.filteredSession={id:'443-session',purpose:'traffic',status:'active',selection_mode:'discovered',policy_action:'auto_allow',port_filter:[{port:443,protocol:'tcp'}],server_ids:['host-1'],starts_at:new Date(Date.now()-60000).toISOString(),expires_at:new Date(Date.now()+3600000).toISOString(),server_ports:{'host-1':[]},discovery_results:{'host-1':{status:'no_listeners'}}};env.context.filteredHost=host;assert.match(env.run('learningHostSessionHTML(filteredSession,filteredHost)'),/No selected network listeners/);env.context.apiResponses['/api/v1/learning?limit=20&offset=0&purpose=traffic&active_only=true']=compactSessionPage([env.context.filteredSession],{purpose:'traffic',active_only:true,limit:20,total:1,has_more:false});env.run('closeModal()');await env.run("refreshDiscoveryPage('traffic',true)");const html=env.run('learningHTML()');assert.match(html,/Automatic · only 443\/tcp/);assert.match(html,/No selected network listeners/);assert.doesNotMatch(html,/Awaiting agents/);
+ env.context.filteredSession={id:'443-session',purpose:'traffic',status:'active',selection_mode:'discovered',policy_action:'auto_allow',port_filter:[{port:443,protocol:'tcp'}],server_ids:['host-1'],starts_at:new Date(Date.now()-60000).toISOString(),expires_at:new Date(Date.now()+3600000).toISOString(),server_ports:{'host-1':[]},discovery_results:{'host-1':{status:'no_listeners'}}};env.context.filteredHost=host;assert.match(env.run('learningHostSessionHTML(filteredSession,filteredHost)'),/No selected network listeners/);env.context.apiResponses['/api/v1/learning?limit=20&offset=0&purpose=traffic&active_only=true']=compactSessionPage([env.context.filteredSession],{purpose:'traffic',active_only:true,limit:20,total:1,has_more:false});env.run('closeModal()');await env.click('traffic-learning-sessions');const html=env.run('learningHTML()');assert.match(html,/Automatic · only 443\/tcp/);assert.match(html,/No selected network listeners/);assert.doesNotMatch(html,/Awaiting agents/);
 });
 
 test('Policies keeps managed and learned access on one page with service actions in details',async()=>{
@@ -2480,4 +2490,87 @@ test('Agent upgrades withhold scheduling from demo, token and non-Super Admin id
     assert.doesNotMatch(env.element('#view-content').innerHTML, /platform-agent-upgrade-scope-form/);
     assert.equal(env.requests.some(request => request.url.startsWith(agentUpgradeAPI)), false);
   }
+});
+
+const savedTagFixture=[{key:'application',value:'billing'},{key:'owner',value:'Finance, risk=core'},{key:'criticality',value:'high'}];
+function savedTagPage(items=savedTagFixture,offset=0,total=items.length){return {items,total,offset,limit:200,has_more:offset+items.length<total};}
+function savedTagChange(env,key,value,checked=true){env.context.savedTagEvent={target:{dataset:{savedTagKey:key,savedTagValue:value},checked}};return env.listeners.change.find(handler=>String(handler).includes('savedTagKey'))(env.context.savedTagEvent);}
+
+test('saved tag picker selects several keys and preserves comma and equals values in individual PATCH',async()=>{
+ const env=await workspace('servers',{mode:'entra',role:'admin',responses:{'/api/v1/tags?limit=200&offset=0&q=':savedTagPage()}});
+ await env.click('edit-server',{id:host.id});await new Promise(setImmediate);
+ env.element('#server-tags').value='application=billing, owner=finance';env.element('#server-location').value=location.id;env.element('#server-location-mode').value='keep';
+ savedTagChange(env,'owner','Finance, risk=core');savedTagChange(env,'criticality','high');
+ const chosen=JSON.parse(env.run('JSON.stringify(tagPickerValues())'));assert.deepEqual(chosen,{application:'billing',owner:'Finance, risk=core',criticality:'high'});
+ assert.match(env.element('#saved-tag-selected').innerHTML,/Finance, risk=core/);assert.match(env.element('#saved-tag-options').innerHTML,/data-saved-tag-key="criticality"[^>]*checked/);
+ await env.submit('server-form',{expected:'2022/tcp',tags:env.element('#server-tags').value,reset_tag_keys:''});
+ const request=mutations(env).find(row=>row.options.method==='PATCH');assert.ok(request);assert.deepEqual(JSON.parse(request.options.body),{expected_services:[{port:2022,protocol:'tcp'}],tags:chosen});assertCookieMutation(request);
+});
+
+test('saved tag picker replaces a key value and removal preserves other selected keys',async()=>{
+ const env=await workspace('servers',{responses:{'/api/v1/tags?limit=200&offset=0&q=':savedTagPage()}});await env.click('edit-server',{id:host.id});await new Promise(setImmediate);env.element('#server-tags').value='application=billing, owner=finance';
+ savedTagChange(env,'owner','Finance, risk=core');savedTagChange(env,'owner','platform');savedTagChange(env,'criticality','high');savedTagChange(env,'owner','Finance, risk=core',false);
+ assert.deepEqual(JSON.parse(env.run('JSON.stringify(tagPickerValues())')),{application:'billing',owner:'platform',criticality:'high'});
+ await env.click('tag-picker-remove',{key:'owner',value:'platform'});assert.deepEqual(JSON.parse(env.run('JSON.stringify(tagPickerValues())')),{application:'billing',criticality:'high'});
+});
+
+test('saved tags roundtrip exact values through bulk assignment preview and a dynamic group selector',async()=>{
+ const env=await workspace('servers',{mode:'entra',role:'admin',responses:{'/api/v1/tags?limit=200&offset=0&q=':savedTagPage(),'/api/v1/metadata/bulk/preview':metadataPlan()}});
+ env.run('metadataSelection().add("host-1");showMetadataBulk()');await new Promise(setImmediate);env.element('#metadata-tags').value='';
+ savedTagChange(env,'application','billing');savedTagChange(env,'owner','Finance, risk=core');savedTagChange(env,'criticality','high');assert.equal(env.element('#metadata-tag-mode').value,'merge');
+ await env.submit('metadata-bulk-form',{tag_mode:'merge',tags:env.element('#metadata-tags').value,location_mode:'keep'});
+ const preview=mutations(env).find(row=>row.url==='/api/v1/metadata/bulk/preview');assert.deepEqual(JSON.parse(preview.options.body),{server_ids:['host-1'],tag_updates:{application:'billing',owner:'Finance, risk=core',criticality:'high'}});
+ env.run('closeModal();showGroupForm()');await new Promise(setImmediate);env.element('#group-selector').value='';env.element('[name="group_type"]').value='dynamic';env.element('#group-location-id').value='';
+ savedTagChange(env,'application','billing');savedTagChange(env,'owner','Finance, risk=core');
+ await env.submit('group-form',{group_name:'Billing owners',group_type:'dynamic',group_selector:env.element('#group-selector').value,group_location_id:''});
+ const group=mutations(env).find(row=>row.url==='/api/v1/groups');assert.deepEqual(JSON.parse(group.options.body),{name:'Billing owners',type:'dynamic',selector:{application:'billing',owner:'Finance, risk=core'},server_ids:[]});
+});
+
+test('tag catalogue search and paging request bounded saved tag pages and render current counts',async()=>{
+ const env=await workspace('tags',{responses:{'/api/v1/tags?limit=200&offset=0&q=':savedTagPage(savedTagFixture,0,401),'/api/v1/tags?limit=200&offset=200&q=':savedTagPage([{key:'owner',value:'second page'}],200,401),'/api/v1/tags?limit=200&offset=0&q=Finance%2C%20risk%3Dcore':savedTagPage([savedTagFixture[1]])}});await new Promise(setImmediate);
+ assert.match(env.element('#view-content').innerHTML,/Tags \(401\)/);assert.match(env.element('#view-content').innerHTML,/data-action="tag-catalogue-page" data-offset="0" disabled/);
+ await env.click('tag-catalogue-page',{offset:'200'});assert.match(env.element('#view-content').innerHTML,/second page/);assert.match(env.element('#view-content').innerHTML,/201–400 of 401 saved tags/);
+ env.element('#tag-catalogue-search').value='Finance, risk=core';await env.click('tag-catalogue-search');assert.match(env.element('#view-content').innerHTML,/Finance, risk=core/);assert.match(env.element('#view-content').innerHTML,/Tags \(401\)/);assert.match(env.element('#view-content').innerHTML,/1–1 of 1 saved tags/);
+ assert.ok(env.requests.some(row=>row.url==='/api/v1/tags?limit=200&offset=0&q=Finance%2C%20risk%3Dcore'));assert.equal(mutations(env).length,0);
+});
+
+test('server group membership shows exact member count and pages full reported IP lists',async()=>{
+ const env=await workspace('tags');env.context.memberHosts=Array.from({length:205},(_,index)=>({...structuredClone(host),id:'member-'+index,hostname:'member-'+String(index).padStart(3,'0'),ips:['10.4.'+Math.floor(index/250)+'.'+(index%250+1),'2001:db8::'+(index+1)],tags:{application:'billing'}}));
+ env.run('state.data.servers=memberHosts;state.data.groups=[{id:"billing-all",name:"Billing all",type:"dynamic",selector:{application:"billing"}}];state.tagsSection="groups";render()');
+ assert.match(env.element('#view-content').innerHTML,/<strong>205<\/strong> servers/);assert.match(env.element('#view-content').innerHTML,/member-000 · 10.4.0.1, 2001:db8::1/);
+ await env.click('tag-catalogue-group-members',{id:'billing-all'});let html=env.element('#modal-content').innerHTML;assert.match(html,/<strong>205<\/strong> member servers/);assert.match(html,/1–200 of 205/);assert.doesNotMatch(html,/member-200<\/button>/);assert.match(html,/10.4.0.1, 2001:db8::1/);
+ await env.click('tag-catalogue-group-members',{id:'billing-all',offset:'200'});html=env.element('#modal-content').innerHTML;assert.match(html,/201–205 of 205/);assert.match(html,/member-204/);assert.doesNotMatch(html,/member-000<\/button>/);assert.match(html,/data-offset="400" disabled/);
+});
+
+test('saved tag picker search pages retain selection and old async replies cannot overwrite a new modal',async()=>{
+ const deferred=localDeferred();const env=await workspace('servers',{responses:{'/api/v1/tags?limit=200&offset=0&q=':()=>deferred.promise,'/api/v1/tags?limit=200&offset=0&q=owner':savedTagPage([savedTagFixture[1]],0,201),'/api/v1/tags?limit=200&offset=200&q=owner':savedTagPage([{key:'owner',value:'platform'}],200,201)}});
+ await env.click('edit-server',{id:host.id});env.element('#server-tags').value='application=billing, owner=finance';env.element('#saved-tag-search').value='owner';await env.click('tag-picker-search');savedTagChange(env,'owner','Finance, risk=core');await env.click('tag-picker-page',{offset:'200'});
+ assert.match(env.element('#saved-tag-options').innerHTML,/platform/);assert.match(env.element('#saved-tag-selected').innerHTML,/Finance, risk=core/);
+ env.run('showModal("New unrelated dialog","New draft survives")');deferred.resolve(savedTagPage([{key:'owner',value:'OLD PAGE'}]));await new Promise(setImmediate);
+ assert.equal(env.element('#modal-content').innerHTML,'New draft survives');assert.doesNotMatch(env.element('#saved-tag-options').innerHTML,/OLD PAGE/);
+});
+
+test('tag catalogue ignores old search and identity replies and read only roles cannot create or assign tags',async()=>{
+ const pending=localDeferred();const env=await workspace('tags',{responses:{'/api/v1/tags?limit=200&offset=0&q=':()=>pending.promise,'/api/v1/tags?limit=200&offset=0&q=new':savedTagPage([{key:'owner',value:'current'}])}});env.element('#tag-catalogue-search').value='new';await env.click('tag-catalogue-search');pending.resolve(savedTagPage([{key:'owner',value:'stale'}]));await new Promise(setImmediate);assert.match(env.element('#view-content').innerHTML,/current/);assert.doesNotMatch(env.element('#view-content').innerHTML,/stale/);
+ const another=localDeferred();env.context.apiResponses['/api/v1/tags?limit=200&offset=0&q=identity']=()=>another.promise;const old=env.run('loadSavedTags(0,"identity")');env.run('state.user={id:"new-identity"};tagCatalogueCheckIdentity()');another.resolve(savedTagPage([{key:'owner',value:'private-old-identity'}]));await old;assert.equal(env.run('tagCatalogueState.loaded'),false);assert.equal(env.run('tagCatalogueState.items.length'),0);
+ const readOnly=await workspace('tags',{mode:'entra',role:'read_only'});assert.match(readOnly.element('#view-content').innerHTML,/data-action="tag-catalogue-new" disabled/);await readOnly.click('tag-catalogue-new');assert.equal(readOnly.element('#modal').open,false);await readOnly.run('tagCatalogueSubmit({preventDefault(){},target:{dataset:{identity:tagCatalogueIdentity()}}})');assert.equal(mutations(readOnly).length,0);
+});
+
+test('tag creation completion never closes a newer same-type draft',async()=>{
+ const pending=localDeferred(),env=await workspace('tags',{mode:'entra',role:'admin',responses:{'POST /api/v1/tags':()=>pending.promise}});await env.click('tag-catalogue-new');
+ env.context.tagCreateValues={key:'owner',value:'first'};const saving=env.run('tagCatalogueSubmit({preventDefault(){},target:{dataset:{identity:tagCatalogueIdentity(),createTicket:tagCreateSequence},values:tagCreateValues,querySelector:document.querySelector}})');assert.equal(mutations(env).filter(row=>row.url==='/api/v1/tags').length,1,'the first save must actually be in flight');
+ env.run('closeModal();showTagCreate()');env.element('#tag-value').value='new unsaved draft';const newer=env.element('#modal-content').innerHTML;pending.resolve({key:'owner',value:'first'});await saving;
+ assert.equal(env.element('#modal').open,true);assert.equal(env.element('#modal-content').innerHTML,newer);assert.equal(env.element('#tag-value').value,'new unsaved draft');
+});
+
+test('tag creation uses the rendered form scope and posts one exact key value with session authentication',async()=>{
+ const env=await workspace('tags',{mode:'entra',role:'admin',responses:{'POST /api/v1/tags':{key:'owner',value:'Finance, risk=core'},'/api/v1/tags?limit=200&offset=0&q=':savedTagPage()}});await env.click('tag-catalogue-new');assert.match(env.element('#modal-content').innerHTML,/id="tag-catalogue-create-form" data-create-ticket="\d+"/);
+ env.context.tagCreateValues={key:' owner ',value:' Finance, risk=core '};await env.run('tagCatalogueSubmit({preventDefault(){},target:{dataset:{identity:tagCatalogueIdentity(),createTicket:tagCreateSequence},values:tagCreateValues,querySelector:document.querySelector}})');
+ const request=mutations(env).find(row=>row.url==='/api/v1/tags');assert.ok(request);assert.deepEqual(JSON.parse(request.options.body),{key:'owner',value:'Finance, risk=core'});assertCookieMutation(request);assert.equal(env.element('#modal').open,false);assert.match(env.element('#view-content').innerHTML,/Finance, risk=core/);
+});
+
+test('saved tag filter preserves other filters and applies exact selected values through workspace hooks',async()=>{
+ const env=await workspace('servers',{responses:{'/api/v1/tags?limit=200&offset=0&q=':savedTagPage()}});env.run('state.filters.ports=["8443/tcp"];state.filters.locations=["location:loc-1"];state.filters.custom={existing:["preserved"]};render()');assert.match(env.element('#view-content').innerHTML,/data-action="tag-filter-open"/);
+ await env.click('tag-filter-open');env.run('tagFilterAction({dataset:{action:"tag-filter-select",key:"owner",value:"Finance, risk=core"},checked:true})');await env.click('tag-filter-apply');
+ assert.deepEqual(JSON.parse(env.run('JSON.stringify(state.filters.custom)')),{existing:['preserved'],owner:['Finance, risk=core']});assert.deepEqual(JSON.parse(env.run('JSON.stringify(state.filters.ports)')),['8443/tcp']);assert.deepEqual(JSON.parse(env.run('JSON.stringify(state.filters.locations)')),['location:loc-1']);
 });

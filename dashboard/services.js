@@ -20,6 +20,22 @@
   function application(listener = {}) {
     return value(listener.application) || value(listener.process) || value(listener.systemd_unit).replace(/\.service$/, '') || 'Application not reported';
   }
+  function textOrder(a, b) { return a === b ? 0 : a < b ? -1 : 1; }
+  function portOrder(listener) {
+    const port = Number(listener.port);
+    return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 65536;
+  }
+  function listenerOrder(a, b) {
+    return textOrder(name(a).toLowerCase(), name(b).toLowerCase()) || portOrder(a) - portOrder(b)
+      || textOrder((value(a.protocol) || 'tcp').toLowerCase(), (value(b.protocol) || 'tcp').toLowerCase())
+      || textOrder(value(a.address).toLowerCase(), value(b.address).toLowerCase())
+      || textOrder(application(a).toLowerCase(), application(b).toLowerCase())
+      || textOrder(name(a), name(b)) || textOrder(value(a.protocol), value(b.protocol))
+      || textOrder(value(a.address), value(b.address)) || textOrder(application(a), application(b))
+      || textOrder(value(a.process), value(b.process)) || textOrder(value(a.systemd_unit), value(b.systemd_unit))
+      || (Number(a.pid) || 0) - (Number(b.pid) || 0);
+  }
+  function sortedListeners(listeners = []) { return [...listeners].sort(listenerOrder); }
   function catalogue(servers) {
     const rows = new Map();
     for (const server of servers) {
@@ -33,8 +49,7 @@
         rows.get(key).endpoints.add(server.id);
       }
     }
-    return [...rows.values()].map(({endpoints, ...row}) => ({...row, endpointCount:endpoints.size}))
-      .sort((a,b) => a.port-b.port || a.protocol.localeCompare(b.protocol) || a.service.localeCompare(b.service) || a.application.localeCompare(b.application));
+    return sortedListeners([...rows.values()].map(({endpoints, ...row}) => ({...row, endpointCount:endpoints.size})));
   }
-  return {name, label, application, catalogue};
+  return {name, label, application, sortedListeners, catalogue};
 }));

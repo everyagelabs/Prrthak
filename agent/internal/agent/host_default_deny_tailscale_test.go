@@ -4,10 +4,61 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestRHEL10SavedNativeTailscaleKernelProof(t *testing.T) {
+	// RHEL 10.2/firewalld 2.4.3/Tailscale 1.104.5 native nft readback.
+	// Retaining the full ruleset checks firewalld dispatch as well as the
+	// independent IPv4/IPv6 native mark and interface representations.
+	raw, err := os.ReadFile("testdata/rhel10-firewalld-2.4-tailscale-native.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	read := func(string, tailscaleProofRequest) ([]string, bool) {
+		called = true
+		return nil, false
+	}
+	if digest, err := nftHostInputKernelProof(string(raw), "public", false, read); err != nil || !validDigest(digest) {
+		t.Fatalf("exact observed native context rejected: %q %v", digest, err)
+	}
+	if called {
+		t.Fatal("fully exposed native expressions required unavailable xtables readback")
+	}
+	for name, pair := range map[string][2]string{
+		"changed native mask":          {`{"ct":{"key":"mark"}},16711680`, `{"ct":{"key":"mark"}},16711681`},
+		"changed inbound states":       {`"right":["established","related"]`, `"right":["new","related"]`},
+		"changed outbound state":       {`"right":"new"`, `"right":"established"`},
+		"broader Tailscale interface":  {`"right":"tailscale0*"`, `"right":"tailscale*"`},
+		"broader loopback interface":   {`"right":"lo*"`, `"right":"*"`},
+		"wrong native output priority": {`"type":"filter","hook":"output","prio":-150`, `"type":"filter","hook":"output","prio":-149`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			changed := strings.ReplaceAll(string(raw), pair[0], pair[1])
+			if changed == string(raw) {
+				t.Fatal("mutation did not change fixture")
+			}
+			if _, err := nftHostInputKernelProof(changed, "public", false, read); err == nil {
+				t.Fatal("modified native Tailscale context accepted")
+			}
+		})
+	}
+	var document struct {
+		Objects []map[string]json.RawMessage `json:"nftables"`
+	}
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatal(err)
+	}
+	document.Objects = append(document.Objects, map[string]json.RawMessage{"rule": json.RawMessage(`{"family":"ip","table":"mangle","chain":"PREROUTING","expr":[{"mangle":{"key":{"meta":{"key":"mark"}},"value":1}}]}`)})
+	changed, _ := json.Marshal(document)
+	if _, err := nftHostInputKernelProof(string(changed), "public", false, read); err == nil {
+		t.Fatal("extra native mark rule accepted")
+	}
+}
 
 type connmarkKernelCommands struct {
 	CommandRunner

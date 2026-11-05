@@ -302,7 +302,7 @@ async function refreshDiscoveryPage(purpose,active){
   if(discoveryViewPurpose()===purpose)learningRedraw();
 }
 function refreshDiscoveryView(purpose){
-  if($('#modal').open)return;
+  if($('#modal').open||purpose==='traffic'&&!discoveryHistoryOpen(purpose))return;
   refreshDiscoveryPage(purpose,true);
   if(discoveryHistoryOpen(purpose))refreshDiscoveryPage(purpose,false);
 }
@@ -337,6 +337,8 @@ function learningSessionCardHTML(session,serverId){
 }
 function discoverySessionsHTML(purpose){
   const open=discoveryHistoryOpen(purpose),traffic=purpose==='traffic',label=traffic?'Traffic discovery':'Policy discovery',historyId=purpose+'-learning-sessions';
+  const toggle=`<button id="${historyId}-toggle" type="button" class="button secondary small" data-action="${purpose}-learning-sessions" aria-expanded="${open}" aria-controls="${historyId}">${open?(traffic?'Hide sessions':'Hide history'):'Session history'}</button>`;
+  if(traffic&&!open)return `<div class="section-line">${toggle}</div><section id="${historyId}" hidden></section>`;
   const active=discoveryPage(purpose,true),history=discoveryPage(purpose,false);
   const scopeIds=new Set(filteredServers().filter(server=>!traffic||!state.flowServer||state.flowServer==='all'||server.id===state.flowServer).map(server=>server.id));
   const matches=session=>session.server_ids?.some(id=>scopeIds.has(id));
@@ -344,15 +346,15 @@ function discoverySessionsHTML(purpose){
   const previous=history.items.filter(session=>!runningIds.has(session.id)&&(!['active','learning'].includes(session.status)||num(date(session.expires_at)?.getTime())<=Date.now())&&matches(session));
   const grid=items=>`<div class="learning-grid">${items.map(session=>learningSessionCardHTML(session)).join('')}</div>`;
   const retry=`<button class="text-button" type="button" data-action="discovery-status-refresh" data-purpose="${purpose}">Retry</button>`;
-  return `<section class="discovery-status discovery-status--${purpose}" aria-label="${label}">
+  return `<section ${traffic?`id="${historyId}" `:''}class="discovery-status discovery-status--${purpose}" aria-label="${label}">
     <div class="section-line discovery-status-header"><div><h2>${label}</h2><p class="help-text">${traffic?'Collect source IPs and ports.':'Review suggested access or track automatic allowances.'}</p></div>
-      <button id="${historyId}-toggle" type="button" class="button secondary small" data-action="${purpose}-learning-sessions" aria-expanded="${open}" aria-controls="${historyId}">${open?'Hide history':'Session history'}</button>
+      ${toggle}
     </div>
     <div class="discovery-active">${active.error?`<p class="form-error" role="alert">${h(active.error)} ${retry}</p>`:active.unloaded?'<p class="help-text">Checking for active sessions…</p>':running.length?'':`<p class="help-text">No active ${traffic?'traffic':'policy'} discovery in this scope.</p>`}
       ${active.has_more?`<p class="help-text">Showing up to ${discoverySessionLimit} of ${format(active.total)} active sessions across the fleet.</p>`:''}
       ${running.length?grid(running):''}
     </div>
-    <section id="${historyId}" aria-label="${label} history" ${open?'':'hidden'}>${open?`<h3>Recent sessions</h3><p class="help-text">From the latest ${discoverySessionLimit} ${traffic?'traffic':'policy'} sessions.</p>
+    <section id="${traffic?historyId+'-history':historyId}" aria-label="${label} history" ${open?'':'hidden'}>${open?`<h3>Recent sessions</h3><p class="help-text">From the latest ${discoverySessionLimit} ${traffic?'traffic':'policy'} sessions.</p>
       ${history.error?`<p class="form-error" role="alert">${h(history.error)} ${retry}</p>`:''}
       ${previous.length?grid(previous):history.unloaded&&!history.error?'<p class="help-text">Loading history…</p>':history.error?'':'<p class="help-text">No matching ended sessions in recent history.</p>'}`:''}</section>
   </section>`;
@@ -380,7 +382,7 @@ async function learningHistoryAction(button){
     const open=histories[purpose]=!histories[purpose];
     render();
     $('#'+purpose+'-learning-sessions-toggle')?.focus();
-    if(open)await refreshDiscoveryPage(purpose,false);
+    if(open)await Promise.all([refreshDiscoveryPage(purpose,false),...(purpose==='traffic'?[refreshDiscoveryPage(purpose,true)]:[])]);
     return true;
   }
   if(action==='discovery-status-refresh'){

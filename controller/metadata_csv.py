@@ -326,6 +326,8 @@ def apply(store, identifier, value, actor):
         else:
             for profile in plan["payload"]["profiles"]:
                 store._put(db, "metadata_ip_profiles", {**profile, "updated_at": stamp(), "updated_by": actor})
+            from .tag_catalogue import register
+            register(db, (profile.get("tags", {}) for profile in plan["payload"]["profiles"]), actor, "csv_assignment")
         metadata.reconcile_all(store, db)
         store.compile_all(db)
         metadata.consume_plan(store, db, plan, actor)
