@@ -195,6 +195,47 @@ func TestDenyJournalDrainsFinalAuthorizedRecordsAfterLeaseExpires(t *testing.T) 
 	}
 }
 
+func TestDenyJournalBinaryKernelMessageDoesNotDiscardOwnedObservations(t *testing.T) {
+	now := time.Now().UTC()
+	_, _, first := denyJournalFixture(now)
+	last := first
+	last.Cursor = "s=cursor1;i=3;b=boot;m=125;t=458;x=abe"
+	last.Message = strings.ReplaceAll(last.Message, "192.0.2.44", "192.0.2.55")
+	binary, err := json.Marshal(map[string]any{
+		"MESSAGE":              []int{255, 254},
+		"__CURSOR":             "s=cursor1;i=2;b=boot;m=124;t=457;x=abd",
+		"__REALTIME_TIMESTAMP": first.Timestamp,
+		"_TRANSPORT":           "kernel",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := denyJournalJSON(first) + string(binary) + "\n" + denyJournalJSON(last)
+	a, _, scope, runner := denyJournalTestAgent(t, now, text)
+	page, err := a.collectDenyJournal(context.Background(), []capturePortScope{scope}, now)
+	if err != nil || page.Coverage.Status != "active" || len(page.Flows) != 2 {
+		t.Fatal("unrelated binary message discarded valid deny observations", page, err)
+	}
+	for index, entry := range []JournalEntry{first, last} {
+		flow := page.Flows[index]
+		if flow.EventID != shaText("prthak-deny-journal-v1\x00"+entry.Cursor) || flow.CaptureKind != captureDeniedLog || flow.CountUnit != "log_records" || flow.CaptureBackend != "journal" || flow.VerificationOnly {
+			t.Fatal("binary record changed scoped log evidence", flow)
+		}
+	}
+	if err := page.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := readPrivateSetupBound(page.path, 8192)
+	if err != nil || !strings.Contains(string(saved), last.Cursor) {
+		t.Fatal("cursor did not advance past the binary message", err)
+	}
+	runner.outputs = append(runner.outputs, text)
+	replayed, err := a.collectDenyJournal(context.Background(), []capturePortScope{scope}, now.Add(time.Second))
+	if err != nil || len(replayed.Flows) != 2 || replayed.Flows[0].EventID != page.Flows[0].EventID || replayed.Flows[1].EventID != page.Flows[1].EventID {
+		t.Fatal("replayed page changed stable log identities", replayed, err)
+	}
+}
+
 func TestDenyJournalBoundsPagesAndNeverRunsWithoutCompatibilityScope(t *testing.T) {
 	now := time.Now().UTC()
 	_, _, entry := denyJournalFixture(now)

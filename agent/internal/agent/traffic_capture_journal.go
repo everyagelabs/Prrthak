@@ -221,18 +221,27 @@ func (a *Agent) collectDenyJournal(ctx context.Context, scopes []capturePortScop
 			page.Flows = nil
 			return page, err
 		}
-		var entry struct {
-			JournalEntry
-			Transport string `json:"_TRANSPORT"`
+		var record struct {
+			Message   json.RawMessage `json:"MESSAGE"`
+			Cursor    string          `json:"__CURSOR"`
+			Timestamp string          `json:"__REALTIME_TIMESTAMP"`
+			Transport string          `json:"_TRANSPORT"`
 		}
-		if json.Unmarshal(scanner.Bytes(), &entry) != nil || !validDenyJournalCursor(entry.Cursor) {
+		if json.Unmarshal(scanner.Bytes(), &record) != nil || !validDenyJournalCursor(record.Cursor) {
 			err := errors.New("deny-log journal page contains an invalid record")
 			page.Coverage.Status, page.Coverage.Error = "error", err.Error()
 			page.Flows = nil
 			return page, err
 		}
-		position.Cursor = entry.Cursor
-		flow, ok := parseDenyJournalEntry(entry.JournalEntry, entry.Transport, rules, scopes, local, now)
+		position.Cursor = record.Cursor
+		var message string
+		if json.Unmarshal(record.Message, &message) != nil {
+			// Journal JSON represents binary or repeated field values as
+			// arrays. Such unrelated kernel records carry no owned log prefix.
+			continue
+		}
+		entry := JournalEntry{Message: message, Cursor: record.Cursor, Timestamp: record.Timestamp}
+		flow, ok := parseDenyJournalEntry(entry, record.Transport, rules, scopes, local, now)
 		if ok && !seen[flow.EventID] {
 			page.Flows = append(page.Flows, flow)
 			seen[flow.EventID] = true
