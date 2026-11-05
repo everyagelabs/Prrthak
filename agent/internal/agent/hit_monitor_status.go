@@ -124,7 +124,7 @@ func (m *HitMonitor) updateStatuses(now time.Time, failure error) {
 				status.Status = "error"
 				status.Error = "native traffic capture is awaiting verification"
 			} else {
-				status.TrafficCaptureCoverage = scopedCaptureCoverage(live.ObservationKinds, *m.coverage.Capture)
+				status.TrafficCaptureCoverage = scopedCaptureCoverage(live.ObservationKinds, *m.coverage.Capture, live.DenyLogCompatibility)
 				for _, backend := range status.Backends {
 					if backend.Status != "active" {
 						status.Status = "error"

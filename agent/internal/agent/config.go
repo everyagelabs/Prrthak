@@ -180,6 +180,9 @@ func ValidatePolicy(p *Policy) error {
 		if err := validateObservationKinds(s.ObservationKinds); err != nil {
 			return err
 		}
+		if s.DenyLogCompatibility && !captureKindSelected(s.ObservationKinds, captureDenied) {
+			return errors.New("deny log compatibility requires a signed denied traffic scope")
+		}
 		if s.TrafficCollectionMode != "" && (s.Purpose != "traffic" || s.TrafficCollectionMode != "sampled" && s.TrafficCollectionMode != "hits") {
 			return errors.New("invalid traffic collection mode")
 		}

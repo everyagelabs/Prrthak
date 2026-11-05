@@ -14,7 +14,7 @@ usage() {
 Usage: sudo ./scripts/install-controller.sh
        sudo ./scripts/install-controller.sh --offline
 
-Detect RHEL 9 or Ubuntu 26.04, install required Python/Docker/Compose packages,
+Detect RHEL 9/10 or Ubuntu 26.04, install required Python/Docker/Compose packages,
 then open the printed HTTPS URL to finish configuration in the GUI.
 Use a fresh dedicated Linux systemd VM and an independently verified release.
 The installer never removes another container stack or opens host firewall ports.
@@ -131,13 +131,18 @@ if [ "$prepare" -eq 1 ]; then
   version=$(release_field VERSION_ID) || fail 'Linux version is missing or ambiguous.'
   case "$version" in ''|*[!0-9.]*|.*|*.|*..*) fail 'Linux version must contain only canonical numeric components.' ;; esac
   case "$distro:$version" in
-    rhel:9|rhel:9.*) family=rhel ;;
+    rhel:9|rhel:9.*|rhel:10|rhel:10.*) family=rhel ;;
     ubuntu:26.04) family=ubuntu ;;
-    *) fail 'Automatic controller setup supports RHEL 9 and Ubuntu 26.04.' ;;
+    *) fail 'Automatic controller setup supports RHEL 9/10 and Ubuntu 26.04.' ;;
   esac
   case "$(uname -m)" in x86_64|amd64|aarch64|arm64) ;; *) fail 'Supported controller CPUs are AMD64 and ARM64.' ;; esac
   if [ "$offline" -eq 1 ]; then
-    [ "$family:$(uname -m)" = rhel:x86_64 ] || fail 'The offline controller bundle requires RHEL 9 x86_64.'
+    case "$family:$version:$(uname -m)" in
+      rhel:9:x86_64|rhel:9.*:x86_64) ;;
+      rhel:10:x86_64|rhel:10.*:x86_64)
+        [ -f "$release_root/offline/target.json" ] || fail 'RHEL 10 requires its own dependency bundle with an explicit target.' ;;
+      *) fail 'The offline controller bundle requires RHEL 9/10 x86_64.' ;;
+    esac
   fi
   [ -d /run/systemd/system ] && [ -r /proc/1/comm ] || fail 'Use a genuine systemd VM.'
   [ "$(cat /proc/1/comm)" = systemd ] || fail 'systemd must run as PID 1.'

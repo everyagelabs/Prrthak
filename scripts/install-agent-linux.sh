@@ -137,7 +137,9 @@ case "$RELEASE" in
 esac
 # Explicit agent profiles only. ID_LIKE never grants compatibility to an unknown OS.
 case "$DISTRO" in
-  rhel|rocky|almalinux|ol)
+  rhel)
+    case "$RELEASE" in 8|8.*|9|9.*|10|10.*) DETECTED_FAMILY=rhel ;; *) DETECTED_FAMILY=unsupported ;; esac ;;
+  rocky|almalinux|ol)
     case "$RELEASE" in 8|8.*|9|9.*) DETECTED_FAMILY=rhel ;; *) DETECTED_FAMILY=unsupported ;; esac ;;
   ubuntu)
     case "$RELEASE" in 22.04|24.04|26.04) DETECTED_FAMILY=ubuntu ;; *) DETECTED_FAMILY=unsupported ;; esac ;;
@@ -145,7 +147,7 @@ case "$DISTRO" in
 esac
 if [ "$FAMILY" = auto ]; then FAMILY=$DETECTED_FAMILY; fi
 if [ "$FAMILY" = unsupported ] || [ "$FAMILY" != "$DETECTED_FAMILY" ]; then
-  printf '%s\n' "$PROGRAM supports agent profiles RHEL/Rocky/Alma/Oracle Linux 8/9 and Ubuntu 22.04/24.04/26.04; this target is unsupported by the selected entrypoint." >&2
+  printf '%s\n' "$PROGRAM supports agent profiles RHEL 8/9/10, Rocky/Alma/Oracle Linux 8/9 and Ubuntu 22.04/24.04/26.04; this target is unsupported by the selected entrypoint." >&2
   exit 1
 fi
 

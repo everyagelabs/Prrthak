@@ -123,7 +123,7 @@ def evidence_expiry(cutoff):
     return stamp(cutoff + TRAFFIC_EVIDENCE_RETENTION)
 
 
-def assignment(session, identifier):
+def assignment(session, identifier, *, capabilities=()):
     if session.get("purpose") == TRAFFIC_PURPOSE:
         # Report updates and other endpoints' evidence never change a signed lease.
         fields = ("id", "purpose", "selection_mode", "observation_kinds",
@@ -145,6 +145,9 @@ def assignment(session, identifier):
     result["ports"] = ports_for(session, identifier)
     if session.get("selection_mode") == "discovered":
         result["discovery_pending"] = identifier in session.get("discovery_pending_server_ids", [])
+    from .traffic_capture import deny_log_compatibility
+    if deny_log_compatibility(capabilities, session.get("observation_kinds")):
+        result["deny_log_compatibility"] = True
     return result
 
 

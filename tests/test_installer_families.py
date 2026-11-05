@@ -83,9 +83,9 @@ esac
         if config: argv.append(str(self.config))
         return subprocess.run(argv, env={**self.env, **(env or {})}, capture_output=True, text=True, timeout=15)
 
-    def test_rhel8_and9_stage_shared_installer_with_private_credentials(self):
+    def test_rhel8_9_and10_stage_shared_installer_with_private_credentials(self):
         self.binary()
-        for version in ['8.10','9.6']:
+        for version in ['8.10','9.6','10.0']:
             with self.subTest(version=version):
                 self.release('rhel',version)
                 result=self.run_entrypoint('rhel','--no-start','--ca-file',str(self.ca),'--token-file',str(self.token))
@@ -126,6 +126,8 @@ esac
         self.binary()
         for distro, version, native, arch in [('rhel','8.10','x86_64','amd64'),
                                                ('rhel','9.6','aarch64','arm64'),
+                                               ('rhel','10.0','x86_64','amd64'),
+                                               ('rhel','10.1','aarch64','arm64'),
                                                ('ubuntu','26.04','x86_64','amd64'),
                                                ('ubuntu','22.04','x86_64','amd64'),
                                                ('ubuntu','24.04','aarch64','arm64'),
@@ -161,7 +163,7 @@ esac
         self.assertNotEqual(result.returncode,0);self.assertIn('GUI --setup-file',result.stderr)
         marker=self.base/'auto-os-release-was-executed'
         for value in ['ID="debian"\nVERSION_ID="13"\n',
-                      'ID="rhel"\nVERSION_ID="10.0"\n',
+                      'ID="rhel"\nVERSION_ID="11.0"\n',
                       'ID="ubuntu"\nVERSION_ID="20.04"\n',
                       'ID="rhel"\nVERSION_ID="7.9"\n',
                       'ID="untrustedclone"\nID_LIKE="rhel"\nVERSION_ID="9.6"\n',
@@ -186,7 +188,7 @@ esac
 
     def test_wrong_family_unsupported_release_and_architecture_fail_before_mutation(self):
         self.binary()
-        for family,distro,version in [('rhel','ubuntu','26.04'),('ubuntu','ubuntu','20.04'),('rhel','rhel','10.0'),('ubuntu','debian','13')]:
+        for family,distro,version in [('rhel','ubuntu','26.04'),('ubuntu','ubuntu','20.04'),('rhel','rhel','11.0'),('ubuntu','debian','13')]:
             self.release(distro,version)
             result=self.run_entrypoint(family,'--no-start')
             self.assertNotEqual(result.returncode,0)

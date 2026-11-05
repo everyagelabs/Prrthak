@@ -14,6 +14,8 @@ import (
 )
 
 type captureSidecar struct {
+	Backend   string    `json:"backend,omitempty"`
+	StartedAt time.Time `json:"started_at,omitempty"`
 	Zone      string    `json:"zone"`
 	Family    string    `json:"family"`
 	Port      Port      `json:"port"`
@@ -67,9 +69,18 @@ func captureGroup(stateDir string) uint16 {
 	return uint16(48000 + value%10000)
 }
 func (rule captureSidecar) text() string {
+	if rule.Backend == "journal" {
+		return fmt.Sprintf(`rule priority="%d" family="%s" port port="%d" protocol="%s" log prefix="%s" level="info" limit value="5/s"`, rule.Priority, rule.Family, rule.Port.Port, rule.Port.Protocol, rule.Prefix)
+	}
 	return fmt.Sprintf(`rule priority="%d" family="%s" port port="%d" protocol="%s" nflog group="%d" prefix="%s" queue-size="1" limit value="200/s"`, rule.Priority, rule.Family, rule.Port.Port, rule.Port.Protocol, rule.Group, rule.Prefix)
 }
 func validCaptureSidecar(rule captureSidecar) bool {
+	if rule.Backend != "" && rule.Backend != "nflog" && rule.Backend != "journal" {
+		return false
+	}
+	if rule.Backend == "journal" && (!strings.HasPrefix(rule.Prefix, "PRTN") || rule.StartedAt.IsZero() || !rule.ExpiresAt.After(rule.StartedAt) || rule.ExpiresAt.Sub(rule.StartedAt) > 120*time.Second) {
+		return false
+	}
 	return firewallName.MatchString(rule.Zone) && (rule.Family == "ipv4" || rule.Family == "ipv6") && rule.Port.Port >= 1 && rule.Port.Port <= 65535 && (rule.Port.Protocol == "tcp" || rule.Port.Protocol == "udp") && (rule.Priority == managedCaptureReject || rule.Priority == 32767) && rule.Group >= 48000 && rule.Group < 58000 && len(rule.Prefix) == 21 && (strings.HasPrefix(rule.Prefix, "PRTN") || strings.HasPrefix(rule.Prefix, "PRTV")) && strings.HasSuffix(rule.Prefix, ":") && validDigest(strings.Repeat(rule.Prefix[4:20], 4))
 }
 func captureSidecarPath(stateDir string) string {
@@ -164,6 +175,28 @@ func (a *Agent) captureObservationRules() []OwnedRule {
 	return rules
 }
 func capturePortKey(port Port) string { return port.Protocol + "/" + strconv.Itoa(port.Port) }
+
+func compatibilityCaptureSidecars(rules []captureSidecar, scopes []capturePortScope, now time.Time) []captureSidecar {
+	result := []captureSidecar{}
+	for _, rule := range rules {
+		for _, scope := range scopes {
+			if scope.Kind != captureDenied || !scope.AllowDenyLogs || scope.Port != rule.Port || !captureScopeLive(scope, now) {
+				continue
+			}
+			rule.Backend = "journal"
+			rule.StartedAt = now
+			if scope.ExpiresAt.Before(rule.ExpiresAt) {
+				rule.ExpiresAt = scope.ExpiresAt
+			}
+			// Compatibility logs remain traffic observations even when a native
+			// verification scope shares the port. They never use its prefix.
+			rule.Prefix = "PRTN" + shaText(rule.Zone + "/" + rule.Family + "/" + capturePortKey(rule.Port) + "/" + strconv.Itoa(rule.Priority))[:16] + ":"
+			result = append(result, rule)
+			break
+		}
+	}
+	return result
+}
 
 // Only new, already applied generations have the reserved slot. A complete
 // native snapshot and base INPUT proof constrain zone fallback classification.

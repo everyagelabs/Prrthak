@@ -2224,7 +2224,7 @@ test('Platform Updates keeps uploads disabled without the appliance capability o
  }}});
  await appliance.click('platform-tab',{tab:'updates'});
  await new Promise(setImmediate);
- assert.match(appliance.element('#view-content').innerHTML,/Install an updater-enabled standalone RHEL 9 x86_64 appliance release once/);
+ assert.match(appliance.element('#view-content').innerHTML,/Install an updater-enabled standalone RHEL 9\/10 x86_64 appliance release once/);
  assert.match(appliance.element('#view-content').innerHTML,/id="platform-update-archive"[^>]+disabled/);
  const roleToken=await workspace('settings',{mode:'tokens',storage:{'segment-token':'lab-token'}});
  await roleToken.click('platform-tab',{tab:'updates'});

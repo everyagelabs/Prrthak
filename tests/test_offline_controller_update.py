@@ -17,6 +17,55 @@ updater = appliance.offline_update_module()
 
 
 class ArchiveTests(unittest.TestCase):
+    def test_rhel10_update_requires_its_own_signed_target_metadata(self):
+        stem = 'prthak-controller-0.19.0'
+        required = ('OFFLINE-CONTROLLER', 'offline/rpms/repodata/repomd.xml',
+                    'offline/rpms/docker-compose-plugin-1.el10.x86_64.rpm', 'offline/keys/docker.asc',
+                    'deploy/appliance/node_manager.py', 'deploy/appliance/offline_update.py',
+                    *(f'agent-releases/prthak-agent-0.19.0-linux-{arch}.tar.gz{suffix}'
+                      for arch in ('amd64', 'arm64') for suffix in ('', '.signature.json')))
+        matching = {'id': 'rhel', 'version_id': '10', 'architecture': 'x86_64'}
+        with tempfile.TemporaryDirectory() as temporary:
+            for index, target in enumerate((None, {**matching, 'version_id': '9'}, matching)):
+                staging = Path(temporary)/str(index)
+                staging.mkdir()
+                archive = staging/'update.tar.gz'
+                files = {name: b'fixture' for name in required}
+                if target is not None:
+                    files['offline/target.json'] = json.dumps(target).encode()
+                with tarfile.open(archive, 'w:gz') as output:
+                    for name, data in files.items():
+                        entry = tarfile.TarInfo(stem+'/'+name)
+                        entry.mode, entry.size = 0o644, len(data)
+                        output.addfile(entry, io.BytesIO(data))
+                if target == matching:
+                    result = updater._extract(archive, staging, stem, appliance, rhel_major='10')
+                    self.assertEqual(json.loads((result/'offline/target.json').read_text()), matching)
+                else:
+                    with self.assertRaises(appliance.Blocked):
+                        updater._extract(archive, staging, stem, appliance, rhel_major='10')
+
+    def test_host_refuses_cross_major_update_before_signature_or_staging(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            manager = unittest.mock.Mock(root=Path(temporary))
+            request = {'action': 'controller-update-review', 'request_id': 'c'*32, 'upload_id': 'd'*32,
+                       'name': 'prthak-controller-0.19.0-offline-rhel9-x86_64.tar.gz', 'size': 10, 'signature': {}}
+            with patch.object(updater, '_idle'), patch.object(updater, 'host_rhel_major', return_value='10'), \
+                    patch.object(updater, '_signature') as signature:
+                with self.assertRaisesRegex(appliance.Blocked, 'RHEL major version'):
+                    updater.review(manager, request, appliance)
+                signature.assert_not_called()
+            self.assertFalse(updater.directory(manager.root).exists())
+
+    def test_host_major_accepts_literal_rhel10_and_refuses_unknown_or_ambiguous_identity(self):
+        for raw, expected in (('ID=rhel\nVERSION_ID="10.1"\n', '10'),
+                              ('ID=rhel\nVERSION_ID=9.8\n', '9'),
+                              ('ID=rhel\nVERSION_ID=11\n', None),
+                              ('ID=rocky\nVERSION_ID=10\n', None),
+                              ('ID=rhel\nID=ubuntu\nVERSION_ID=10\n', None)):
+            with self.subTest(raw=raw), patch.object(Path, 'read_text', return_value=raw):
+                self.assertEqual(updater.host_rhel_major(), expected)
+
     def test_regular_archive_accepts_the_offline_layout_and_rejects_links_and_traversal(self):
         stem = 'prthak-controller-0.19.0'
         required = (

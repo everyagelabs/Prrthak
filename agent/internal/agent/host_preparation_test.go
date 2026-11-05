@@ -544,12 +544,12 @@ func TestAgentPreparationOSProfilesAndLiteralVersions(t *testing.T) {
 		id, version, family string
 		allowed             bool
 	}{
-		{"rhel", "8.10", "rhel", true}, {"rhel", "9.6", "rhel", true},
+		{"rhel", "8.10", "rhel", true}, {"rhel", "9.6", "rhel", true}, {"rhel", "10", "rhel", true}, {"rhel", "10.1", "rhel", true},
 		{"rocky", "8.10", "rhel", true}, {"rocky", "9.6", "rhel", true},
 		{"almalinux", "8.10", "rhel", true}, {"almalinux", "9.6", "rhel", true},
 		{"ol", "8.10", "rhel", true}, {"ol", "9.6", "rhel", true},
 		{"ubuntu", "22.04", "ubuntu", true}, {"ubuntu", "24.04", "ubuntu", true}, {"ubuntu", "26.04", "ubuntu", true},
-		{"rhel", "7.9", "rhel", false}, {"rhel", "10.0", "rhel", false},
+		{"rhel", "7.9", "rhel", false}, {"rhel", "11.0", "rhel", false}, {"rocky", "10.0", "rhel", false},
 		{"untrustedclone", "9.6", "rhel", false}, {"ubuntu", "20.04", "ubuntu", false},
 		{"rhel", "8.$(id)", "rhel", false}, {"rhel", "8..1", "rhel", false},
 		{"ubuntu", "24.04", "rhel", false}, {"ol", "9.6", "ubuntu", false},

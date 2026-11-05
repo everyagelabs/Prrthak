@@ -302,7 +302,8 @@ def assignments(store, db, server, at=None):
     active = [value for value in values if value["enabled"]]
     if len(active) > MAX_PER_HOST:
         raise ValueError("Endpoint monitor capacity exceeded")
-    return [{"id": value["id"], "server_id": server["id"], "starts_at": stamp(issued), "expires_at": stamp(issued + timedelta(seconds=LEASE_SECONDS)), "ports": value["ports"], **({"observation_kinds":value["observation_kinds"]} if "observation_kinds" in value else {})} for value in active]
+    from .traffic_capture import deny_log_compatibility
+    return [{"id": value["id"], "server_id": server["id"], "starts_at": stamp(issued), "expires_at": stamp(issued + timedelta(seconds=LEASE_SECONDS)), "ports": value["ports"], **({"observation_kinds":value["observation_kinds"]} if "observation_kinds" in value else {}), **({"deny_log_compatibility": True} if deny_log_compatibility(server.get("capabilities", []), value.get("observation_kinds")) else {})} for value in active]
 
 
 def enqueue(store, identifier, value):

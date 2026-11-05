@@ -1,17 +1,30 @@
 #!/usr/bin/env bash
-# Collect an x86_64 RHEL 9 controller RPM repository on a connected Docker host.
+# Collect a release-specific x86_64 RHEL controller RPM repository on a connected Docker host.
 set -euo pipefail
 
+rhel_major=9
+if [ "$#" -ge 2 ] && [ "$1" = --rhel-major ]; then
+    case "$2" in 9|10) rhel_major=$2 ;; *) echo 'Choose RHEL major 9 or 10.' >&2; exit 2 ;; esac
+    shift 2
+fi
 compatibility_source=
 if [ "$#" -eq 3 ] && [ "$1" = --gui-update-from ]; then
     compatibility_source=$(cd -- "$2" && pwd -P)
     shift 2
 elif [ "$#" -ne 1 ]; then
-    echo "Usage: bash scripts/build-offline-controller-rpms.sh [--gui-update-from VERIFIED_OFFLINE_PAYLOAD] OUTPUT_DIRECTORY" >&2
+    echo "Usage: bash scripts/build-offline-controller-rpms.sh [--rhel-major 9|10] [--gui-update-from VERIFIED_OFFLINE_PAYLOAD] OUTPUT_DIRECTORY" >&2
     exit 2
 fi
 
-ubi_image=registry.access.redhat.com/ubi9/ubi@sha256:8f989cc9270da6abec0144c22846ed1e6e92e462dc7768ce0981c4ac1d574733
+if [ "$rhel_major" = 10 ]; then
+    ubi_image=registry.access.redhat.com/ubi10/ubi@sha256:b0a29d36a12733acd937b3f857678539d7ce2dab63bd048cfae8685247b4365c
+    baseos_repo=ubi-10-for-x86_64-baseos-rpms
+    appstream_repo=ubi-10-for-x86_64-appstream-rpms
+else
+    ubi_image=registry.access.redhat.com/ubi9/ubi@sha256:8f989cc9270da6abec0144c22846ed1e6e92e462dc7768ce0981c4ac1d574733
+    baseos_repo=ubi-9-baseos-rpms
+    appstream_repo=ubi-9-appstream-rpms
+fi
 metadata_image=ubuntu@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
 mkdir -p -- "$(dirname -- "$1")"
 output="$(cd -- "$(dirname -- "$1")" && pwd -P)/$(basename -- "$1")"
@@ -25,9 +38,12 @@ trap 'rm -rf -- "$staging"' EXIT
 # Keep the resolver's RPM database empty so the output includes dependencies
 # that happen to be installed in the builder, too. Enable only public sources.
 if [ -z "$compatibility_source" ]; then
-docker run --rm -i --platform linux/amd64 --entrypoint /bin/bash "$ubi_image" -s <<'COLLECT' | tar -xf - -C "$staging"
+docker run --rm -i --platform linux/amd64 --entrypoint /bin/bash "$ubi_image" -s -- "$rhel_major" "$baseos_repo" "$appstream_repo" <<'COLLECT' | tar -xf - -C "$staging"
 set -euo pipefail
 export LC_ALL=C
+rhel_major=$1
+baseos_repo=$2
+appstream_repo=$3
 mkdir -p /media/rpms /media/keys
 curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
     --tlsv1.2 --max-time 120 --max-filesize 262144 \
@@ -46,11 +62,11 @@ if [ "$primary_fingerprint" != 060A61C51B558A7F742B77AAC52FEB6B621E9F35 ]; then
     exit 1
 fi
 
-dnf --noplugins --releasever=9 --installroot=/tmp/prthak-resolve \
-    --disablerepo='*' --enablerepo=ubi-9-baseos-rpms --enablerepo=ubi-9-appstream-rpms \
-    --repofrompath=prthak-docker,https://download.docker.com/linux/rhel/9/x86_64/stable \
+dnf --noplugins --releasever="$rhel_major" --installroot=/tmp/prthak-resolve \
+    --disablerepo='*' --enablerepo="$baseos_repo" --enablerepo="$appstream_repo" \
+    --repofrompath="prthak-docker,https://download.docker.com/linux/rhel/$rhel_major/x86_64/stable" \
     --enablerepo=prthak-docker --setopt=install_weak_deps=False \
-    --setopt=ubi-9-baseos-rpms.gpgcheck=1 --setopt=ubi-9-appstream-rpms.gpgcheck=1 \
+    --setopt="$baseos_repo.gpgcheck=1" --setopt="$appstream_repo.gpgcheck=1" \
     --setopt=prthak-docker.gpgcheck=1 --setopt=prthak-docker.gpgkey=file:///media/keys/docker.asc \
     --downloadonly --downloaddir=/media/rpms -y install \
     python3 ca-certificates shadow-utils tar \
@@ -65,6 +81,15 @@ else
     if [ "${#packages[@]}" -ne 1 ] || [ ! -f "${packages[0]}" ] || [ -L "${packages[0]}" ] || [ ! -f "$key" ] || [ -L "$key" ]; then
         echo 'The verified offline payload must contain exactly one Docker Compose RPM and its vendor key.' >&2
         exit 1
+    fi
+    case "$(basename -- "${packages[0]}")" in
+        *.el"$rhel_major".*|*.el"$rhel_major"_*) ;;
+        *) echo 'The compatibility RPM belongs to another RHEL release.' >&2; exit 1 ;;
+    esac
+    if [ "$rhel_major" = 10 ]; then
+        target=$compatibility_source/target.json
+        [ -f "$target" ] && [ ! -L "$target" ] || { echo 'RHEL 10 compatibility payload requires its target metadata.' >&2; exit 1; }
+        cmp -s -- "$target" <(printf '%s\n' '{"id":"rhel","version_id":"10","architecture":"x86_64"}') || { echo 'The compatibility payload target metadata does not match RHEL 10.' >&2; exit 1; }
     fi
     mkdir -p "$staging/rpms" "$staging/keys"
     cp -- "${packages[0]}" "$staging/rpms/"
@@ -102,6 +127,15 @@ tar -C /metadata -cf - repodata
 INDEX
 
 test -s "$staging/rpms/repodata/repomd.xml"
+if [ "$rhel_major" = 10 ]; then
+    for package in "$staging"/rpms/*.rpm; do
+        case "$(basename -- "$package")" in
+            *.el10.*|*.el10_*) ;;
+            *) echo 'The RHEL 10 payload contains an RPM for another release.' >&2; exit 1 ;;
+        esac
+    done
+    printf '%s\n' '{"id":"rhel","version_id":"10","architecture":"x86_64"}' > "$staging/target.json"
+fi
 if [ -e "$output" ] || [ -L "$output" ]; then
     echo "The output directory appeared during the build." >&2
     exit 2

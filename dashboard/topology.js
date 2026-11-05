@@ -28,7 +28,7 @@
     external: {key:'origin:external',kind:'external',label:'External sources'},
     unknown: {key:'origin:unknown',kind:'unknown',label:'Unattributed sources'}
   };
-  const units = {connections:'transport connections',packets:'denied packets',log_records:'legacy log records',sample_minutes:'communication samples'};
+  const units = {connections:'transport connections',packets:'denied packets',log_records:'log records',sample_minutes:'communication samples'};
   let sequence = 0, paused = false, expanded = false, selectedCountry = '';
   const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[char]));
   const time = value => Date.parse(value || '');

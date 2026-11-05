@@ -228,7 +228,7 @@ func (m *HitMonitor) SetAssignments(server string, assignments []HitMonitorAssig
 	for index := range m.state.Grants {
 		grant := &m.state.Grants[index]
 		current, present := next[grant.Assignment.ID]
-		if (!present || hitPortsKey(current.Ports) != hitPortsKey(grant.Assignment.Ports) || captureKindsKey(current.ObservationKinds) != captureKindsKey(grant.Assignment.ObservationKinds)) && now.Before(grant.CaptureUntil) {
+		if (!present || hitPortsKey(current.Ports) != hitPortsKey(grant.Assignment.Ports) || captureKindsKey(current.ObservationKinds) != captureKindsKey(grant.Assignment.ObservationKinds) || current.DenyLogCompatibility != grant.Assignment.DenyLogCompatibility) && now.Before(grant.CaptureUntil) {
 			grant.CaptureUntil = now
 		}
 	}
@@ -237,7 +237,7 @@ func (m *HitMonitor) SetAssignments(server string, assignments []HitMonitorAssig
 		seen := false
 		for _, grant := range m.state.Grants {
 			if grant.Assignment.ID == assignment.ID && grant.Assignment.StartsAt.Equal(assignment.StartsAt) && grant.Assignment.ExpiresAt.Equal(assignment.ExpiresAt) {
-				if hitPortsKey(grant.Assignment.Ports) != hitPortsKey(assignment.Ports) || captureKindsKey(grant.Assignment.ObservationKinds) != captureKindsKey(assignment.ObservationKinds) {
+				if hitPortsKey(grant.Assignment.Ports) != hitPortsKey(assignment.Ports) || captureKindsKey(grant.Assignment.ObservationKinds) != captureKindsKey(assignment.ObservationKinds) || grant.Assignment.DenyLogCompatibility != assignment.DenyLogCompatibility {
 					m.state = previous
 					return errors.New("a hit lease cannot change its exact ports")
 				}

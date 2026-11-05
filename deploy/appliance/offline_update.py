@@ -23,7 +23,7 @@ MAX_ARCHIVE = 2 * 1024**3 - 1
 MAX_EXTRACTED = 4 * 1024**3
 MAX_FILES = 4096
 VERSION = r'[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}'
-RELEASE = re.compile(rf'prthak-controller-({VERSION})-offline-rhel9-x86_64\.tar\.gz\Z')
+RELEASE = re.compile(rf'prthak-controller-({VERSION})-offline-rhel(9|10)-x86_64\.tar\.gz\Z')
 IMAGE = re.compile(r'sha256:[0-9a-f]{64}\Z')
 SYSTEMCTL = '/usr/bin/systemctl'
 MANAGER_UNIT = 'prthak-appliance-manager.service'
@@ -54,17 +54,33 @@ print(json.dumps(document['manifest']))
 """
 
 
+def host_rhel_major():
+    fields = {}
+    try:
+        raw = Path('/etc/os-release').read_text()
+    except OSError:
+        return None
+    if len(raw) > 16384:
+        return None
+    for line in raw.splitlines():
+        match = re.fullmatch(r'(ID|VERSION_ID)=(?:"([^"\n]*)"|\x27([^\x27\n]*)\x27|([^\s\n]+))', line)
+        if not match:
+            continue
+        key, *values = match.groups()
+        if key in fields:
+            return None
+        fields[key] = next(value for value in values if value is not None)
+    version = fields.get('VERSION_ID', '')
+    if fields.get('ID') != 'rhel' or not re.fullmatch(r'(?:9|10)(?:\.[0-9]+)*', version):
+        return None
+    return version.split('.')[0]
+
+
 def supported(manager):
     try:
-        os_release = {}
-        for line in Path('/etc/os-release').read_text().splitlines():
-            if '=' in line:
-                key, value = line.split('=', 1)
-                os_release[key] = value.strip('"')
         return (
             platform.system() == 'Linux' and platform.machine() == 'x86_64'
-            and os_release.get('ID') == 'rhel'
-            and os_release.get('VERSION_ID', '').split('.')[0] == '9'
+            and host_rhel_major() in ('9', '10')
             and not manager.manifest() and not manager.desired()
             and IMAGE.fullmatch(manager.installed.get('images', {}).get('controller', '')) is not None
             and (UNITS / UPDATE_UNIT).is_file()
@@ -156,7 +172,7 @@ def _copy_upload(root, upload_id, size, expected, output, host):
         os.close(fd)
 
 
-def _extract(archive, staging, stem, host):
+def _extract(archive, staging, stem, host, *, rhel_major="9"):
     total, seen = 0, set()
     try:
         with tarfile.open(archive, 'r|gz') as source:
@@ -193,12 +209,24 @@ def _extract(archive, staging, stem, host):
             or not all((release / 'deploy/appliance' / name).is_file()
                        for name in ('node_manager.py', 'offline_update.py'))):
         raise host.Blocked('Use a complete signed offline update release with GUI update support')
+    target_path = release / 'offline/target.json'
+    if target_path.exists():
+        try:
+            if target_path.stat().st_size > 1024:
+                raise ValueError()
+            target = json.loads(target_path.read_text())
+        except (ValueError, UnicodeError, OSError):
+            raise host.Blocked('The offline dependency target is invalid') from None
+        if target != {'id': 'rhel', 'version_id': rhel_major, 'architecture': 'x86_64'}:
+            raise host.Blocked('The offline dependency target differs from this RHEL major version')
+    elif rhel_major != '9':
+        raise host.Blocked('RHEL 10 updates require an explicit matching offline dependency target')
     return release
 
 
 def _idle(manager, host):
     if not supported(manager):
-        raise host.Blocked('Offline GUI updates require a standalone RHEL 9 x86_64 appliance')
+        raise host.Blocked('Offline GUI updates require a standalone RHEL 9/10 x86_64 appliance')
     manager._assert_controller_configuration_idle()
     manager._assert_public_port_idle()
     manager._assert_restoration_idle()
@@ -253,8 +281,10 @@ def review(manager, body, host):
     match = RELEASE.fullmatch(filename) if isinstance(filename, str) else None
     if (not match or type(size) is not int or not 0 < size <= MAX_ARCHIVE
             or not isinstance(upload_id, str) or not host.JOB.fullmatch(upload_id)):
-        raise host.Blocked('Choose a supported offline RHEL 9 x86_64 controller archive')
+        raise host.Blocked('Choose a supported offline RHEL 9/10 x86_64 controller archive')
     _idle(manager, host)
+    if match[2] != host_rhel_major():
+        raise host.Blocked('Choose the update archive for this controller’s RHEL major version')
     base = directory(manager.root)
     host.private_dir(base)
     # Keep at most one pending review. Active transaction state is separate.
@@ -269,7 +299,7 @@ def review(manager, body, host):
     version = match[1]
     try:
         _copy_upload(manager.root, upload_id, size, expected, archive, host)
-        release = _extract(archive, staging, 'prthak-controller-' + version, host)
+        release = _extract(archive, staging, 'prthak-controller-' + version, host, rhel_major=match[2])
         archive.unlink()
         # Loading signed images is additive. No installed Compose image changes here.
         images, installed = _verify_candidate(manager, release, version, host)

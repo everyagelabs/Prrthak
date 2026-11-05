@@ -3,25 +3,34 @@
 const trafficCountUnits=['connections','packets','log_records','sample_minutes'];
 
 function captureEvidence(row={}) {
-  const known={accepted_connection:{label:'Accepted transport connection',unit:'connections',backend:'conntrack'},denied_packet:{label:'Denied packet',unit:'packets',backend:'nflog'}};
+  const known={
+    accepted_connection:{label:'Accepted transport connection',unit:'connections',backend:'conntrack'},
+    denied_packet:{label:'Denied packet',unit:'packets',backend:'nflog'},
+    denied_log:{label:'Deny log (sampled)',unit:'log_records',backend:'journal'}
+  };
   if(row.count_unit==='sample_minutes'){
     const evidence=known[row.capture_kind];
     return {label:evidence?`${evidence.label} · sampled`:'Sampled communication',unit:'sample_minutes',backend:evidence?.backend || 'unknown'};
   }
   return known[row.capture_kind] || {label:'Legacy sampled log',unit:'log_records',backend:'journal'};
 }
-function captureUnitLabel(unit){return {connections:'connections',packets:'denied packets',log_records:'legacy log records',sample_minutes:'communication samples'}[unit] || 'legacy log records';}
+function captureUnitLabel(unit){return {connections:'connections',packets:'denied packets',log_records:'log records',sample_minutes:'communication samples'}[unit] || 'log records';}
 function captureEvidenceHTML(row={}){const info=captureEvidence(row);return `${h(info.label)}<small>${h(info.backend)} · ${h(row.address_family || (String(row.source_ip || '').includes(':')?'ipv6':'ipv4'))}</small>`;}
-function captureCountHTML(row={}){return `${format(row.count)}<small>${h(captureUnitLabel(captureEvidence(row).unit))}</small>`;}
-function trafficCollectionFields(){return '<div class="field"><label class="host-check"><input type="checkbox" name="traffic_hit_count">Count traffic hits</label><small>On shows hit counts and rates under Connections or Denied packets. Off records up to one communication sample per source and destination service per minute.</small></div>';}
+function captureCountHTML(row={}){
+  const info=captureEvidence(row);
+  const logLabel=row.capture_kind==='denied_log'?'sampled deny log records':'legacy log records';
+  const label=info.unit==='log_records'?logLabel:captureUnitLabel(info.unit);
+  return `${format(row.count)}<small>${h(label)}</small>`;
+}
+function trafficCollectionFields(){return '<div class="field"><label class="host-check"><input type="checkbox" name="traffic_hit_count">Count traffic hits</label><small>On shows observed counts. Older firewalld versions report sampled deny logs. Off records up to one communication sample per source and destination service per minute.</small></div>';}
 function trafficCollectionMode(values){return values.get('traffic_hit_count')==='on'?'hits':'sampled';}
-function captureKindFields(){return `<input type="hidden" name="capture_scope_version" value="1"><div class="field"><div class="field-label">Capture evidence</div><label class="host-check"><input type="checkbox" name="observation_kinds" value="accepted_connection" checked>Accepted transport connections · conntrack</label><label class="host-check"><input type="checkbox" name="observation_kinds" value="denied_packet" checked>Denied packets · terminal NFLOG</label><small>Counts use separate units. New scopes require traffic_capture_v1. Historical scopes retain legacy sampled logs. Unsupported backends, IPv6 support, losses and gaps appear in endpoint receipts; this is not a complete traffic ledger or application-success proof.</small></div>`;}
+function captureKindFields(){return `<input type="hidden" name="capture_scope_version" value="1"><div class="field"><div class="field-label">Capture evidence</div><label class="host-check"><input type="checkbox" name="observation_kinds" value="accepted_connection" checked>Accepted transport connections · conntrack</label><label class="host-check"><input type="checkbox" name="observation_kinds" value="denied_packet" checked>Denied traffic · NFLOG or sampled logs</label><small>Older firewalld versions use sampled deny logs. Counts and capture limits are shown with each result.</small></div>`;}
 function captureKindsPayload(values){const selected=values.getAll('observation_kinds');if(!selected.length&&String(values.get('capture_scope_version') || '')!=='1')return undefined;if(!selected.length||selected.some(kind=>!['accepted_connection','denied_packet'].includes(kind)))throw new Error('Select accepted connections, denied packets, or both.');return [...new Set(selected)].sort();}
 const conntrackCaptureLimit = 'Conntrack startup/dump races, untracked flows and event loss cannot establish a complete connection ledger.';
 const conntrackMissingStartTime = 'Conntrack start timestamps are unavailable; kernel ID reuse/deduplication cannot establish an exact ledger.';
 
 function captureReasonKey(reason) {
-  return String(reason || '').trim().toLowerCase().replace(/^(conntrack|nflog):\s*/, '').replace(/\.$/, '');
+  return String(reason || '').trim().toLowerCase().replace(/^(conntrack|nflog|journal):\s*/, '').replace(/\.$/, '');
 }
 
 function captureCoverageHTML(coverage={},purpose='') {
@@ -37,14 +46,15 @@ function captureCoverageHTML(coverage={},purpose='') {
     issues.push(reason);
   }
   const backendLabels = {conntrack: 'Conntrack', nflog: 'NFLOG', journal: 'Journal'};
-  const backendEvidence = {conntrack: 'Accepted connections', nflog: 'Denied packets'};
+  const backendEvidence = {conntrack: 'Accepted connections', nflog: 'Denied packets', journal: 'Deny logs (sampled)'};
   const statusLabels = {active: 'Active', unsupported: 'Unavailable', error: 'Error', off: 'Off'};
   const family = value => value === true ? 'supported' : value === false ? 'unavailable' : 'not reported';
   const reports = backends.map(row => `<li class="capture-backend">
     <div class="capture-backend-heading"><strong>${h(backendLabels[row.backend] || row.backend)}</strong>${backendEvidence[row.backend] ? `<span>${h(backendEvidence[row.backend])}</span>` : ''}<span class="capture-backend-status" data-active="${row.status === 'active'}">${h(statusLabels[row.status] || row.status || 'Unknown')}</span></div>
     <div class="capture-backend-metrics"><span>IPv4 ${family(row.ipv4)}</span><span>IPv6 ${family(row.ipv6)}</span><span>Reported lost events ${Number.isInteger(row.lost_events) && row.lost_events >= 0 ? format(row.lost_events) : 'unknown'}</span></div>
     ${row.error ? `<p class="capture-backend-error">${h(row.error)}</p>` : ''}
-    ${purpose === 'traffic' && row.backend === 'nflog' && row.status !== 'active' && captureReasonKey(row.error) === 'firewalld is not running' ? '<p class="capture-coverage-limit">Stop learning before starting firewalld in Firewall. Then start a fresh Traffic discovery session with Denied packets and Count traffic hits enabled.</p>' : ''}
+    ${row.backend === 'journal' && row.status === 'active' ? '<p class="capture-coverage-limit">Denied traffic observed through sampled firewall logs. Counts may omit hits.</p>' : ''}
+    ${purpose === 'traffic' && row.backend === 'nflog' && row.status !== 'active' && captureReasonKey(row.error) === 'firewalld is not running' ? '<p class="capture-coverage-limit">Stop learning before starting firewalld in Firewall. Then start a fresh Traffic discovery session with Denied traffic and Count traffic hits enabled.</p>' : ''}
   </li>`).join('');
   return `<div class="capture-coverage">
     ${reports ? `<ul class="capture-backend-list">${reports}</ul>` : '<p class="help-text">Capture backend and loss are unknown.</p>'}

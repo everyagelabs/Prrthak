@@ -22,12 +22,13 @@ const maxHitBatchBytes = 512 * 1024
 const maxHitEvents = 1000
 
 type HitMonitorAssignment struct {
-	ObservationKinds []string  `json:"observation_kinds,omitempty"`
-	ID               string    `json:"id"`
-	ServerID         string    `json:"server_id"`
-	StartsAt         time.Time `json:"starts_at"`
-	ExpiresAt        time.Time `json:"expires_at"`
-	Ports            []Port    `json:"ports"`
+	DenyLogCompatibility bool      `json:"deny_log_compatibility,omitempty"`
+	ObservationKinds     []string  `json:"observation_kinds,omitempty"`
+	ID                   string    `json:"id"`
+	ServerID             string    `json:"server_id"`
+	StartsAt             time.Time `json:"starts_at"`
+	ExpiresAt            time.Time `json:"expires_at"`
+	Ports                []Port    `json:"ports"`
 }
 type HitEvent struct {
 	EventID string `json:"event_id"`
@@ -74,6 +75,9 @@ func HitObservationRule(id string, port Port) string {
 func validateHitAssignment(item HitMonitorAssignment, server string, at time.Time, fresh bool) error {
 	if err := validateObservationKinds(item.ObservationKinds); err != nil {
 		return err
+	}
+	if item.DenyLogCompatibility && !captureKindSelected(item.ObservationKinds, captureDenied) {
+		return errors.New("deny log compatibility requires a signed denied traffic scope")
 	}
 	if !hitID.MatchString(item.ID) || !hitServerID.MatchString(server) || item.ServerID != server || len(item.Ports) < 1 || len(item.Ports) > maxHitPorts || !item.ExpiresAt.After(item.StartsAt) || item.ExpiresAt.Sub(item.StartsAt) > hitLeaseLifetime {
 		return errors.New("invalid endpoint-bound hit-monitor lease")

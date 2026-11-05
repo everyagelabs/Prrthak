@@ -22,7 +22,7 @@ func (a *Agent) nativeCaptureScopes(at time.Time) []capturePortScope {
 		for _, session := range ActiveSessions(a.State.Policy, at) {
 			for _, kind := range session.ObservationKinds {
 				for _, port := range session.Ports {
-					appendScope(capturePortScope{Port: port, Kind: kind, StartsAt: session.StartsAt, ExpiresAt: SessionCutoff(session)})
+					appendScope(capturePortScope{Port: port, Kind: kind, StartsAt: session.StartsAt, ExpiresAt: SessionCutoff(session), AllowDenyLogs: session.DenyLogCompatibility})
 				}
 			}
 		}
@@ -34,12 +34,47 @@ func (a *Agent) nativeCaptureScopes(at time.Time) []capturePortScope {
 			}
 			for _, kind := range assignment.ObservationKinds {
 				for _, port := range assignment.Ports {
-					appendScope(capturePortScope{Port: port, Kind: kind, StartsAt: assignment.StartsAt, ExpiresAt: assignment.ExpiresAt})
+					appendScope(capturePortScope{Port: port, Kind: kind, StartsAt: assignment.StartsAt, ExpiresAt: assignment.ExpiresAt, AllowDenyLogs: assignment.DenyLogCompatibility})
 				}
 			}
 		}
 	}
 	return scopes
+}
+
+// Read the final bounded journal page before removing old observation rules.
+// Event timestamps still have to fit the exact signed session or monitor lease.
+func (a *Agent) denyJournalReadScopes() []capturePortScope {
+	var result []capturePortScope
+	appendSession := func(session Session) {
+		if !session.DenyLogCompatibility || !captureKindSelected(session.ObservationKinds, captureDenied) {
+			return
+		}
+		for _, port := range session.Ports {
+			result = append(result, capturePortScope{Port: port, Kind: captureDenied, StartsAt: session.StartsAt, ExpiresAt: SessionCutoff(session), AllowDenyLogs: true})
+		}
+	}
+	if a.State.Policy != nil {
+		for _, session := range a.State.Policy.LearningSessions {
+			appendSession(session)
+		}
+		for _, session := range a.State.Policy.LearningTombstones {
+			appendSession(session)
+		}
+	}
+	for _, session := range a.State.PendingDrains {
+		appendSession(session)
+	}
+	if m := a.hitMonitor; m != nil {
+		for _, grant := range m.state.Grants {
+			if grant.Assignment.DenyLogCompatibility && captureKindSelected(grant.Assignment.ObservationKinds, captureDenied) {
+				for _, port := range grant.Assignment.Ports {
+					result = append(result, capturePortScope{Port: port, Kind: captureDenied, StartsAt: grant.CaptureFrom, ExpiresAt: grant.CaptureUntil, AllowDenyLogs: true})
+				}
+			}
+		}
+	}
+	return result
 }
 func (a *Agent) tickTrafficCapture(ctx context.Context, now time.Time) error {
 	if a.Simulate {
@@ -47,26 +82,68 @@ func (a *Agent) tickTrafficCapture(ctx context.Context, now time.Time) error {
 	}
 	scopes := a.nativeCaptureScopes(now)
 	if len(scopes) == 0 && a.trafficCapture == nil {
-		if a.updatePolicyVerification(now, nil) {
-			return a.save()
+		previous, err := readCaptureSidecars(a.Config.StateDir)
+		if err != nil {
+			return err
 		}
-		return nil
+		if len(previous.Rules) == 0 {
+			if a.updatePolicyVerification(now, nil) {
+				return a.save()
+			}
+			return nil
+		}
 	}
 	if a.trafficCapture == nil {
 		a.trafficCapture = newNativeCapture()
 	}
 	var first error
+	journal, journalErr := a.collectDenyJournal(ctx, a.denyJournalReadScopes(), now)
+	if journalErr != nil {
+		first = journalErr
+	}
 	scopeRefused := false
 	if err := a.trafficCapture.Configure(scopes); err != nil {
 		first = err
 		scopeRefused = errors.Is(err, errCaptureScope)
 	}
 	scopeKey := canonicalCaptureScope(scopes)
-	if !now.Before(a.nextCaptureCheck) || len(scopes) == 0 || scopeKey != a.captureScopeKey {
+	flows, coverage := a.trafficCapture.Drain()
+	if journal != nil {
+		if journalErr == nil {
+			flows = append(flows, journal.Flows...)
+		}
+		coverage.Backends = append(coverage.Backends, journal.Coverage)
+		coverage.Gaps = append(coverage.Gaps, journal.Gaps...)
+	}
+	coverage.Gaps = append(coverage.Gaps, a.captureCoverage.Gaps...)
+	if len(coverage.Gaps) > 16 {
+		coverage.Gaps = coverage.Gaps[:16]
+	}
+	a.captureCoverage = coverage
+	verificationChanged := a.observePolicyVerification(flows)
+	verificationChanged = a.updatePolicyVerification(now, &coverage) || verificationChanged
+	journalDurable := journalErr == nil
+	if err := a.storeCapturedFlows(flows); err != nil {
+		journalDurable = false
+		if first == nil {
+			first = err
+		}
+	} else if journal != nil && journalErr == nil {
+		if err := journal.Commit(); err != nil {
+			journalDurable = false
+			if first == nil {
+				first = err
+			}
+		}
+	}
+	// Retain the prior journal rule window on an upload-spool failure so the
+	// same bounded page can be retried. A revoked scope still removes its rules.
+	reconcileRequired := len(scopes) == 0 || scopeRefused || scopeKey != a.captureScopeKey
+	if (journalDurable || reconcileRequired) && (reconcileRequired || !now.Before(a.nextCaptureCheck)) {
 		a.captureScopeKey = scopeKey
 		a.nextCaptureCheck = now.Add(30 * time.Second)
 		plannedScopes := scopes
-		if scopeRefused {
+		if scopeRefused || !journalDurable {
 			plannedScopes = nil
 		}
 		if err := a.reconcileCaptureSidecars(ctx, plannedScopes, now); err != nil {
@@ -78,17 +155,6 @@ func (a *Agent) tickTrafficCapture(ctx context.Context, now time.Time) error {
 				native.SetDeniedFailure(err.Error())
 			}
 		}
-	}
-	flows, coverage := a.trafficCapture.Drain()
-	coverage.Gaps = append(coverage.Gaps, a.captureCoverage.Gaps...)
-	if len(coverage.Gaps) > 16 {
-		coverage.Gaps = coverage.Gaps[:16]
-	}
-	a.captureCoverage = coverage
-	verificationChanged := a.observePolicyVerification(flows)
-	verificationChanged = a.updatePolicyVerification(now, &coverage) || verificationChanged
-	if err := a.storeCapturedFlows(flows); err != nil && first == nil {
-		first = err
 	}
 	if verificationChanged {
 		if err := a.save(); err != nil && first == nil {
@@ -139,6 +205,18 @@ func (a *Agent) reconcileCaptureSidecars(ctx context.Context, scopes []capturePo
 	}
 	if len(rules) > 0 {
 		present, err := queryCaptureSidecar(ctx, a.Commands, rules[0])
+		if errors.Is(err, errCaptureRichLanguage) {
+			rules = compatibilityCaptureSidecars(rules, scopes, now)
+			if len(rules) > 0 {
+				_ = controller.SetDeniedPrefixes(captureGroup(a.Config.StateDir), nil)
+				if native, ok := a.trafficCapture.(interface{ SetDeniedFailure(string) }); ok {
+					native.SetDeniedFailure(errCaptureRichLanguage.Error())
+				}
+				a.captureCoverage.Gaps = append(a.captureCoverage.Gaps, "Deny log compatibility uses sampled kernel log records; packet counts and native denial verification remain unavailable.")
+				present, err = queryCaptureSidecar(ctx, a.Commands, rules[0])
+				prefixes = nil
+			}
+		}
 		if err != nil {
 			_ = controller.SetDeniedPrefixes(captureGroup(a.Config.StateDir), nil)
 			return err
@@ -148,8 +226,10 @@ func (a *Agent) reconcileCaptureSidecars(ctx context.Context, scopes []capturePo
 			return errors.New("NFLOG instrumentation ownership conflicted")
 		}
 	}
-	if err = controller.SetDeniedPrefixes(captureGroup(a.Config.StateDir), prefixes); err != nil {
-		return err
+	if len(rules) == 0 || rules[0].Backend != "journal" {
+		if err = controller.SetDeniedPrefixes(captureGroup(a.Config.StateDir), prefixes); err != nil {
+			return err
+		}
 	}
 	if len(rules) == 0 {
 		return nil
@@ -222,6 +302,9 @@ func (a *Agent) storeCapturedFlows(flows []capturedFlow) error {
 			items := []Flow{}
 			for _, captured := range flows {
 				flow := captured.Flow
+				if flow.CaptureKind == captureDeniedLog && !session.DenyLogCompatibility {
+					continue
+				}
 				if !captureSelected(flow, session.ObservationKinds, session.Ports, session.StartsAt, SessionCutoff(session)) {
 					continue
 				}
@@ -279,6 +362,9 @@ func (a *Agent) storeCapturedFlows(flows []capturedFlow) error {
 			grant := m.state.Grants[index]
 			batch := HitBatch{MonitorID: grant.Assignment.ID, LeaseStartsAt: grant.Assignment.StartsAt, LeaseExpiresAt: grant.Assignment.ExpiresAt}
 			for _, captured := range flows {
+				if captured.CaptureKind == captureDeniedLog && !grant.Assignment.DenyLogCompatibility {
+					continue
+				}
 				key := grant.Assignment.ID + "/" + captured.EventID
 				if !matched[key] && captureSelected(captured.Flow, grant.Assignment.ObservationKinds, grant.Assignment.Ports, grant.CaptureFrom, grant.CaptureUntil) {
 					matched[key] = true
@@ -325,7 +411,7 @@ func (a *Agent) updateCaptureReceipts(now time.Time, failure error) {
 			continue
 		}
 		coverage := a.captureSessionCoverage(session.ID, now)
-		coverage.TrafficCaptureCoverage = scopedCaptureCoverage(session.ObservationKinds, a.captureCoverage)
+		coverage.TrafficCaptureCoverage = scopedCaptureCoverage(session.ObservationKinds, a.captureCoverage, session.DenyLogCompatibility)
 		coverage.RateLimited = captureKindSelected(session.ObservationKinds, captureDenied)
 		coverage.Error = ""
 		for _, backend := range coverage.Backends {
@@ -341,7 +427,7 @@ func (a *Agent) updateCaptureReceipts(now time.Time, failure error) {
 			if !active || item.ObservationKinds == nil {
 				continue
 			}
-			status.TrafficCaptureCoverage = scopedCaptureCoverage(item.ObservationKinds, a.captureCoverage)
+			status.TrafficCaptureCoverage = scopedCaptureCoverage(item.ObservationKinds, a.captureCoverage, item.DenyLogCompatibility)
 			status.Status = "observing"
 			status.Error = ""
 			status.CheckedAt = now

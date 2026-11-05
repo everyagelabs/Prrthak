@@ -226,9 +226,9 @@ def _automatic(store, db, session, server, rows, evidence_overflow=False):
     old = store._get(db, "learning_allow_policies", identifier)
     if old and (old.get("removed") or old["status"] == "removed" or not old.get("auto_updates", False)):
         return
-    from .traffic_capture import observation_kinds
+    from .traffic_capture import observation_kinds, observation_selected
     kinds = observation_kinds(session["observation_kinds"]) if 'observation_kinds' in session else ['legacy_log']
-    eligible = {_triple(row) for row in rows if row["server_id"] == server["id"] and (row["protocol"], row["port"]) in frozen and row.get("capture_kind","legacy_log") in kinds and _row_public(row, server)["eligible_for_auto"]}
+    eligible = {_triple(row) for row in rows if row["server_id"] == server["id"] and (row["protocol"], row["port"]) in frozen and observation_selected(row.get("capture_kind","legacy_log"), kinds) and _row_public(row, server)["eligible_for_auto"]}
     if not eligible and old is None and not evidence_overflow:
         return
     policy = dict(old or {"id": identifier, "name": "Learned · " + server.get("hostname", server["id"]), "session_id": session["id"], "server_id": server["id"], "hostname": server.get("hostname", server["id"]), "origin": "auto", "revision": 0, "services": [], "status": "generated", "error": "", "auto_updates": True, "suppressed_tuples": [], "created_at": stamp(), "created_by": session.get("created_by", "automation"), "authority_expires_at": session["expires_at"]})
@@ -262,7 +262,7 @@ def reconcile(store, limit=100):
     from .approval_views import _expression
     from .evidence_views import traffic_evidence_available
     from .learning import TRAFFIC_PURPOSE
-    from .traffic_capture import batch_peaks, public as capture_public, record_burst
+    from .traffic_capture import TYPED, batch_peaks, public as capture_public, record_burst
     with store.flow_lock, store.read_traffic() as db:
         batches = [dict(row) for row in db.execute("SELECT * FROM batches WHERE processed=1 AND evidence_processed=0 ORDER BY received_at,batch_key LIMIT ?", (limit,)).fetchall()]
     if not batches:
@@ -291,7 +291,7 @@ def reconcile(store, limit=100):
                 if session and server and available:
                     frozen = session.get("discovery_results", {}).get(server["id"], {}).get("listeners", server.get("listeners", []))
                     for event in json.loads(batch["data"]):
-                        if event.get("capture_kind") in ("accepted_connection","denied_packet") and event["event_id"] not in batch["accepted_capture_ids"]:
+                        if event.get("capture_kind") in TYPED and event["event_id"] not in batch["accepted_capture_ids"]:
                             continue
                         captured = capture_public(event)
                         source, cidr, source_error = _source(event["source_ip"])

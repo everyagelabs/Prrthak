@@ -129,6 +129,22 @@ class ControllerPrerequisiteTests(unittest.TestCase):
         self.assertFalse(any('remove' in args or '--allowerasing' in args for args in installs))
         self.assertIn('info', self.host.calls[-1][0])
 
+    def test_rhel10_online_uses_vendor_release_repository_and_private_runtime(self):
+        (self.root/'etc/os-release').write_text('ID=rhel\nVERSION_ID="10.1"\n')
+        self.installer.prepare()
+        self.assertEqual(self.installer.os_major, '10')
+        repo = (self.root/'etc/yum.repos.d/prthak-docker-ce.repo').read_text()
+        self.assertIn('https://download.docker.com/linux/rhel/$releasever/$basearch/stable', repo)
+        self.assertIn('gpgcheck=1', repo)
+        self.assertTrue(any('docker-ce' in args for args, _ in self.host.calls))
+        self.assertFalse(any('remove' in args or '--allowerasing' in args for args, _ in self.host.calls))
+
+    def test_rhel9_offline_dependencies_are_refused_on_rhel10_before_any_command(self):
+        (self.root/'etc/os-release').write_text('ID=rhel\nVERSION_ID="10.0"\n')
+        with self.assertRaisesRegex(bootstrap.Blocked, 'RHEL 10 requires its own dependency bundle'):
+            self.installer.prepare(self.root/'rhel9-offline')
+        self.assertEqual(self.host.calls, [])
+
     def test_fresh_ubuntu_uses_signed_by_scope_and_never_upgrades_or_removes(self):
         (self.root/'etc/os-release').write_text('ID=ubuntu\nVERSION_ID="26.04"\nVERSION_CODENAME=resolute\n')
         self.installer.prepare()
@@ -155,6 +171,23 @@ class ControllerPrerequisiteTests(unittest.TestCase):
         self.assertNotIn('curl', self.names())
         self.assertNotIn('gpg', self.names())
         self.assertFalse((self.root/'etc/yum.repos.d/prthak-docker-ce.repo').exists())
+
+    def test_rhel10_offline_target_must_match_before_installing_dependencies(self):
+        (self.root/'etc/os-release').write_text('ID=rhel\nVERSION_ID="10.0"\n')
+        offline = self.root/'offline'
+        for name in ('keys/docker.asc', 'rpms/repodata/repomd.xml', 'images.json', 'images.tar.gz'):
+            path = offline/name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'offline fixture')
+        target = offline/'target.json'
+        target.write_text(json.dumps({'id': 'rhel', 'version_id': '9', 'architecture': 'x86_64'}))
+        with self.assertRaisesRegex(bootstrap.Blocked, 'differs from this RHEL major version'):
+            self.installer.prepare(offline)
+        self.assertEqual(self.host.calls, [])
+        target.write_text(json.dumps({'id': 'rhel', 'version_id': '10', 'architecture': 'x86_64'}))
+        self.installer.prepare(offline)
+        self.assertTrue(any('docker-ce' in args and '--disablerepo=*' in args for args, _ in self.host.calls))
+        self.assertNotIn('curl', self.names())
 
     def test_incomplete_offline_bundle_stops_before_dependency_changes(self):
         offline = self.root/'offline'

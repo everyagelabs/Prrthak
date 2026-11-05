@@ -12,8 +12,10 @@ import (
 )
 
 const TrafficCaptureCapability = "traffic_capture_v1"
+const DenyLogCaptureCapability = "traffic_deny_log_v1"
 const captureAccepted = "accepted_connection"
 const captureDenied = "denied_packet"
+const captureDeniedLog = "denied_log"
 
 var errCaptureScope = errors.New("native capture scope replacement refused")
 
@@ -22,7 +24,7 @@ func validTypedCapture(flow Flow, id string) bool {
 	if err != nil || source.Is4In6() || source.Zone() != "" || flow.AddressFamily != captureFamily(source) || !validDigest(id) || flow.Count != 1 || !flow.FirstSeen.Equal(flow.LastSeen) {
 		return false
 	}
-	return flow.CaptureKind == captureAccepted && flow.CaptureBackend == "conntrack" && flow.CountUnit == "connections" && flow.Verdict == "allowed" || flow.CaptureKind == captureDenied && flow.CaptureBackend == "nflog" && flow.CountUnit == "packets" && flow.Verdict == "denied"
+	return flow.CaptureKind == captureAccepted && flow.CaptureBackend == "conntrack" && flow.CountUnit == "connections" && flow.Verdict == "allowed" || flow.CaptureKind == captureDenied && flow.CaptureBackend == "nflog" && flow.CountUnit == "packets" && flow.Verdict == "denied" || flow.CaptureKind == captureDeniedLog && flow.CaptureBackend == "journal" && flow.CountUnit == "log_records" && flow.Verdict == "denied"
 }
 func captureKindsKey(kinds []string) string {
 	copyKinds := append([]string{}, kinds...)
@@ -52,6 +54,7 @@ type capturedFlow struct {
 	VerificationOnly    bool
 }
 type capturePortScope struct {
+	AllowDenyLogs   bool
 	Port            Port
 	Kind            string
 	StartsAt        time.Time
@@ -64,14 +67,25 @@ type capturePortScope struct {
 func captureScopeLive(scope capturePortScope, at time.Time) bool {
 	return !at.Before(scope.StartsAt) && at.Before(scope.ExpiresAt) && (scope.Deadline.IsZero() || time.Now().Before(scope.Deadline))
 }
-func scopedCaptureCoverage(kinds []string, coverage TrafficCaptureCoverage) TrafficCaptureCoverage {
+func scopedCaptureCoverage(kinds []string, coverage TrafficCaptureCoverage, denyLogCompatibility ...bool) TrafficCaptureCoverage {
 	result := TrafficCaptureCoverage{}
+	compatibility := len(denyLogCompatibility) > 0 && denyLogCompatibility[0]
+	journalActive := false
 	for _, backend := range coverage.Backends {
-		if backend.Backend == "conntrack" && captureKindSelected(kinds, captureAccepted) || backend.Backend == "nflog" && captureKindSelected(kinds, captureDenied) {
+		journalActive = journalActive || compatibility && backend.Backend == "journal" && backend.Status == "active"
+	}
+	for _, backend := range coverage.Backends {
+		if backend.Backend == "journal" && (!compatibility || backend.Status == "off") || backend.Backend == "nflog" && journalActive && backend.Status != "active" {
+			continue
+		}
+		if backend.Backend == "conntrack" && captureKindSelected(kinds, captureAccepted) || (backend.Backend == "nflog" || backend.Backend == "journal") && captureKindSelected(kinds, captureDenied) {
 			result.Backends = append(result.Backends, backend)
 		}
 	}
 	for _, gap := range coverage.Gaps {
+		if strings.HasPrefix(gap, "Deny log") && !compatibility {
+			continue
+		}
 		if strings.Contains(gap, "NFLOG") && !captureKindSelected(kinds, captureDenied) || strings.Contains(gap, "Conntrack") && !captureKindSelected(kinds, captureAccepted) {
 			continue
 		}
@@ -117,7 +131,11 @@ func captureKindSelected(kinds []string, kind string) bool {
 	return false
 }
 func captureSelected(flow Flow, kinds []string, ports []Port, from, until time.Time) bool {
-	if !captureKindSelected(kinds, flow.CaptureKind) || flow.FirstSeen.Before(from) || !flow.LastSeen.Before(until) {
+	kind := flow.CaptureKind
+	if kind == captureDeniedLog {
+		kind = captureDenied
+	}
+	if !captureKindSelected(kinds, kind) || flow.FirstSeen.Before(from) || !flow.LastSeen.Before(until) {
 		return false
 	}
 	for _, port := range ports {
@@ -136,7 +154,7 @@ func captureFamily(address netip.Addr) string {
 func canonicalCaptureScope(scopes []capturePortScope) string {
 	values := make([]string, 0, len(scopes))
 	for _, s := range scopes {
-		values = append(values, s.Kind+"/"+s.Port.Protocol+"/"+strconv.Itoa(s.Port.Port)+"/"+s.StartsAt.UTC().Format(time.RFC3339Nano)+"/"+s.ExpiresAt.UTC().Format(time.RFC3339Nano))
+		values = append(values, s.Kind+"/"+s.Port.Protocol+"/"+strconv.Itoa(s.Port.Port)+"/"+s.StartsAt.UTC().Format(time.RFC3339Nano)+"/"+s.ExpiresAt.UTC().Format(time.RFC3339Nano)+"/"+strconv.FormatBool(s.AllowDenyLogs))
 	}
 	sort.Strings(values)
 	return strings.Join(values, "\n")

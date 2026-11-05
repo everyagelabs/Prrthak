@@ -40,6 +40,23 @@ test('historical allowed strings remain legacy logs and backend errors cannot in
  const html=env.run("captureCoverageHTML(coverage,'traffic')");
  assert.match(html,/Reported lost events unknown/);assert.match(html,/IPv6 unavailable/);assert.match(html,/&lt;img/);assert.doesNotMatch(html,/<img|<script>/);
 });
+test('compatibility deny logs have sampled labels, separate units and no traffic rate claim',()=>{
+ const at=new Date().toISOString(),row={source_ip:'192.0.2.8',last_seen:at,count:3,capture_kind:'denied_log',capture_backend:'journal',count_unit:'log_records',verdict:'denied',address_family:'ipv4',peak_observed_per_second:300,rate_window_seconds:1};
+ const env=ui([row,{...row,capture_kind:'denied_packet',capture_backend:'nflog',count_unit:'packets',count:200}]);
+ env.context.row=row;
+ assert.match(env.run('captureEvidenceHTML(row)'),/Deny log \(sampled\)/);
+ assert.match(env.run('captureCountHTML(row)'),/3<small>sampled deny log records/);
+ assert.doesNotMatch(env.run('captureCountHTML(row)'),/packets|connections/);
+ assert.match(env.run('trafficDiscoveryRateHTML(row)'),/>Sampled</);
+ env.run("state.view='traffic';state.captureUnit='log_records'");
+ assert.match(env.run('chartHTML()'),/<strong>3<\/strong><span>log records/);
+ assert.doesNotMatch(env.run('chartHTML()'),/<strong>203<\/strong>/);
+ env.context.coverage={capture_backends:[{backend:'journal',status:'active',ipv4:true,ipv6:false,lost_events:null}]};
+ const html=env.run('captureCoverageHTML(coverage)');
+ assert.match(html,/Deny logs \(sampled\)/);
+ assert.match(html,/Denied traffic observed through sampled firewall logs/);
+ assert.match(html,/Reported lost events unknown/);
+});
 test('capture coverage separates backend blockers, measured loss, and general Conntrack limits',()=>{
  const env=ui();
  env.context.coverage={
@@ -65,7 +82,7 @@ test('capture coverage separates backend blockers, measured loss, and general Co
  assert.match(html,/A capture rate limit is configured/);
  assert.match(html,/General Conntrack limit/);
  assert.match(html,/Kernel connection start timestamps were unavailable/);
- assert.match(html,/Denied packets and Count traffic hits enabled/);
+ assert.match(html,/Denied traffic and Count traffic hits enabled/);
  assert.match(html,/Native capture queue reached its bound/);
  assert.equal((html.match(/firewalld is not running/g) || []).length,1);
 });
@@ -73,7 +90,7 @@ test('the production traffic chart selects a count unit instead of summing conne
  const at=new Date().toISOString(),env=ui([{source_ip:'192.0.2.1',last_seen:at,count:2,capture_kind:'accepted_connection',verdict:'allowed'},{source_ip:'192.0.2.1',last_seen:at,count:500,capture_kind:'denied_packet',verdict:'denied'},{source_ip:'2001:db8::1',last_seen:at,count:7,verdict:'allowed'}]);
  let html=env.run('chartHTML()');assert.match(html,/<strong>2<\/strong><span>connections/);assert.doesNotMatch(html,/<strong>509<\/strong>/);
  env.run("state.captureUnit='packets'");html=env.run('chartHTML()');assert.match(html,/<strong>500<\/strong><span>denied packets/);
- env.run("state.captureUnit='log_records'");html=env.run('chartHTML()');assert.match(html,/<strong>7<\/strong><span>legacy log records/);assert.match(html,/Legacy reported allowed/);
+ env.run("state.captureUnit='log_records'");html=env.run('chartHTML()');assert.match(html,/<strong>7<\/strong><span>log records/);assert.match(html,/Legacy reported allowed/);
  env.run("state.view='traffic';state.captureUnit='packets'");html=env.run('chartHTML()');assert.match(html,/id="traffic-chart-unit"/);assert.match(html,/<strong>500<\/strong><span>denied packets/);assert.doesNotMatch(html,/Legacy observed|aria-label="Traffic window"/);
 });
 
@@ -92,7 +109,7 @@ test('communication samples keep their own count unit and cannot show a hit rate
 test('an empty sample chart explains how to collect samples or find them on other pages',()=>{
  const env=ui();
  const empty = env.run("state.view='traffic';state.captureUnit='sample_minutes';chartHTML()");
- assert.match(empty,/For Count traffic hits sessions, choose Connections or Denied packets/);
+ assert.match(empty,/For Count traffic hits sessions, choose Connections, Denied packets or Log records/);
  assert.match(empty,/Start Discover traffic with Count traffic hits turned off/);
  env.context.trafficCataloguePage=()=>({counts_by_unit:{sample_minutes:4}});
  assert.match(env.run('chartHTML()'),/4 samples match your filters on other pages/);

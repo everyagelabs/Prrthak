@@ -27,7 +27,7 @@ verified, extracted root-owned release, run the same command on every endpoint:
 sudo ./scripts/install-agent-auto.sh --setup-file /root/prthak-agent-setup.json
 ```
 
-The command detects RHEL/Rocky/Alma/Oracle Linux 8/9 or Ubuntu 22.04/24.04/26.04 and verifies the CPU package. It
+The command detects RHEL 8/9/10, Rocky/Alma/Oracle Linux 8/9 or Ubuntu 22.04/24.04/26.04 and verifies the CPU package. It
 validates the GUI kit and signed binary/service before automatically preparing
 missing OS dependencies through the native helper. The GUI keeps CPU selection;
 Linux family and required dependencies are automatic. Optional UFW assessment is

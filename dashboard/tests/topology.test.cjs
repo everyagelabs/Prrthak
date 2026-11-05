@@ -75,7 +75,7 @@ test('one observed link retains separate connection, packet, historical log and 
     {...flow,capture_kind:'denied_packet',verdict:'denied',count:500},
     {...flow,count:7},{...flow,capture_kind:'accepted_connection',count_unit:'sample_minutes',count:3}
   ]});
-  assert.match(html,/2 transport connections \/ 500 denied packets \/ 7 legacy log records \/ 3 communication samples/);
+  assert.match(html,/2 transport connections \/ 500 denied packets \/ 7 log records \/ 3 communication samples/);
   assert.match(html,/>1 observed link</);
 });
 test('historical observations show a static link and last-observed timestamp', () => {

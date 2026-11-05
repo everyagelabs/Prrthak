@@ -25,6 +25,9 @@ func rememberLearningEvidence(state *State, session Session, flow Flow) {
 	if session.PolicyAction != "auto_allow" {
 		return
 	}
+	if flow.CaptureKind == captureDeniedLog && !session.DenyLogCompatibility {
+		return
+	}
 	if session.ObservationKinds != nil && (!validTypedCapture(flow, flow.EventID) || !captureSelected(flow, session.ObservationKinds, session.Ports, session.StartsAt, SessionCutoff(session))) {
 		return
 	}

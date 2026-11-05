@@ -479,13 +479,14 @@ func validatePreparationFamily(root, family string) error {
 		return errors.New("native OS version must contain only numeric components")
 	}
 	rpmIDs := map[string]bool{"rhel": true, "rocky": true, "almalinux": true, "ol": true}
-	if family == "rhel" && rpmIDs[values["ID"]] && (version == "8" || version == "9" || strings.HasPrefix(version, "8.") || strings.HasPrefix(version, "9.")) {
+	rhel10 := values["ID"] == "rhel" && (version == "10" || strings.HasPrefix(version, "10."))
+	if family == "rhel" && rpmIDs[values["ID"]] && (rhel10 || version == "8" || version == "9" || strings.HasPrefix(version, "8.") || strings.HasPrefix(version, "9.")) {
 		return nil
 	}
 	if family == "ubuntu" && values["ID"] == "ubuntu" && (version == "22.04" || version == "24.04" || version == "26.04") {
 		return nil
 	}
-	return errors.New("host preparation requires an explicit RHEL/Rocky/Alma/Oracle Linux 8/9 or Ubuntu 22.04/24.04/26.04 agent profile")
+	return errors.New("host preparation requires an explicit RHEL 8/9/10, Rocky/Alma/Oracle Linux 8/9 or Ubuntu 22.04/24.04/26.04 agent profile")
 }
 
 // Suppression is journaled before changes. An interrupted/uncertain package

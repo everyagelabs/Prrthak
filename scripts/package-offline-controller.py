@@ -4,6 +4,7 @@
 import argparse
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -45,7 +46,9 @@ Created by Pratik Srivastava
 """.encode('utf-8')
 
 
-def payload_files(root):
+def payload_files(root, rhel_major='9'):
+    if rhel_major not in ('9', '10'):
+        raise ValueError('Offline controller targets are RHEL 9 or RHEL 10')
     files = {}
     for directory, children, names in os.walk(root, followlinks=False):
         directory = Path(directory)
@@ -55,11 +58,32 @@ def payload_files(root):
             path = directory/name
             relative = path.relative_to(root).as_posix()
             if (path.is_symlink() or not path.is_file() or not path.stat().st_size
-                    or not (relative in REQUIRED or RPM.fullmatch(relative) or REPODATA.fullmatch(relative))):
+                    or not (relative in REQUIRED or relative == 'target.json' or RPM.fullmatch(relative) or REPODATA.fullmatch(relative))):
                 raise ValueError('Unexpected offline payload file: ' + relative)
             files[relative] = path
     if REQUIRED - files.keys() or not any(RPM.fullmatch(name) for name in files):
         raise ValueError('The offline image or RPM payload is incomplete')
+    target = files.get('target.json')
+    if target is None:
+        if rhel_major == '10':
+            raise ValueError('RHEL 10 requires explicit offline target metadata')
+    else:
+        if target.stat().st_size > 4096:
+            raise ValueError('Offline target metadata exceeds its size limit')
+        try:
+            identity = json.loads(target.read_bytes())
+        except (ValueError, UnicodeError):
+            raise ValueError('Offline target metadata must be valid JSON') from None
+        if identity != {'id': 'rhel', 'version_id': rhel_major, 'architecture': 'x86_64'}:
+            raise ValueError('Offline target metadata does not match the selected RHEL release')
+    for name in files:
+        if not RPM.fullmatch(name):
+            continue
+        package_major = re.search(r'\.el([0-9]+)(?:[._-]|$)', name)
+        if rhel_major == '10' and (package_major is None or package_major[1] != '10'):
+            raise ValueError('RHEL 10 requires RHEL 10 dependency RPMs')
+        if rhel_major == '9' and package_major is not None and package_major[1] != '9':
+            raise ValueError('RHEL 9 payload contains dependencies for another RHEL release')
     return files
 
 
@@ -70,19 +94,19 @@ def verified_agents(directory, version):
     return packager.verified_agent_assets(directory, version, (PROJECT/'deploy/release-public-trust.json').read_bytes())
 
 
-def pack(controller, payload, output, key, agent_dist=PROJECT/'dist', *, gui_update_only=False):
+def pack(controller, payload, output, key, agent_dist=PROJECT/'dist', *, gui_update_only=False, rhel_major='9'):
     match = re.fullmatch(r'(prthak-controller-([0-9]+\.[0-9]+\.[0-9]+))\.tar\.gz', controller.name)
     if not match or controller.is_symlink() or not controller.is_file():
         raise ValueError('Supply a reviewed controller installation archive')
     stem = match[1]
-    files = payload_files(payload)
+    files = payload_files(payload, rhel_major)
     packages = [name for name in files if RPM.fullmatch(name)]
     if gui_update_only:
         if len(packages) != 1 or not packages[0].startswith('rpms/docker-compose-plugin-'):
             raise ValueError('A GUI-only update needs the verified Docker Compose compatibility repository')
     elif not any(name.startswith('rpms/docker-ce-') and not name.startswith(('rpms/docker-ce-cli-', 'rpms/docker-ce-rootless-')) for name in packages):
         raise ValueError('A full installation needs the Docker Engine dependency repository')
-    filename = stem + '-offline-rhel9-x86_64.tar.gz'
+    filename = stem + '-offline-rhel' + rhel_major + '-x86_64.tar.gz'
     output.mkdir(mode=0o700, parents=True, exist_ok=True)
     names = (filename, filename + '.signature.json', filename + '.public-trust.json')
     if any(os.path.lexists(output/name) for name in names):
@@ -92,7 +116,7 @@ def pack(controller, payload, output, key, agent_dist=PROJECT/'dist', *, gui_upd
         agents = verified_agents(agent_dist, match[2])
         candidate = stage/filename
         with tarfile.open(controller, 'r:gz') as base, tarfile.open(candidate, 'x:gz', compresslevel=1) as bundle:
-            marker_data = b'Prthak controller offline release for RHEL 9 x86_64\n'
+            marker_data = ('Prthak controller offline release for RHEL ' + rhel_major + ' x86_64\n').encode('utf-8')
             marker = tarfile.TarInfo(stem + '/OFFLINE-CONTROLLER')
             marker.mode, marker.size = 0o644, len(marker_data)
             marker.uname = marker.gname = 'root'
@@ -112,7 +136,7 @@ def pack(controller, payload, output, key, agent_dist=PROJECT/'dist', *, gui_upd
                     raise ValueError('Unsafe entry in the controller archive')
                 seen.add(member.name)
                 if member.name == stem + '/INSTALL.txt':
-                    instructions = UPDATE if gui_update_only else INSTALL
+                    instructions = (UPDATE if gui_update_only else INSTALL).replace(b'RHEL 9', ('RHEL ' + rhel_major).encode('utf-8'))
                     member.size = len(instructions)
                     bundle.addfile(member, io.BytesIO(instructions))
                 elif parts[1] == 'agent-releases':
@@ -161,13 +185,15 @@ def main():
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--gui-update-only', action='store_true',
                         help='build a GUI upload that preserves installed host packages')
+    parser.add_argument('--rhel-major', choices=('9', '10'), default='9',
+                        help='target host release; RHEL 10 requires its own dependency payload and target.json')
     args = parser.parse_args()
     key = os.environ.get('PRTHAK_RELEASE_SIGNING_KEY_FILE')
     if not key:
         parser.error('PRTHAK_RELEASE_SIGNING_KEY_FILE is required')
     try:
         print(pack(args.controller_archive, args.payload.resolve(strict=True), args.output_dir, key, args.agent_dist,
-                   gui_update_only=args.gui_update_only))
+                   gui_update_only=args.gui_update_only, rhel_major=args.rhel_major))
     except (ValueError, OSError, tarfile.TarError, subprocess.SubprocessError) as error:
         parser.exit(1, 'Offline controller packaging blocked: ' + str(error) + '\n')
 

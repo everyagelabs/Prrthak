@@ -2,7 +2,8 @@
 
 Legacy journal records stay legacy records, including old reported verdicts.
 Conntrack transport observations and terminal NFLOG packet observations must
-never be aggregated into one count with different units.
+never be aggregated into one count with different units. Scoped compatibility
+deny logs have their own kind and retain sampled log-record counts.
 """
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ import re
 from datetime import timedelta
 
 CAPABILITY = "traffic_capture_v1"
+DENY_LOG_CAPABILITY = "traffic_deny_log_v1"
 KINDS = ("accepted_connection", "denied_packet")
 FIELDS = ("capture_kind", "capture_backend", "count_unit", "address_family")
 SAMPLE_UNIT = "sample_minutes"
@@ -19,6 +21,7 @@ COUNT_UNITS = ("connections", "packets", "log_records", SAMPLE_UNIT)
 TYPED = {
     "accepted_connection": ("conntrack", "connections", "allowed"),
     "denied_packet": ("nflog", "packets", "denied"),
+    "denied_log": ("journal", "log_records", "denied"),
 }
 FLOW_COLUMNS = (
     ("capture_kind", "TEXT NOT NULL DEFAULT 'legacy_log'"),
@@ -39,7 +42,7 @@ BURST_FRESHNESS = timedelta(minutes=10)
 def record_burst(store, db, server, source, protocol, port, kind, second, count):
     from .store import digest, now, parse_time
 
-    if kind not in TYPED or count < BURST_THRESHOLD:
+    if kind not in KINDS or count < BURST_THRESHOLD:
         return
     point = parse_time(second)
     if point < now() - BURST_FRESHNESS:
@@ -62,6 +65,15 @@ def observation_kinds(value):
     if not isinstance(value, list) or not 1 <= len(value) <= 2 or any(kind not in KINDS for kind in value):
         raise ValueError("Select accepted_connection, denied_packet, or both observation kinds")
     return sorted(set(value))
+
+
+def observation_selected(kind, kinds):
+    """Compatibility deny records require the reviewed denied-traffic scope."""
+    return ("denied_packet" if kind == "denied_log" else kind) in kinds
+
+
+def deny_log_compatibility(capabilities, kinds):
+    return {CAPABILITY, DENY_LOG_CAPABILITY} <= set(capabilities) and kinds is not None and "denied_packet" in kinds
 
 
 def initialize(db):
@@ -125,14 +137,16 @@ def metadata(event, source=None, *, capabilities=None, kinds=_UNSCOPED):
         raise ValueError("Capture kind/backend/unit/verdict do not identify supported evidence")
     if capabilities is not None and CAPABILITY not in capabilities:
         raise ValueError("Typed evidence requires traffic_capture_v1")
-    if kinds is not _UNSCOPED and kind not in observation_kinds(kinds):
+    if kind == "denied_log" and capabilities is not None and DENY_LOG_CAPABILITY not in capabilities:
+        raise ValueError("Compatibility deny logs require traffic_deny_log_v1")
+    if kinds is not _UNSCOPED and not observation_selected(kind, observation_kinds(kinds)):
         raise ValueError("Observation kind was not selected for this capture scope")
     if event["address_family"] != family:
         raise ValueError("Capture address family does not match the observed source")
     if not isinstance(event.get("event_id"), str) or not re.fullmatch(r"[a-f0-9]{64}", event["event_id"]):
         raise ValueError("Typed capture requires a stable 64-hex event_id")
     if type(event.get("count")) is not int or event["count"] != 1:
-        raise ValueError("Typed capture admits individual lifecycle/packet events with count one")
+        raise ValueError("Typed capture admits individual lifecycle, packet or scoped log events with count one")
     return {key: event[key] for key in FIELDS}
 
 

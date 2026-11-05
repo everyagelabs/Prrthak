@@ -1,7 +1,7 @@
 # Traffic capture
 
 Prṛthak distinguishes **accepted transport connections**, **denied packets**,
-**sampled communication minutes** and **historical sampled journal logs**. Their
+**sampled deny logs**, **sampled communication minutes** and **historical sampled journal logs**. Their
 counts have different units and are never added into one connection or packet
 total. The destination is the selected endpoint, with sources and exact TCP/UDP
 ports bound to that endpoint's scope.
@@ -55,13 +55,28 @@ from removing an access policy.
 |---|---|---|---|
 | `accepted_connection` | Conntrack netlink | `allowed` / `connections` | Confirmed inbound transport state, not an application-success assertion; a NEW entry alone is insufficient |
 | `denied_packet` | NFLOG | `denied` / `packets` | A record from a verified supported terminal deny path, not every packet denied anywhere on the host |
+| `denied_log` | Scoped kernel journal | `denied` / `log_records` | Sampled firewall deny log from the selected port's proved terminal deny path; configured and kernel logging limits can omit hits |
 | Historical `legacy_log` | Kernel journal | Historical reported verdict / `log_records` | Sampled log observation; an old `allowed` or `denied` string is not upgraded into conntrack/NFLOG evidence |
 
 IPv4 and IPv6 support is reported separately for each backend. Unsupported
-firewalld/NFLOG functionality, ambiguous rule paths or missing privileges produce
-an explicit unsupported/error state and coverage gap. Typed capture does not
-silently fall back to journal sampling. Older firewalld versions may lack the
-required NFLOG rule support even when conntrack observation is available.
+firewalld functionality, ambiguous rule paths or missing privileges produce
+an explicit unsupported/error state and coverage gap. Older firewalld versions
+may lack rich-rule NFLOG support even when conntrack observation is available.
+
+For those endpoints, the controller can authorize compatibility collection in
+the signed assignment through `deny_log_compatibility=true`. It requires an
+agent advertising `traffic_deny_log_v1` and the session or monitoring scope's
+denied-traffic selection. The agent adds temporary, scoped, rate-limited kernel
+log rules only when it can prove the selected terminal deny path. The journal
+reader accepts the agent's owned prefixes and selected source/port metadata.
+The dashboard labels the resulting records **Deny log (sampled)** and reports
+their counts under **Log records**. Historical logs retain their legacy label.
+The compatibility path uses the same collection expiry and cleanup safeguards.
+
+These log records can show **Denied traffic observed**. Native deny verification
+continues to require the separate NFLOG packet evidence. Sampled log counts
+provide observations of blocked traffic, and cannot establish exact packet
+totals or packet rates. A zero-log window has unknown denied traffic coverage.
 
 Only reviewed ports and live capture scopes are admitted. Continuous monitoring
 uses fresh signed leases of at most 120 seconds; cached assignments and 304s do
@@ -89,7 +104,7 @@ observation sidecar and terminal reject:
 | Canonical | -31000 | -30999 | -30998 |
 | Staged candidate | -31004 | -31003 | -31002 |
 
-The sidecars are log-only. They do not accept, drop or reject traffic themselves.
+The sidecars collect observations. They do not accept, drop or reject traffic themselves.
 They are installed only where the agent can establish the exact supported deny
 path and ownership. Unknown, foreign or legacy rule layouts are not called
 verified denied-packet capture. Legacy generations can require an explicitly

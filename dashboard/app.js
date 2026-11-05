@@ -344,7 +344,7 @@ function chartHTML(){
     ?`<select id="traffic-chart-unit" class="filter-select" aria-label="Chart count unit">${units.map(value=>`<option value="${value}" ${unit===value?'selected':''}>${h(captureUnitLabel(value))}</option>`).join('')}</select>`
     :`<div class="chart-controls" aria-label="Traffic window">${[[3600,'1h'],[21600,'6h'],[86400,'24h']].map(([value,label])=>`<button class="${state.window===value?'selected':''}" data-action="window" data-value="${value}" aria-pressed="${state.window===value}">${label}</button>`).join('')}</div>`;
   const unitControls=traffic?'':`<div class="chart-controls" aria-label="Capture count unit">${units.map(value=>`<button class="${unit===value?'selected':''}" data-action="capture-unit" data-value="${value}" aria-pressed="${unit===value}">${h(captureUnitLabel(value))}</button>`).join('')}</div>`;
-  const legend=unit==='sample_minutes'||(traffic&&unit!=='log_records')?'':`<div class="chart-footer"><div class="legend"><span><i></i>${unit==='log_records'?'Legacy reported allowed':'Conntrack observed'}</span><span><i class="denied"></i>${unit==='log_records'?'Legacy reported denied':'Terminal NFLOG'}</span><span><i class="observed"></i>Legacy observed</span></div>${traffic?'':'<span>Transport evidence is not application success; legacy verdicts remain unverified</span>'}</div>`;
+  const legend=unit==='sample_minutes'||(traffic&&unit!=='log_records')?'':`<div class="chart-footer"><div class="legend"><span><i></i>${unit==='log_records'?'Legacy reported allowed':'Conntrack observed'}</span><span><i class="denied"></i>${unit==='log_records'?'Reported denied (sampled)':'Terminal NFLOG'}</span><span><i class="observed"></i>Legacy observed</span></div>${traffic?'':'<span>Transport evidence is not application success; legacy verdicts remain unverified</span>'}</div>`;
   const showSampleNote=traffic&&unit==='sample_minutes';
   let sampleNote='Up to one observation per source IP and endpoint port/protocol each minute.';
   if(showSampleNote&&!total){
@@ -352,7 +352,7 @@ function chartHTML(){
     if(page?.loading)sampleNote='Loading communication samples…';
     else if(page?.error)sampleNote='Could not load communication samples.';
     else if(page?.counts_by_unit.sample_minutes>0)sampleNote=`${format(page.counts_by_unit.sample_minutes)} samples match your filters on other pages of Observed sources.`;
-    else sampleNote='No samples in this window. For Count traffic hits sessions, choose Connections or Denied packets. Start Discover traffic with Count traffic hits turned off to collect samples.';
+    else sampleNote='No samples in this window. For Count traffic hits sessions, choose Connections, Denied packets or Log records. Start Discover traffic with Count traffic hits turned off to collect samples.';
   }
   return `<section class="card"><div class="card-header"><div><h2 class="card-title">${traffic?'Traffic by time':activeFilterCount()?'Filtered observed traffic':'Observed traffic'}</h2>${traffic?'':`<p class="card-subtitle">${unitLabel} grouped by last observation; units are never summed</p>`}</div>${headerControl}</div>${unitControls}
     <div class="chart-topline"><strong>${compact(total)}</strong><span>${unitLabel}${traffic?'':` · last ${state.window/3600}h`}</span></div>

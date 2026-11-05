@@ -165,6 +165,16 @@ func (a *Agent) Shutdown(ctx context.Context) error {
 		a.invalidatePolicyVerification("The observer stopped; previous traffic evidence is historical. Request a fresh observation lease.")
 	}
 	var first error
+	journal, err := a.collectDenyJournal(ctx, a.denyJournalReadScopes(), time.Now().UTC())
+	if err != nil {
+		first = err
+	} else if journal != nil {
+		if err := a.storeCapturedFlows(journal.Flows); err != nil {
+			first = err
+		} else if err := journal.Commit(); err != nil {
+			first = err
+		}
+	}
 	if a.trafficCapture != nil {
 		lock, err := managedLock(a.Config.StateDir, true)
 		if err == nil {

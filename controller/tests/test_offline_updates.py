@@ -41,8 +41,8 @@ class NodeManager:
         return self.jobs[identifier]
 
 
-def release(archive):
-    name = "prthak-controller-0.19.0-offline-rhel9-x86_64.tar.gz"
+def release(archive, rhel_major="9"):
+    name = f"prthak-controller-0.19.0-offline-rhel{rhel_major}-x86_64.tar.gz"
     manifest = {"filename": name, "bytes": len(archive), "sha256": hashlib.sha256(archive).hexdigest()}
     payload = json.dumps({"domain": "prthak-package-manifest-v1", "manifest": manifest}).encode()
     return {"name": name, "size": len(archive), "signature": {"algorithm": "Ed25519", "key_id": "d" * 32,
@@ -129,6 +129,21 @@ class OfflineUpdatesTests(unittest.TestCase):
         self.assertTrue(restarted.cancel(identifier)["cancelled"])
         self.assertIsNone(restarted.status()["update"])
         self.assertFalse(restarted._archive(identifier).exists())
+
+    def test_rhel10_upload_selects_the_exact_host_major_before_staging(self):
+        self.client.status = lambda: {"capabilities": [CAPABILITY], "offline_update_rhel_major": "10"}
+        with self.assertRaisesRegex(ValueError, "RHEL major version"):
+            self.api.start(release(b"rhel9"))
+        self.assertFalse(self.api.directory.exists())
+        metadata = release(b"rhel10", "10")
+        uploaded = self.api.start(metadata)
+        self.assertEqual(uploaded["name"], metadata["name"])
+        self.assertEqual(self.api.chunk(uploaded["id"], 0, b"rhel10")["offset"], 6)
+
+    def test_legacy_rhel9_manager_refuses_a_rhel10_update_before_staging(self):
+        with self.assertRaisesRegex(ValueError, "RHEL major version"):
+            self.api.start(release(b"rhel10", "10"))
+        self.assertFalse(self.api.directory.exists())
 
     def request(self, method, path, body=b"", *, csrf=True, origin="https://controller.test"):
         class TLS:

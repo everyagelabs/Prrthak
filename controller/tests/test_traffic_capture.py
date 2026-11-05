@@ -160,6 +160,115 @@ class TrafficCaptureTests(unittest.TestCase):
         self.assertEqual(plan['target_server_ids'],['b'])
         self.assertEqual(plan['services'],[{'port':80,'protocol':'tcp','sources':['2001:db8:20::99/128']}])
 
+    def compatibility(self):
+        self.fixture.report('a', '10.1.0.1', capabilities=[
+            'learning_discovery_v1', 'learning_auto_allow_v1', capture.CAPABILITY,
+            capture.DENY_LOG_CAPABILITY,
+        ])
+
+    def test_deny_log_scope_negotiation_preserves_older_agents_and_history(self):
+        session = self.session()
+        self.assertNotIn('deny_log_compatibility', self.store.assignment('a')[0]['learning_sessions'][0])
+        self.compatibility()
+        self.assertTrue(self.store.assignment('a')[0]['learning_sessions'][0]['deny_log_compatibility'])
+        self.store.stop_session(session['id'], 'admin')
+        self.assertTrue(self.store.assignment('a')[0]['learning_tombstones'][0]['deny_log_compatibility'])
+        accepted = self.session(kinds=['accepted_connection'])
+        self.compatibility()
+        self.assertNotIn('deny_log_compatibility', self.store.assignment('a')[0]['learning_sessions'][0])
+        with self.store.meta() as db:
+            historic = self.store._get(db, 'sessions', accepted['id'])
+            historic.pop('observation_kinds')
+            self.store._put(db, 'sessions', historic)
+        self.assertNotIn('deny_log_compatibility', self.store.assignment('a')[0]['learning_sessions'][0])
+
+    def test_deny_logs_deduplicate_and_remain_distinct_from_native_and_legacy_evidence(self):
+        session = self.session()
+        self.compatibility()
+        log = self.event('denied_log', 'compatibility')
+        self.upload(session, [log, self.event('denied_packet', 'native')])
+        self.upload(session, [log], batch='retry')
+        historical = {**self.store.get('sessions', session['id']), 'id': session['id'] + '-old',
+                      'status': 'stopped', 'stopped_at': stamp()}
+        historical.pop('observation_kinds')
+        with self.store.meta() as db:
+            self.store._put(db, 'sessions', historical)
+        legacy = {key: value for key, value in self.event(identity='historical').items()
+                  if key not in (*capture.FIELDS, 'event_id')}
+        legacy['count'] = 5
+        self.upload(historical, [legacy], batch='old')
+        self.assertEqual({(row['capture_kind'], row['count_unit'], row['count']) for row in self.store.flows()},
+                         {('denied_log', 'log_records', 1), ('denied_packet', 'packets', 1), ('legacy_log', 'log_records', 5)})
+        stats = self.store.overview()['stats']
+        self.assertEqual(stats['capture_counts']['log_records'], 6)
+        self.assertEqual(stats['observed_events'], 5)
+        rows = lp.recommendations(self.store, session['id'])['rows']
+        self.assertEqual({(row['capture_kind'], row['count']) for row in rows}, {('denied_log', 1), ('denied_packet', 1)})
+        self.assertIn('denied_log,journal,ipv6', lp.export_csv(self.store, session['id']))
+
+    def test_deny_logs_require_compatibility_capability_reviewed_deny_scope_and_exact_metadata(self):
+        session = self.session(kinds=['denied_packet'])
+        log = self.event('denied_log', 'scoped-log')
+        with self.assertRaisesRegex(ValueError, 'traffic_deny_log_v1'):
+            self.upload(session, [log])
+        self.compatibility()
+        for changes in ({'capture_backend': 'nflog'}, {'count_unit': 'packets'}, {'verdict': 'allowed'}, {'count': 2}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.upload(session, [{**log, **changes}])
+        self.store.stop_session(session['id'], 'admin')
+        accepted = self.session(kinds=['accepted_connection'])
+        self.compatibility()
+        with self.assertRaisesRegex(ValueError, 'not selected'):
+            self.upload(accepted, [self.event('denied_log', 'accepted-only')])
+        with self.store.meta() as db:
+            historic = self.store._get(db, 'sessions', accepted['id'])
+            historic.pop('observation_kinds')
+            self.store._put(db, 'sessions', historic)
+        with self.assertRaisesRegex(ValueError, 'Historical journal-only'):
+            self.upload(historic, [self.event('denied_log', 'historical')])
+        with self.store.read_traffic() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM batches').fetchone()[0], 0)
+
+    def test_sampled_deny_logs_authorize_only_selected_automatic_service_sources(self):
+        session = self.session(auto=True)
+        self.compatibility()
+        self.upload(session, [self.event('denied_log', 'compat-http', '10.40.0.8'),
+                              self.event('denied_log', 'compat-ssh', '10.40.0.9', 2022)])
+        assignment = self.fixture.assignment()
+        self.assertTrue(assignment['authorized'])
+        self.assertEqual(assignment['services'], [{'port': 80, 'protocol': 'tcp', 'sources': ['10.40.0.8/32']}])
+        self.assertEqual(assignment['authorities'][0]['observation_kinds'], list(capture.KINDS))
+
+    def test_sampled_deny_log_volume_does_not_become_packet_rates_or_burst_alerts(self):
+        self.compatibility()
+        session = self.store.create_session({'server_ids': ['a'], 'selection_mode': 'manual',
+                                            'ports': [{'port': 80, 'protocol': 'tcp'}], 'purpose': 'traffic',
+                                            'traffic_collection_mode': 'hits', 'duration_seconds': 3600}, 'admin')
+        point = stamp()
+        logs = [{**self.event('denied_log', f'log-{index}'), 'first_seen': point, 'last_seen': point}
+                for index in range(101)]
+        self.upload(session, logs)
+        rows = lp.recommendations(self.store, session['id'])['rows']
+        self.assertEqual([(row['capture_kind'], row['count']) for row in rows], [('denied_log', 101)])
+        self.assertNotIn('peak_observed_per_second', rows[0])
+        self.assertEqual([alert for alert in self.store.all('alerts') if alert['kind'] == 'traffic_burst'], [])
+        self.assertEqual(lp.listing(self.store), [])
+
+    def test_minute_sampling_deduplicates_compatibility_logs_with_their_capture_kind(self):
+        from controller.learning import TRAFFIC_SAMPLING_CAPABILITY
+        self.fixture.report('a', '10.1.0.1', capabilities=[capture.CAPABILITY,
+                            capture.DENY_LOG_CAPABILITY, TRAFFIC_SAMPLING_CAPABILITY])
+        session = self.store.create_session({'server_ids': ['a'], 'selection_mode': 'manual',
+                                            'ports': [{'port': 80, 'protocol': 'tcp'}], 'purpose': 'traffic',
+                                            'traffic_collection_mode': 'sampled', 'duration_seconds': 3600}, 'admin')
+        point = stamp()
+        samples = [{**self.event('denied_log', identity), 'first_seen': point, 'last_seen': point}
+                   for identity in ('sample-one', 'sample-two', 'sample-three')]
+        self.upload(session, samples[:2])
+        self.upload(session, samples[2:], batch='retry-sample')
+        self.assertEqual([(row['capture_kind'], row['count_unit'], row['count']) for row in self.store.flows()],
+                         [('denied_log', 'sample_minutes', 1)])
+
 
 class HitTypedCaptureTests(unittest.TestCase):
     def setUp(self):
@@ -172,7 +281,8 @@ class HitTypedCaptureTests(unittest.TestCase):
         monitor=self.fixture.make();body=self.fixture.batch(monitor)
         point=body['events'][0]['first_seen'];base=body['events'][0]
         body['events']=[]
-        for index,(kind,(backend,unit,verdict)) in enumerate(capture.TYPED.items()):
+        for index,kind in enumerate(capture.KINDS):
+            backend,unit,verdict=capture.TYPED[kind]
             body['events'].append({**base,'event_id':str(index+1)*64,'capture_kind':kind,'capture_backend':backend,'count_unit':unit,'verdict':verdict,'address_family':'ipv6'})
         hm.enqueue(self.store,'one',body);self.store.process_flows()
         rows=hm.hits(self.store,monitor['id'])['items']
@@ -208,6 +318,49 @@ class HitTypedCaptureTests(unittest.TestCase):
             historic=self.store._get(db,'hit_monitors',monitor['id']);historic.pop('observation_kinds');self.store._put(db,'hit_monitors',historic)
         hm.enqueue(self.store,'one',legacy)
         self.assertTrue(hm.enqueue(self.store,'one',copy.deepcopy(legacy))['duplicate'])
+
+    def test_monitor_negotiates_scoped_deny_logs_and_deduplicates_without_native_packet_claims(self):
+        monitor = self.fixture.make()
+        self.assertNotIn('deny_log_compatibility', self.fixture.lease(monitor))
+        self.fixture.report('one', capabilities=['signed_assignments_v1', hm.CAPABILITY,
+                                               capture.CAPABILITY, capture.DENY_LOG_CAPABILITY])
+        self.assertTrue(self.fixture.lease(monitor)['deny_log_compatibility'])
+        body = self.fixture.batch(monitor, identity='compatibility-log')
+        body['events'][0].update(capture_kind='denied_log', capture_backend='journal',
+                                 count_unit='log_records', verdict='denied')
+        self.assertEqual(hm.enqueue(self.store, 'one', body)['accepted'], 1)
+        self.assertEqual(hm.enqueue(self.store, 'one', {**body, 'batch_id': 'retry-log'})['accepted'], 0)
+        self.store.process_flows()
+        rows = hm.hits(self.store, monitor['id'])['items']
+        self.assertEqual([(row['capture_kind'], row['count_unit'], row['count']) for row in rows],
+                         [('denied_log', 'log_records', 1)])
+        with hm.csv_spool(self.store, monitor['id']) as (source, _):
+            self.assertIn('denied_log,journal,ipv6', source.read().decode('utf-8-sig'))
+        self.assertEqual(lp.listing(self.store), [])
+        self.assertEqual(self.store.all('sessions'), [])
+
+    def test_monitor_refuses_deny_logs_for_older_agents_or_accepted_only_or_historical_scopes(self):
+        monitor = self.fixture.make()
+        body = self.fixture.batch(monitor, identity='unsupported-log')
+        body['events'][0].update(capture_kind='denied_log', capture_backend='journal',
+                                 count_unit='log_records', verdict='denied')
+        with self.assertRaisesRegex(ValueError, 'traffic_deny_log_v1'):
+            hm.enqueue(self.store, 'one', body)
+        self.fixture.report('one', capabilities=['signed_assignments_v1', hm.CAPABILITY,
+                                               capture.CAPABILITY, capture.DENY_LOG_CAPABILITY])
+        with self.store.meta() as db:
+            stored = self.store._get(db, 'hit_monitors', monitor['id'])
+            stored['observation_kinds'] = ['accepted_connection']
+            self.store._put(db, 'hit_monitors', stored)
+        self.assertNotIn('deny_log_compatibility', self.fixture.lease(monitor))
+        with self.assertRaisesRegex(ValueError, 'not selected'):
+            hm.enqueue(self.store, 'one', body)
+        with self.store.meta() as db:
+            stored.pop('observation_kinds')
+            self.store._put(db, 'hit_monitors', stored)
+        self.assertNotIn('deny_log_compatibility', self.fixture.lease(monitor))
+        with self.assertRaisesRegex(ValueError, 'Historical journal-only'):
+            hm.enqueue(self.store, 'one', body)
 
 
 class CaptureScopeAuthorityTests(unittest.TestCase):

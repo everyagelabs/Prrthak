@@ -1010,13 +1010,13 @@ class Store:
                     if (session.get("selection_mode") != "discovered" or CAPABILITY in capabilities)
                     and (TRAFFIC_DISCOVERY_CAPABILITY in capabilities or not requires_long_capture(session))
                     and (TRAFFIC_SAMPLING_CAPABILITY in capabilities or not requires_sampled_capture(session))]
-        result["learning_sessions"] = sorted((learning_assignment(session, identifier) for session in sessions if session["status"] == "active" and parse_time(session["starts_at"]) <= current < parse_time(session["expires_at"])), key=lambda item: item["id"])
+        result["learning_sessions"] = sorted((learning_assignment(session, identifier, capabilities=capabilities) for session in sessions if session["status"] == "active" and parse_time(session["starts_at"]) <= current < parse_time(session["expires_at"])), key=lambda item: item["id"])
         tombstones = []
         for session in sessions:
             expiry = parse_time(session["expires_at"])
             cutoff = min(expiry, parse_time(session.get("stopped_at", session["expires_at"])))
             if cutoff <= current <= cutoff + timedelta(minutes=5):
-                tombstones.append({**learning_assignment(session, identifier), "status": "stopped" if session["status"] == "stopped" else "expired", "stopped_at": stamp(cutoff)})
+                tombstones.append({**learning_assignment(session, identifier, capabilities=capabilities), "status": "stopped" if session["status"] == "stopped" else "expired", "stopped_at": stamp(cutoff)})
         result["learning_tombstones"] = sorted(tombstones, key=lambda item: item["id"])
         from .firewall import assignments
         result["firewall_changes"] = assignments(self, db, identifier)
@@ -1399,7 +1399,8 @@ class Store:
         for flow in flows:
             if flow["count_unit"] in capture_counts:
                 capture_counts[flow["count_unit"]] += flow["count"]
-        stats = {"total_servers": total, "healthy_servers": sum(server["status"] == "healthy" for server in servers), "offline_servers": sum(server["status"] == "offline" for server in servers), "warning_servers": sum(server["status"] == "warning" for server in servers), "active_learning": session_page["active_total"], "active_alerts": alert_page["open_count"], "policy_count": policy_page["total"], "observed_events": capture_counts["log_records"], "observed_events_unit":"legacy_log_records", "capture_counts":capture_counts,"capture_counts_scope":"bounded_last_hour_relationships", "discovered_services": sum(len(server.get("listeners", [])) for server in servers), "synced_servers": sum(server.get("apply_status") == "synced" and server.get("applied_version") == server.get("desired_version") for server in servers)}
+        legacy_count = sum(flow["count"] for flow in flows if flow["capture_kind"] == "legacy_log")
+        stats = {"total_servers": total, "healthy_servers": sum(server["status"] == "healthy" for server in servers), "offline_servers": sum(server["status"] == "offline" for server in servers), "warning_servers": sum(server["status"] == "warning" for server in servers), "active_learning": session_page["active_total"], "active_alerts": alert_page["open_count"], "policy_count": policy_page["total"], "observed_events": legacy_count, "observed_events_unit":"legacy_log_records", "capture_counts":capture_counts,"capture_counts_scope":"bounded_last_hour_relationships", "discovered_services": sum(len(server.get("listeners", [])) for server in servers), "synced_servers": sum(server.get("apply_status") == "synced" and server.get("applied_version") == server.get("desired_version") for server in servers)}
         learned_page=public_policies(self,"learned")
         learned_policies=learned_page.pop("items")
         from . import __version__

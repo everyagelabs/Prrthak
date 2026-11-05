@@ -99,6 +99,7 @@ class Installer:
         self.runner = runner or Runner()
         self.expected_uid = expected_uid
         self.family = ''
+        self.os_major = ''
         self.arch = ''
         self.work = self.path('/run/prthak-installation')
         self.cli_config = self.work / 'docker-cli'
@@ -183,12 +184,13 @@ class Installer:
                 raise Blocked('OS identification contains duplicate fields')
             fields[key] = next(value for value in (double, single, plain) if value is not None)
         family, version = fields.get('ID'), fields.get('VERSION_ID', '')
-        if family == 'rhel' and re.fullmatch(r'9(?:\.[0-9]+)*', version):
+        if family == 'rhel' and re.fullmatch(r'(?:9|10)(?:\.[0-9]+)*', version):
             self.family = 'rhel'
+            self.os_major = version.split('.')[0]
         elif family == 'ubuntu' and version == '26.04' and fields.get('VERSION_CODENAME') == 'resolute':
             self.family = 'ubuntu'
         else:
-            raise Blocked('Automatic controller preparation supports RHEL 9 and Ubuntu 26.04 only')
+            raise Blocked('Automatic controller preparation supports RHEL 9/10 and Ubuntu 26.04 only')
         architecture = platform.machine()
         if architecture in ('x86_64', 'amd64'):
             self.arch = 'amd64'
@@ -410,7 +412,17 @@ class Installer:
         self.validate_host()
         if offline is not None:
             if self.family != 'rhel' or self.arch != 'amd64':
-                raise Blocked('The offline controller bundle requires RHEL 9 x86_64')
+                raise Blocked('The offline controller bundle requires RHEL 9/10 x86_64')
+            target_file = offline/'target.json'
+            if target_file.exists() or target_file.is_symlink():
+                try:
+                    target = json.loads(self.bounded_file(target_file, 1024))
+                except (ValueError, UnicodeError):
+                    raise Blocked('The offline dependency target is invalid') from None
+                if target != {'id': 'rhel', 'version_id': self.os_major, 'architecture': 'x86_64'}:
+                    raise Blocked('The offline dependency target differs from this RHEL major version')
+            elif self.os_major != '9':
+                raise Blocked('RHEL 10 requires its own dependency bundle with an explicit target')
             for name in ('keys/docker.asc', 'rpms/repodata/repomd.xml', 'images.json', 'images.tar.gz'):
                 path = self.protected(offline/name, allow_missing=True)
                 if not path.is_file():

@@ -2,7 +2,7 @@ package agent
 
 import "time"
 
-const Version = "0.18.21"
+const Version = "0.18.22"
 
 const LearningDiscoveryCapability = "learning_discovery_v1"
 const TrafficDiscoveryCapability = "traffic_discovery_30d_v1"
@@ -20,6 +20,7 @@ type Service struct {
 	Mode     string   `json:"mode,omitempty"`
 }
 type Session struct {
+	DenyLogCompatibility  bool       `json:"deny_log_compatibility,omitempty"`
 	TrafficCollectionMode string     `json:"traffic_collection_mode,omitempty"`
 	ObservationKinds      []string   `json:"observation_kinds,omitempty"`
 	PolicyAction          string     `json:"policy_action,omitempty"`

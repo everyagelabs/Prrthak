@@ -26,7 +26,7 @@ SPACE_RESERVE = 128 * 1024 * 1024
 CONFIRMATION = "INSTALL CONTROLLER UPDATE"
 ID = re.compile(r"[0-9a-f]{32}\Z")
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
-FILENAME = re.compile(r"prthak-controller-([0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6})-offline-rhel9-x86_64\.tar\.gz\Z")
+FILENAME = re.compile(r"prthak-controller-([0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6})-offline-rhel(9|10)-x86_64\.tar\.gz\Z")
 PENDING = frozenset(("queued", "running"))
 FAILURE_STEPS = {
     "preflight": "Check that the reviewed appliance and its dependencies are unchanged",
@@ -71,7 +71,7 @@ def _release(value):
     name, size, signature = value["name"], value["size"], value["signature"]
     match = FILENAME.fullmatch(name) if isinstance(name, str) else None
     if not match or type(size) is not int or not 1 <= size <= MAX_BYTES:
-        raise ValueError("Select a signed RHEL 9 x86_64 offline controller archive within the upload limit")
+        raise ValueError("Select a signed RHEL 9/10 x86_64 offline controller archive within the upload limit")
     try:
         if (not isinstance(signature, dict) or set(signature) != {"algorithm", "key_id", "payload", "signature"}
                 or len(json.dumps(signature).encode()) > SIGNATURE_BYTES or signature["algorithm"] != "Ed25519"
@@ -124,7 +124,7 @@ class OfflineUpdates:
         except (KeyError, ManagerUnavailable):
             return "The local appliance manager is unavailable"
         if CAPABILITY not in (state.get("capabilities") or ()):
-            return "Install an updater-enabled standalone RHEL 9 x86_64 appliance release first"
+            return "Install an updater-enabled standalone RHEL 9/10 x86_64 appliance release first"
         return ""
 
     def _require_available(self):
@@ -280,6 +280,9 @@ class OfflineUpdates:
     def start(self, value):
         self._require_available()
         release = _release(value)
+        host_major = self.client.status().get("offline_update_rhel_major", "9")
+        if FILENAME.fullmatch(release["name"])[2] != host_major:
+            raise ValueError("Choose the update archive for this controller’s RHEL major version")
         with self._locked():
             self._authorize()
             previous = _read_json(self.record_path)

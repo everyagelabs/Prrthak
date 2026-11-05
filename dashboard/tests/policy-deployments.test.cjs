@@ -55,6 +55,15 @@ test('per-port allow and deny witnesses are separate and malformed verification 
  assert.match(html,/443\/udp/);assert.match(html,/Verification evidence unavailable/);assert.doesNotMatch(html,/deployment-port-heading[^]*?deployment-status-badge verified">Traffic verified/);
  f.state().targetDetail.ports[0]={port:443,protocol:'tcp',status:'verified'};f.c.renderPolicyDeploymentsDetail();assert.doesNotMatch(f.element('#policy-deployment-detail').innerHTML,/deployment-port-heading[^]*?deployment-status-badge verified">Traffic verified/);
 });
+test('sampled deny log receipts cannot turn native packet verification green',()=>{
+ const f=fixture(),sample=evidence({capture_kind:'denied_log',capture_backend:'journal',count_unit:'log_records',expected_action:'denied'});
+ assert.equal(f.c.policyDeploymentEvidencePresent(sample),false);
+ const item={status:'verified',evidence:sample};
+ assert.equal(f.c.policyDeploymentPortVerified({allow:{status:'not_applicable'},deny:item}),false);
+ const html=f.c.policyDeploymentCaseHTML('Denied traffic',item);
+ assert.match(html,/Verification evidence unavailable/);
+ assert.doesNotMatch(html,/deployment-status-badge verified/);
+});
 test('late summaries cannot cross logout, identity changes or overlapping history pages',async()=>{
  for(const mode of ['logout','identity']){const pending=deferred(),f=fixture({request:()=>pending.promise});const call=f.c.refreshPolicyDeployments();if(mode==='logout'){f.c.clearPolicyDeployments();f.c.state.authType=null;}else f.c.state.user={id:'other',tenant_id:'tenant'};pending.resolve(page([summary()],1,10,0,{active_total:1}));await call;assert.equal(f.state().page,null);assert.doesNotMatch(f.element('#policy-deployments-list').innerHTML,/Billing source change/);}
  const pending=[],f=fixture({request:url=>new Promise(resolve=>pending.push({url,resolve}))}),first=f.c.refreshPolicyDeployments(),second=f.c.refreshPolicyDeployments({offset:10});pending[1].resolve(page([summary('newer-page')],11,10,10,{active_total:1}));await second;pending[0].resolve(page([summary()],11,10,0,{active_total:1}));await first;assert.equal(f.state().page.items[0].id,'newer-page');assert.equal(f.state().offset,10);

@@ -105,6 +105,16 @@ class DeploymentChecks:
         self.assertEqual((summary["state"], summary["applied_count"], summary["traffic_verified_count"]), ("verified", 1, 1))
         self.assertEqual(deployments.detail(self.store, run["id"], self.host["id"])["verified_port_count"], 2)
 
+    def test_compatibility_deny_log_cannot_substitute_for_a_native_packet_witness(self):
+        run, target = self.publish()
+        self.accepted_readback(target)
+        receipt = self.receipt(target, complete=True)
+        receipt["ports"][0]["deny"]["evidence"].update(
+            capture_kind="denied_log", capture_backend="journal", count_unit="log_records")
+        with self.assertRaises(ValueError):
+            self.admit(receipt)
+        self.assertEqual(deployments.summary(self.store, run["id"])["traffic_verified_count"], 0)
+
     def test_arm_claim_alone_cannot_mark_applied(self):
         _, target = self.publish()
         for changes in ({}, {"approval_id": "wrong"}, {"protection_digest": "a" * 64}, {"approved_ips": ["192.0.2.99"]}, {"generation": "f" * 32}, {"updated_at": target["created_at"]}):

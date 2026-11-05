@@ -38,7 +38,7 @@ function platformUpdateNotice() {
   }
   if (!state.platformUpdates && !state.platformUpdatesError) return 'Checking update support on this controller…';
   if (state.platformUpdates?.available !== true) {
-    return 'Install an updater-enabled standalone RHEL 9 x86_64 appliance release once to enable browser updates.';
+    return 'Install an updater-enabled standalone RHEL 9/10 x86_64 appliance release once to enable browser updates.';
   }
   return '';
 }
