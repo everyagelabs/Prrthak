@@ -58,6 +58,9 @@ func listenerPortSet(rows []Listener) map[string]bool {
 }
 
 func listenerBindingKey(protocol string, port int, address string) string {
+	if canonical, ok := normalizeListenerAddress(address); ok {
+		address = canonical
+	}
 	// ss uses * for an unspecified IPv6 address; IPv4 remains 0.0.0.0.
 	if address == "*" {
 		address = "::"

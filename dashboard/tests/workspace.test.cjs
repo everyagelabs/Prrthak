@@ -300,6 +300,53 @@ test('automatic and saved application groups are both reusable policy targets',a
  for(const id of ['saved-billing','auto-payments','auto-platform','custom-finance'])assert.match(html,new RegExp(`name="target_groups" value="${id}"`));
  assert.match(html,/Automatic application · 1/);assert.equal(env.run('policyTargetServers({selector:{},group_ids:["auto-platform"]})[0].id'),'platform-1');
 });
+test('policy target previews pair selected hostnames with all agent-reported addresses',async()=>{
+ const env=await workspace('policies');groupFixtures(env);
+ env.run(`state.data.servers[0].ips=['10.1.0.2','2001:db8::2'];state.data.servers[0].transport_ip='198.51.100.99';showPolicy();`);
+ for(const values of [
+  {target_type:'tags',selector:'application=billing'},
+  {target_type:'groups',target_groups:['saved-billing']},
+  {target_type:'endpoints',target_endpoints:['host-1']}
+ ]){
+  env.element('#policy-form').values=values;env.run('updatePolicyTargets()');
+  const html=env.element('#policy-target-preview').innerHTML;
+  assert.match(html,/1 affected endpoint</);
+  assert.match(html,/<strong>lab-api<\/strong><span class="target-member-addresses">10\.1\.0\.2, 2001:db8::2<\/span>/);
+  assert.doesNotMatch(html,/198\.51\.100\.99|payments-api|platform-api/);
+ }
+ assert.equal(mutations(env).length,0,'membership preview must not change a policy');
+});
+test('static and dynamic group editor previews show IPs for the matching members only',async()=>{
+ const env=await workspace('tags');groupFixtures(env);env.run('showGroupForm()');
+ env.element('[name="group_type"]').value='static';
+ env.element('#group-form').dataset.staticPicker='true';
+ env.element('#group-form').values={group_members:['platform-1']};
+ env.run(`state.data.servers.find(server=>server.id==='platform-1').ips=['10.2.0.8','2001:db8:2::8'];updateGroupPreview();`);
+ let html=env.element('#group-member-preview').innerHTML;
+ assert.match(html,/1 affected endpoint</);assert.match(html,/platform-api/);
+ assert.match(html,/10\.2\.0\.8, 2001:db8:2::8/);assert.doesNotMatch(html,/lab-api|payments-api/);
+ env.element('[name="group_type"]').value='dynamic';
+ env.element('[name="group_selector"]').value='application=billing';
+ env.run('updateGroupPreview()');html=env.element('#group-member-preview').innerHTML;
+ assert.match(html,/1 affected endpoint</);assert.match(html,/lab-api/);
+ assert.match(html,/10\.1\.0\.2/);assert.doesNotMatch(html,/platform-api|10\.2\.0\.8/);
+ assert.equal(mutations(env).length,0);
+});
+test('member previews escape identities and retain missing-IP and bounded-membership feedback',async()=>{
+ const env=await workspace('policies');
+ const servers=Array.from({length:10},(_,index)=>({id:'preview-'+index,hostname:index===0?'api <owner>':index===1?'':`server-${index}`,ips:index===1?[]:[`10.20.0.${index+1}`]}));
+ env.run(`state.data.servers=${JSON.stringify(servers)};showPolicy();`);
+ env.element('#policy-form').values={target_type:'all'};env.run('updatePolicyTargets()');
+ let html=env.element('#policy-target-preview').innerHTML;
+ assert.match(html,/10 affected endpoints</);assert.match(html,/api &lt;owner&gt;/);assert.doesNotMatch(html,/<owner>/);
+ assert.match(html,/<strong>preview-1<\/strong><span class="target-member-addresses">IP not reported<\/span>/);
+ assert.equal((html.match(/class="target-member-identity"/g)||[]).length,8);
+ assert.match(html,/\+2 more/);assert.doesNotMatch(html,/server-8|server-9|10\.20\.0\.10/);
+ env.element('#policy-form').values={target_type:'endpoints',target_endpoints:[]};env.run('updatePolicyTargets()');
+ html=env.element('#policy-target-preview').innerHTML;
+ assert.match(html,/0 affected endpoints</);assert.match(html,/No selected endpoints are currently listed/);
+ assert.doesNotMatch(html,/target-member-identity|10\.20\.0\./);
+});
 test('legacy duplicate application groups keep every saved ID while only one canonical representative appears under Applications',async()=>{
  const env=await workspace('servers');groupFixtures(env);env.run(`state.data.groups.push(${JSON.stringify({...applicationGroups[0],id:'older-billing',name:'Legacy billing',created_at:'2020-01-01T00:00:00Z'})});state.data.groups.find(group=>group.id==='saved-billing').created_at='2021-01-01T00:00:00Z';showGroups();`);
  const html=env.element('#modal-content').innerHTML,applicationSection=html.split('<h3>Custom groups</h3>')[0];

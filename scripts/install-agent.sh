@@ -80,6 +80,25 @@ RESOURCE_DROPIN=$RESOURCE_DIR/50-prthak-resource-limits.conf
 ACTIVE_CONFIG=$ETC_DIR/config.json
 RUNTIME_MANIFEST=$PROJECT_ROOT/runtime-integrity.json
 RELEASE_TRUST=$PROJECT_ROOT/deploy/release-public-trust.json
+SELINUX_ACTIVE=0
+if [ -z "$ROOT" ]; then
+  if command -v getenforce >/dev/null 2>&1; then
+    if ! SELINUX_MODE=$(getenforce); then
+      echo 'Cannot determine the SELinux state. No installation files were replaced.' >&2; exit 1
+    fi
+    case "$SELINUX_MODE" in
+      Enforcing|Permissive) SELINUX_ACTIVE=1 ;;
+      Disabled) ;;
+      *) echo 'Unrecognized SELinux state. No installation files were replaced.' >&2; exit 1 ;;
+    esac
+  elif [ -e /sys/fs/selinux/enforce ] || [ -e /selinux/enforce ]; then
+    SELINUX_ACTIVE=1
+  fi
+  if [ "$SELINUX_ACTIVE" -eq 1 ] && ! command -v restorecon >/dev/null 2>&1; then
+    echo 'SELinux is enabled but restorecon is unavailable. Install policycoreutils from the approved OS repository and retry. No installation files were replaced.' >&2
+    exit 1
+  fi
+fi
 if [ -f "$RUNTIME_MANIFEST" ] && [ -f "$RELEASE_TRUST" ]; then
   TRUST_SOURCE=$RELEASE_TRUST
   if [ -f "$ETC_DIR/release-public-trust.json" ]; then TRUST_SOURCE=$ETC_DIR/release-public-trust.json; fi
@@ -109,8 +128,62 @@ if [ -z "$ROOT" ]; then
 fi
 WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/psegra-install.XXXXXX")
 RESOURCE_TEMP=
-trap 'rm -rf -- "$WORK_DIR"; if [ -n "$RESOURCE_TEMP" ]; then rm -f -- "$RESOURCE_TEMP"; fi' 0
+KEEP_WORK_DIR=0
+trap 'if [ "$KEEP_WORK_DIR" -eq 0 ]; then rm -rf -- "$WORK_DIR"; else printf "%s\n" "Installation did not complete. Private recovery files were retained at $WORK_DIR; restore the previous installation before retrying." >&2; fi; if [ -n "$RESOURCE_TEMP" ]; then rm -f -- "$RESOURCE_TEMP"; fi' 0
 trap 'exit 1' 1 2 15
+# Preserve exact prior files, including security xattrs, before a live SELinux
+# install stops the service. Standard labels are restored only on these fixed
+# final destinations; no recursive relabeling or hardcoded SELinux types.
+snapshot_agent_context_files() {
+  printf '%s\n' "$ACTIVE_CONFIG" "$ETC_DIR/config.json.previous" \
+    "$ETC_DIR/controller-ca.crt" "$ETC_DIR/endpoint-ca.crt" \
+    "$ETC_DIR/enrollment-token" "$ETC_DIR/bootstrap.env" \
+    "$ETC_DIR/release-public-trust.json" "$BIN_DIR/seg-agent" \
+    "$UNIT_DIR/seg-agent.service" "$RESOURCE_DROPIN" \
+    "$ROOT/usr/share/doc/seg-agent/README.md" \
+    "$ROOT/usr/share/seg-agent/runtime-integrity.json" \
+    "$ROOT/usr/share/seg-agent/upgrade-helper" \
+    "$ROOT/usr/share/seg-agent/upgrade-helper-integrity.json" > "$WORK_DIR/context-files"
+  SNAPSHOT_INDEX=0
+  while IFS= read -r CONTEXT_PATH; do
+    SNAPSHOT_INDEX=$((SNAPSHOT_INDEX + 1))
+    if [ -L "$CONTEXT_PATH" ] || { [ -e "$CONTEXT_PATH" ] && [ ! -f "$CONTEXT_PATH" ]; }; then
+      echo 'SELinux installation requires regular, non-symlink destination files. Nothing was replaced.' >&2
+      return 1
+    fi
+    if [ -f "$CONTEXT_PATH" ]; then
+      if ! cp --preserve=mode,ownership,timestamps,context,xattr -- "$CONTEXT_PATH" "$WORK_DIR/original-$SNAPSHOT_INDEX"; then
+        echo 'Cannot preserve the previous installation and its SELinux context for recovery. Nothing was replaced; check filesystem xattr/context support before retrying.' >&2
+        return 1
+      fi
+    fi
+  done < "$WORK_DIR/context-files"
+}
+restore_agent_contexts() {
+  set --
+  while IFS= read -r CONTEXT_PATH; do
+    if [ -e "$CONTEXT_PATH" ]; then set -- "$@" "$CONTEXT_PATH"; fi
+  done < "$WORK_DIR/context-files"
+  restorecon -F -- "$@"
+}
+restore_prior_agent_files() {
+  SNAPSHOT_INDEX=0
+  CONTEXT_RESTORE_FAILED=0
+  while IFS= read -r CONTEXT_PATH; do
+    SNAPSHOT_INDEX=$((SNAPSHOT_INDEX + 1))
+    if [ -f "$WORK_DIR/original-$SNAPSHOT_INDEX" ]; then
+      CONTEXT_RESTORE_TEMP=$(mktemp "$(dirname -- "$CONTEXT_PATH")/.prthak-context-restore.XXXXXX") || { CONTEXT_RESTORE_FAILED=1; continue; }
+      if cp --preserve=mode,ownership,timestamps,context,xattr -- "$WORK_DIR/original-$SNAPSHOT_INDEX" "$CONTEXT_RESTORE_TEMP" && mv -f -- "$CONTEXT_RESTORE_TEMP" "$CONTEXT_PATH"; then :
+      else rm -f -- "$CONTEXT_RESTORE_TEMP"; CONTEXT_RESTORE_FAILED=1; fi
+    elif ! rm -f -- "$CONTEXT_PATH"; then CONTEXT_RESTORE_FAILED=1; fi
+  done < "$WORK_DIR/context-files"
+  [ "$CONTEXT_RESTORE_FAILED" -eq 0 ] || return 1
+  systemctl daemon-reload || return 1
+  if [ "$WAS_RUNNING" -eq 1 ]; then
+    systemctl start seg-agent.service || return 1
+    systemctl is-active --quiet seg-agent.service || return 1
+  fi
+}
 VERIFY_RESOURCES=0
 if [ -z "$ROOT" ] && { [ "$RESOURCE_LIMITS" -eq 1 ] || [ -e "$RESOURCE_DROPIN" ] || [ -L "$RESOURCE_DROPIN" ]; }; then
   VERIFY_RESOURCES=1
@@ -158,6 +231,11 @@ set -- "$BINARY_SOURCE" --config "$CONFIG_SOURCE" --check-config --install-check
 [ -z "$ENDPOINT_CA_SOURCE" ] || set -- "$@" --check-endpoint-ca "$ENDPOINT_CA_SOURCE"
 [ -z "$TOKEN_SOURCE" ] || set -- "$@" --check-token-file "$TOKEN_SOURCE"
 "$@"
+if [ "$SELINUX_ACTIVE" -eq 1 ]; then
+  snapshot_agent_context_files
+  # An interruption after this point must not delete the only prior copies.
+  KEEP_WORK_DIR=1
+fi
 # Stop only the ordinary agent, never an independent rollback unit. Repeat the
 # read-only guard after stop so no newly armed transaction can race the copy.
 # Credentials/configuration/binary remain unchanged until both checks pass.
@@ -211,6 +289,23 @@ if [ -f "$RUNTIME_MANIFEST" ] && [ -f "$RELEASE_TRUST" ]; then
   mv -f -- "$ROOT/usr/share/seg-agent/upgrade-helper-integrity.json.next" "$ROOT/usr/share/seg-agent/upgrade-helper-integrity.json"
   if [ ! -f "$ETC_DIR/release-public-trust.json" ]; then install -m 0644 "$RELEASE_TRUST" "$ETC_DIR/release-public-trust.json"; fi
 fi
+if [ "$RESOURCE_LIMITS" -eq 1 ]; then
+  if [ ! -d "$RESOURCE_DIR" ]; then install -d -m 0755 "$RESOURCE_DIR"; fi
+  RESOURCE_TEMP=$(mktemp "$RESOURCE_DIR/.prthak-resource.XXXXXX")
+  install -m 0644 "$WORK_DIR/resource-limits.conf" "$RESOURCE_TEMP"
+  mv -fT -- "$RESOURCE_TEMP" "$RESOURCE_DROPIN"
+  RESOURCE_TEMP=
+fi
+if [ "$SELINUX_ACTIVE" -eq 1 ] && ! restore_agent_contexts; then
+  if restore_prior_agent_files; then
+    KEEP_WORK_DIR=0
+    echo 'SELinux policy context restoration failed. Previous files and service state were restored; installation did not complete. Check restorecon diagnostics and the installed SELinux policy before retrying.' >&2
+  else
+    KEEP_WORK_DIR=1
+    printf '%s\n' "SELinux policy context restoration failed and recovery is incomplete. Do not start the candidate installation. Preserve the private recovery files at $WORK_DIR and restore the previous installation before retrying." >&2
+  fi
+  exit 1
+fi
 # Validate the exact effective installed configuration before starting a service.
 set -- "$BIN_DIR/seg-agent" --config "$ACTIVE_CONFIG" --check-config --install-check
 [ -z "$INSTALLATION_LEASE_FD" ] || set -- "$@" --installation-lease-fd "$INSTALLATION_LEASE_FD"
@@ -224,19 +319,13 @@ if [ -n "$ROOT" ]; then
   printf '%s\n' 'Prṛthak (पृथक्) staged and enabled for the target boot; no live service was started.' 'At target boot the endpoint enrolls and appears in the dashboard automatically.'
   exit 0
 fi
-if [ "$RESOURCE_LIMITS" -eq 1 ]; then
-  if [ ! -d "$RESOURCE_DIR" ]; then install -d -m 0755 "$RESOURCE_DIR"; fi
-  RESOURCE_TEMP=$(mktemp "$RESOURCE_DIR/.prthak-resource.XXXXXX")
-  install -m 0644 "$WORK_DIR/resource-limits.conf" "$RESOURCE_TEMP"
-  mv -fT -- "$RESOURCE_TEMP" "$RESOURCE_DROPIN"
-  RESOURCE_TEMP=
-fi
 systemctl daemon-reload
 if [ "$VERIFY_RESOURCES" -eq 1 ]; then
   "$BIN_DIR/seg-agent" --verify-agent-resource-unit
 fi
 systemctl enable seg-agent.service
 if [ "$NO_START" -eq 1 ]; then
+  KEEP_WORK_DIR=0
   printf '%s\n' 'Prṛthak (पृथक्) installed and enabled. --no-start leaves the service stopped until target boot or an explicit start.'
   exit 0
 fi
@@ -252,6 +341,7 @@ ELAPSED=0
 STATUS_OUTPUT='Prṛthak (पृथक्) registration pending; automatic retries are active.'
 while :; do
   if STATUS_OUTPUT=$("$BIN_DIR/seg-agent" --config "$ACTIVE_CONFIG" --status 2>&1); then
+    KEEP_WORK_DIR=0
     printf '%s\n' "$STATUS_OUTPUT"
     exit 0
   fi
@@ -264,3 +354,4 @@ if systemctl is-active --quiet seg-agent.service; then
 else
   printf '%s\n' 'Prṛthak (पृथक्) installed and enabled; systemd is restarting the agent.' 'Inspect bootstrap configuration and progress: journalctl -u seg-agent.service -f'
 fi
+KEEP_WORK_DIR=0

@@ -228,6 +228,19 @@ func (a *Agent) processLearningAllow(ctx context.Context, p *LearningAllow) erro
 		bundle.Rules = append([]ManagedRule{}, old.Rules...)
 		bundle.IPSets = append([]ManagedIPSet{}, old.IPSets...)
 	}
+	if !noChange {
+		if e = a.managedSetPreflight(ctx, bundle.IPSets); e != nil {
+			return blocked(e.Error())
+		}
+		if e = a.learningAllowHealth(ctx, p, protection); e != nil {
+			return blocked("preflight management health: " + e.Error())
+		}
+	}
+	// These checks are read-only and no timer is armed yet. Start the same
+	// 120-second safety window only once they finish, immediately before the
+	// journal is saved and the independent watchdog is armed. Slow preflight
+	// must not consume the mutation/health-check window; it is never extended
+	// after arming.
 	journal := &managedJournal{Nonce: nonce, Phase: "armed", PID: os.Getpid(), ProcessIdentity: processIdentity(os.Getpid()), Deadline: time.Now().Add(120 * time.Second), DeadlineBootSeconds: bootElapsedSeconds() + 120, Previous: learningBundleRecord(old), Next: *learningBundleRecord(bundle), Mutations: []managedMutation{}}
 	path := learningJournalPath(a.Config.StateDir, nonce)
 	if noChange {
@@ -238,12 +251,6 @@ func (a *Agent) processLearningAllow(ctx context.Context, p *LearningAllow) erro
 		a.State.LearningAllowBundle = bundle
 		a.learningOutcome(p, "applied", "")
 		return a.save()
-	}
-	if e = a.managedSetPreflight(ctx, bundle.IPSets); e != nil {
-		return blocked(e.Error())
-	}
-	if e = a.learningAllowHealth(ctx, p, protection); e != nil {
-		return blocked("preflight management health: " + e.Error())
 	}
 	if e = saveManagedJournal(path, journal); e != nil {
 		return e

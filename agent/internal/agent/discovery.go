@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 type CommandRunner interface {
@@ -55,6 +58,66 @@ var socketAddress = regexp.MustCompile(`^(.*):([0-9]+)$`)
 var processPattern = regexp.MustCompile(`users:\(\("([^"]+)"`)
 var processPIDPattern = regexp.MustCompile(`users:\(\("([^"]+)",pid=([0-9]+)`)
 
+func validListenerInterface(name string) bool {
+	if name == "" || len(name) > 15 || name == "." || name == ".." || !utf8.ValidString(name) || strings.ContainsAny(name, "/:") {
+		return false
+	}
+	for _, character := range name {
+		if unicode.IsSpace(character) || unicode.IsControl(character) {
+			return false
+		}
+	}
+	return true
+}
+
+// ss appends a bound interface to IPv4 addresses on recent iproute2 releases.
+// IPv4 has no scoped address syntax, so compare its canonical address with
+// inet_diag while retaining actual IPv6 scope in the reported listener.
+func normalizeListenerAddress(address string) (string, bool) {
+	if strings.HasPrefix(address, "[") {
+		// Interface names may themselves contain brackets, including in
+		// [IPv6%interface]. Validate the enclosing-bracket form first.
+		if strings.HasSuffix(address, "]") {
+			if canonical, ok := normalizeListenerHost(address[1:len(address)-1], true); ok {
+				return canonical, true
+			}
+		}
+		// ss also emits [IPv6]%interface. A scope in both places is invalid.
+		closing := strings.Index(address, "]%")
+		if closing < 0 || strings.Contains(address[1:closing], "%") {
+			return "", false
+		}
+		return normalizeListenerHost(address[1:closing]+address[closing+1:], true)
+	}
+	return normalizeListenerHost(address, false)
+}
+
+func normalizeListenerHost(address string, bracketed bool) (string, bool) {
+	if address == "*" && !bracketed {
+		return address, true
+	}
+	base, zone, scoped := strings.Cut(address, "%")
+	if scoped && !validListenerInterface(zone) {
+		return "", false
+	}
+	// Preserve ss's IPv6 wildcard spelling when it also reports a bound
+	// interface. The kernel snapshot represents the same wildcard as ::.
+	if base == "*" && scoped && !bracketed {
+		base = "::"
+	}
+	parsed, err := netip.ParseAddr(base)
+	if err != nil || bracketed && !parsed.Is6() {
+		return "", false
+	}
+	if parsed.Is4() {
+		return parsed.String(), true
+	}
+	if scoped {
+		parsed = parsed.WithZone(zone)
+	}
+	return parsed.String(), true
+}
+
 func ParseSockets(text string) []Listener {
 	listeners := []Listener{}
 	seen := map[string]bool{}
@@ -75,19 +138,9 @@ func ParseSockets(text string) []Listener {
 		if e != nil || port < 1 || port > 65535 {
 			continue
 		}
-		addr := m[1]
-		if strings.HasPrefix(addr, "[") {
-			closing := strings.IndexByte(addr, ']')
-			if closing < 0 {
-				continue
-			}
-			// ss may print [IPv6]%interface:port or [IPv6%interface]:port.
-			// Strip the actual brackets, preserving either scoped form.
-			suffix := addr[closing+1:]
-			if suffix != "" && (!strings.HasPrefix(suffix, "%") || len(suffix) == 1) {
-				continue
-			}
-			addr = addr[1:closing] + suffix
+		addr, validAddress := normalizeListenerAddress(m[1])
+		if !validAddress {
+			continue
 		}
 		proc := ""
 		if p := processPattern.FindStringSubmatch(line); len(p) == 2 {

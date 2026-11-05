@@ -904,7 +904,7 @@ func ApplyEndpointConfiguration(ctx context.Context, path, configPath string, co
 		restartOld()
 		return errors.New("independent rollback requires the protected installed agent executable")
 	}
-	if _, err = commands.Run(ctx, "systemd-run", "--unit="+unit, "--on-active=90s", "--timer-property=AccuracySec=1s", "--property=Type=oneshot", "--property=Restart=on-failure", "--property=RestartSec=3s", "--property=RestartPreventExitStatus=3", executable, "--rollback-configuration", journalPath); err != nil {
+	if err = armConfigurationWatchdog(ctx, commands, unit, executable, journalPath); err != nil {
 		journal.Status = "not_started"
 		_ = atomicJSON(journalPath, journal)
 		clearConfigurationPointer(journalPath, journal.ReviewID)

@@ -294,7 +294,7 @@ func loopbackNamespaceAddresses(raw string) (map[string]any, error) {
 		return nil, errors.New("namespace must contain exactly one loopback interface; extra or unreadable links require review")
 	}
 	row, ok := rows[0].(map[string]any)
-	if !ok || !namespaceKnownFields(row, "ifindex ifname flags mtu qdisc operstate linkmode group txqlen link_type address broadcast addr_info") || row["ifname"] != "lo" || row["link_type"] != "loopback" || row["ifindex"] != json.Number("1") {
+	if !ok || !namespaceKnownFields(row, "ifindex ifname flags mtu qdisc operstate linkmode group txqlen link_type address broadcast addr_info promiscuity allmulti min_mtu max_mtu num_tx_queues num_rx_queues gso_max_size gso_max_segs tso_max_size tso_max_segs gro_max_size gso_ipv4_max_size gro_ipv4_max_size") || row["ifname"] != "lo" || row["link_type"] != "loopback" || row["ifindex"] != json.Number("1") {
 		return nil, errors.New("namespace contains a non-loopback or unsupported interface")
 	}
 	for key, choices := range map[string][]any{
@@ -309,6 +309,20 @@ func loopbackNamespaceAddresses(raw string) (map[string]any, error) {
 	for _, key := range []string{"mtu", "txqlen"} {
 		if value, present := row[key]; present && !namespaceUint(value, key == "mtu") {
 			return nil, errors.New("invalid private loopback interface limit")
+		}
+	}
+	// Recent iproute2/kernel readback includes offload and queue telemetry on
+	// ordinary loopback. These fields cannot introduce a link or route; retain
+	// them in the reviewed digest, with strict numeric bounds and no promiscuous
+	// or all-multicast mode. Unknown fields are still rejected above.
+	for _, key := range []string{"promiscuity", "allmulti"} {
+		if value, present := row[key]; present && value != json.Number("0") {
+			return nil, fmt.Errorf("unsupported private loopback %s mode", key)
+		}
+	}
+	for _, key := range []string{"min_mtu", "max_mtu", "num_tx_queues", "num_rx_queues", "gso_max_size", "gso_max_segs", "tso_max_size", "tso_max_segs", "gro_max_size", "gso_ipv4_max_size", "gro_ipv4_max_size"} {
+		if value, present := row[key]; present && !namespaceUint(value, key == "num_tx_queues" || key == "num_rx_queues") {
+			return nil, fmt.Errorf("invalid private loopback %s telemetry", key)
 		}
 	}
 	flags, ok := row["flags"].([]any)
@@ -333,7 +347,7 @@ func loopbackNamespaceAddresses(raw string) (map[string]any, error) {
 	seenAddresses := map[string]bool{}
 	for _, value := range addresses {
 		addr, ok := value.(map[string]any)
-		if !ok || !namespaceKnownFields(addr, "family local prefixlen scope label valid_life_time preferred_life_time") || addr["scope"] != "host" {
+		if !ok || !namespaceKnownFields(addr, "family local prefixlen scope label valid_life_time preferred_life_time noprefixroute") || addr["scope"] != "host" {
 			return nil, errors.New("unsupported private loopback address metadata")
 		}
 		local, ok := addr["local"].(string)
@@ -342,6 +356,11 @@ func loopbackNamespaceAddresses(raw string) (map[string]any, error) {
 		}
 		if label, present := addr["label"]; present && label != "lo" {
 			return nil, errors.New("private loopback address has an unexpected label")
+		}
+		if flag, present := addr["noprefixroute"]; present {
+			if _, boolean := flag.(bool); !boolean || local != "::1" || addr["family"] != "inet6" {
+				return nil, errors.New("invalid private IPv6 loopback noprefixroute flag")
+			}
 		}
 		for _, key := range []string{"valid_life_time", "preferred_life_time"} {
 			if value, present := addr[key]; present && value != "forever" && !namespaceUint(value, false) {
@@ -382,7 +401,12 @@ func loopbackNamespaceRoutes(raw, family string) ([]any, error) {
 			return nil, errors.New("unexpected private loopback routing table")
 		}
 		if scope, present := row["scope"]; present && scope != "host" && scope != "link" {
-			return nil, errors.New("unexpected private loopback route scope")
+			// RHEL 10 reports kernel's local ::1/128 route as scope global.
+			// The scope word does not make this exact loopback route external.
+			localIPv6 := family == "-6" && prefix.Addr() == netip.IPv6Loopback() && prefix.Bits() == 128 && row["type"] == "local" && (row["table"] == "local" || row["table"] == json.Number("255"))
+			if scope != "global" || !localIPv6 {
+				return nil, errors.New("unexpected private loopback route scope")
+			}
 		}
 		if source, present := row["prefsrc"]; present && !(family == "-4" && source == "127.0.0.1" || family == "-6" && source == "::1") {
 			return nil, errors.New("non-loopback preferred route source")

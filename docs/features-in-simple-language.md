@@ -2,7 +2,7 @@
 
 **One place to see your Linux servers and control who may connect to their services.**
 
-This explains what you asked for and how Prṛthak does it. The current implementation is **0.18.24**. Use the [current commands and support profiles](installation-commands.md). For the illustrated flow, start with the [controller picture guide](guide/simple/controller-installation.html), then follow the [agent picture guide](guide/simple/agent-installation.html).
+This explains what you asked for and how Prṛthak does it. The current implementation is **0.18.25**. Use the [current commands and support profiles](installation-commands.md). For the illustrated flow, start with the [controller picture guide](guide/simple/controller-installation.html), then follow the [agent picture guide](guide/simple/agent-installation.html).
 
 ## The controller is the control room
 
