@@ -7,6 +7,18 @@ import (
 	"strings"
 )
 
+type nftKernelItem struct {
+	Family string            `json:"family"`
+	Table  string            `json:"table"`
+	Name   string            `json:"name"`
+	Chain  string            `json:"chain"`
+	Hook   string            `json:"hook"`
+	Policy string            `json:"policy"`
+	Type   string            `json:"type"`
+	Prio   *int              `json:"prio"`
+	Expr   []json.RawMessage `json:"expr"`
+}
+
 func hostDefaultDenyLinkContext(raw string) (string, []string, error) {
 	var links []struct {
 		Name   string          `json:"ifname"`
@@ -50,29 +62,32 @@ func hostDefaultDenyKernelContext(raw, zone string) (string, error) {
 	}
 	input, zonePre, established, loopback, dispatch := false, false, false, false, false
 	base := map[string][]json.RawMessage{}
+	compat := make(nftTailscaleContext)
 	dispatchChains := map[string]bool{"filter_INPUT_POLICIES": true, "filter_INPUT_ZONES": true, "filter_INPUT_ZONES_SOURCE": true, "filter_INPUT_POLICIES_pre": true, "filter_INPUT_POLICIES_post": true}
 	for _, object := range document.Objects {
+		if len(object) != 1 {
+			return bad()
+		}
 		for kind, body := range object {
 			if kind == "metainfo" {
 				continue
 			}
-			var item struct {
-				Family string            `json:"family"`
-				Table  string            `json:"table"`
-				Name   string            `json:"name"`
-				Chain  string            `json:"chain"`
-				Hook   string            `json:"hook"`
-				Policy string            `json:"policy"`
-				Type   string            `json:"type"`
-				Prio   int               `json:"prio"`
-				Expr   []json.RawMessage `json:"expr"`
+			var item nftKernelItem
+			if json.Unmarshal(body, &item) != nil {
+				return bad()
 			}
-			if json.Unmarshal(body, &item) != nil || item.Family != "inet" || kind == "table" && item.Name != "firewalld" || kind != "table" && item.Table != "firewalld" {
+			if item.Family != "inet" || kind == "table" && item.Name != "firewalld" || kind != "table" && item.Table != "firewalld" {
+				if !compat.add(kind, item, body) {
+					return bad()
+				}
+				continue
+			}
+			if kind == "chain" && item.Hook == "input" && item.Prio == nil {
 				return bad()
 			}
 			if kind == "chain" {
 				if item.Hook == "input" {
-					if input || item.Name != "filter_INPUT" || item.Prio != 10 || item.Type != "filter" || item.Policy != "accept" {
+					if input || item.Name != "filter_INPUT" || *item.Prio != 10 || item.Type != "filter" || item.Policy != "accept" {
 						return bad()
 					}
 					input = true
@@ -168,6 +183,13 @@ func hostDefaultDenyKernelContext(raw, zone string) (string, error) {
 	}
 	if !input || !zonePre || !established || !loopback || !dispatch {
 		return bad()
+	}
+	if len(compat) > 0 {
+		proof, ok := compat.proof()
+		if !ok {
+			return bad()
+		}
+		base["iptables-nft tailscale"] = []json.RawMessage{proof}
 	}
 	encoded, _ := json.Marshal(base)
 	return shaText(string(encoded)), nil

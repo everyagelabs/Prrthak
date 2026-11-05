@@ -160,7 +160,7 @@ func (a *Agent) plannedCaptureSidecars(ctx context.Context, scopes []capturePort
 	if _, err = hostDefaultDenyKernelContext(raw, zone); err != nil {
 		return nil, nil, err
 	}
-	gaps := []string{"Earlier unmanaged/direct rejects and untracked traffic may be absent; NFLOG is not a complete packet ledger."}
+	gaps := []string{"Packets dropped by earlier filters, such as Tailscale anti-spoofing, and untracked traffic may be absent from firewalld NFLOG."}
 	owned := map[string]bool{}
 	if a.State.ManagedBundle != nil {
 		for _, rule := range a.State.ManagedBundle.Rules {

@@ -368,6 +368,7 @@ func TestTrafficCaptureVerifiedLearningAllowRulesPreserveDeniedObservation(t *te
 		}
 		t.Run(name, func(t *testing.T) {
 			a, f, protection := scaleManagedAgent(t)
+			f.policyDefinition = defaultHostIPv6PolicyWithMLD
 			p := managedTestPolicy(protection, 1, "198.51.100.0/24")
 			if err := a.applyManaged(context.Background(), p, protection); err != nil {
 				t.Fatal(err)

@@ -397,9 +397,18 @@ const defaultHostIPv6Policy = `allow-host-ipv6 (active)
     rule family="ipv6" icmp-type name="redirect" accept
 `
 
+const defaultHostIPv6PolicyWithMLD = defaultHostIPv6Policy + `    rule family="ipv6" icmp-type name="mld-listener-done" accept
+    rule family="ipv6" icmp-type name="mld-listener-query" accept
+    rule family="ipv6" icmp-type name="mld-listener-report" accept
+    rule family="ipv6" icmp-type name="mld2-listener-report" accept
+`
+
 func TestDefaultHostIPv6PolicyRecognizedByFullDefinitionOnly(t *testing.T) {
 	if !safeHostIPv6Policy(defaultHostIPv6Policy) {
 		t.Fatal("actual default IPv6 policy not recognized")
+	}
+	if !safeHostIPv6Policy(defaultHostIPv6PolicyWithMLD) {
+		t.Error("stock RHEL 9 IPv6 policy with MLD rules not recognized")
 	}
 	if !safeHostIPv6Policy(strings.Replace(defaultHostIPv6Policy, "allow-host-ipv6", "another-policy", 1)) {
 		t.Fatal("safe classification incorrectly depended on name")
@@ -410,6 +419,27 @@ func TestDefaultHostIPv6PolicyRecognizedByFullDefinitionOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultHostIPv6PolicyRejectsModifiedMLDDefinitions(t *testing.T) {
+	const lastRule = `    rule family="ipv6" icmp-type name="mld2-listener-report" accept` + "\n"
+	for name, policy := range map[string]string{
+		"incomplete MLD group": strings.TrimSuffix(defaultHostIPv6PolicyWithMLD, lastRule),
+		"duplicate MLD rule":   defaultHostIPv6PolicyWithMLD + lastRule,
+		"missing base rule":    strings.Replace(defaultHostIPv6PolicyWithMLD, `    rule family="ipv6" icmp-type name="redirect" accept`+"\n", "", 1),
+		"unknown ICMP type":    strings.Replace(defaultHostIPv6PolicyWithMLD, "mld2-listener-report", "echo-request", 1),
+		"different action":     strings.Replace(defaultHostIPv6PolicyWithMLD, `name="mld2-listener-report" accept`, `name="mld2-listener-report" drop`, 1),
+		"different family":     strings.Replace(defaultHostIPv6PolicyWithMLD, `family="ipv6" icmp-type name="mld2-listener-report"`, `family="ipv4" icmp-type name="mld2-listener-report"`, 1),
+		"TCP port":             strings.Replace(defaultHostIPv6PolicyWithMLD, "  ports:", "  ports: 443/tcp", 1),
+		"extra rich rule":      defaultHostIPv6PolicyWithMLD + `    rule family="ipv6" port port="53" protocol="udp" accept` + "\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if safeHostIPv6Policy(policy) {
+				t.Fatal("modified IPv6 policy was classified as non-overlapping")
+			}
+		})
+	}
+}
+
 func TestHarmlessIPv6ControlPolicyDoesNotBlockTCPPortEdit(t *testing.T) {
 	f := newFirewallFake()
 	f.set("runtime", "port", "8080/tcp", true)

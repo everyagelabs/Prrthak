@@ -231,7 +231,7 @@ func (a *Agent) hostDefaultDenyContext(ctx context.Context, protection Protectio
 	raw, err := a.Commands.Run(ctx, "nft", "-j", "list", "ruleset")
 	base, kernelError := hostDefaultDenyKernelContext(raw, protection.Zone)
 	if err != nil || kernelError != nil {
-		add("verified nftables host-input ordering and absence of foreign/NAT hooks are required")
+		add("verified nftables host-input ordering without unrecognized hooks or inbound NAT is required")
 	}
 	sort.Strings(fingerprints)
 	encoded, _ := json.Marshal(map[string]any{"topology": topology, "firewall": fingerprints, "kernel": base, "links": linkDigest, "forwarding": strings.Fields(forward), "profile": hostDefaultDenyControlProfile})

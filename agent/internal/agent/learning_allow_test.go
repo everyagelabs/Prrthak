@@ -70,6 +70,7 @@ func TestLearningIngressParsingExcludesForwardAndOtherPorts(t *testing.T) {
 }
 func TestLearningAllowExactPortEvidenceAndNoManagedRejects(t *testing.T) {
 	a, f, protection, session := learningTestAgent(t)
+	f.policyDefinition = defaultHostIPv6PolicyWithMLD
 	learningEvidenceFor(a, session, "10.20.0.9", 443)
 	p := learningTestAssignment(a, protection, session, 1, "10.20.0.9/32")
 	if e := a.processLearningAllow(context.Background(), p); e != nil {

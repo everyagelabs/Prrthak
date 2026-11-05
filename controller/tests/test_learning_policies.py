@@ -359,6 +359,67 @@ class LearningPolicyTests(unittest.TestCase):
         self.ack(cleanup)
         return cleanup, policy["id"]
 
+    def test_verified_removal_survives_a_blocked_rebind_of_the_empty_overlay(self):
+        from controller.policy_views import listing
+
+        cleanup, policy_id = self.verified_empty_cleanup()
+        removal_receipt = lp.get(self.store, policy_id)["last_outcome"]
+        self.baseline["management_sources"] = ["10.99.0.1/32"]
+        self.report("a", "10.1.0.1")
+        rebound = self.assignment()
+        self.assertGreater(rebound["generation"], cleanup["generation"])
+        self.assertEqual(rebound["services"], [])
+        self.ack(rebound, "preview", error="Local learning enforcement is off",
+                 applied_generation=cleanup["generation"], applied_digest=cleanup["digest"])
+
+        self.assertEqual(lp.get(self.store, policy_id)["last_outcome"], removal_receipt)
+        self.assertEqual(lp.get(self.store, policy_id)["status"], "removed")
+        self.assertFalse(lp.get(self.store, policy_id)["removal_pending"])
+        self.assertEqual(listing(self.store, "learned")["items"], [])
+        self.assertEqual(self.store.get("servers", "a")["learning_allow_outcome"]["status"], "preview")
+
+    def test_legacy_false_removal_block_repairs_from_the_exact_applied_receipt(self):
+        cleanup, policy_id = self.verified_empty_cleanup()
+        policy = lp.get(self.store, policy_id)
+        removal_receipt = policy["last_outcome"]
+        self.baseline["management_sources"] = ["10.99.0.1/32"]
+        self.report("a", "10.1.0.1")
+        rebound = self.assignment()
+        # Reproduce the legacy controller's already-persisted false block.
+        with self.store.meta() as db:
+            lp._put_policy(self.store, db, {**policy, "status": "blocked", "error": "Local opt-in off",
+                                          "removal_pending": True, "last_outcome": {
+                                              **removal_receipt, "generation": rebound["generation"],
+                                              "binding_digest": rebound["binding_digest"], "status": "blocked"}})
+        self.ack(rebound, "blocked", error="Local opt-in off",
+                 applied_generation=cleanup["generation"], applied_digest=cleanup["digest"])
+
+        self.assertEqual(lp.listing(self.store), [])
+        self.assertEqual(lp.get(self.store, policy_id)["last_outcome"], removal_receipt)
+        self.assertEqual(self.store.get("servers", "a")["learning_allow_outcome"]["status"], "blocked")
+
+    def test_unconfirmed_removal_stays_pending_after_a_blocked_rebind(self):
+        session = self.session()
+        self.batch(session, [("10.20.0.1", 80, 1)])
+        applied = self.assignment()
+        self.ack(applied)
+        policy = lp.listing(self.store)[0]
+        lp.remove(self.store, policy["id"], {"expected_revision": policy["revision"]}, "admin")
+        cleanup = self.assignment()
+        self.baseline["management_sources"] = ["10.99.0.1/32"]
+        self.report("a", "10.1.0.1")
+        rebound = self.assignment()
+        self.ack(rebound, "blocked", error="Local opt-in off",
+                 applied_generation=applied["generation"], applied_digest=applied["digest"])
+        self.assertEqual(lp.listing(self.store)[0]["status"], "blocked")
+        # Even a last-good reference to an empty generation does not repair
+        # the old status unless the exact successful receipt was recorded.
+        self.ack(rebound, "blocked", error="Unconfirmed earlier cleanup",
+                 applied_generation=cleanup["generation"], applied_digest=cleanup["digest"])
+        pending = lp.listing(self.store)[0]
+        self.assertTrue(pending["removal_pending"])
+        self.assertEqual(pending["last_outcome"]["status"], "blocked")
+
     def test_retirement_review_survives_identical_verified_cleanup_receipts(self):
         cleanup, policy_id = self.verified_empty_cleanup()
         plan = lifecycle.delete_preview(self.store, "a", "admin")

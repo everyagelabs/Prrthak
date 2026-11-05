@@ -229,9 +229,13 @@ func TestHostDefaultDenyAcknowledgementAndScopeCannotBeInferred(t *testing.T) {
 }
 
 func TestHostDefaultDenyCommitContextStabilityAndGlobalOnlyRemoval(t *testing.T) {
-	a, f, _, protection := hostDenyTestAgent(t)
+	a, f, kernel, _ := hostDenyTestAgent(t)
+	kernel.nft = tailscaleKernelFixture()
 	f.target = "ACCEPT" // A pre-zone reject must override a legacy open zone.
-	protection, _ = a.managedProtection(context.Background())
+	protection, err := a.managedProtection(context.Background())
+	if err != nil || !protection.HostDefaultDenyReady {
+		t.Fatalf("stock Tailscale blocked the whole-host test: %+v %v", protection, err)
+	}
 	p := hostDenyPolicy(a, protection, 1, true, "10.30.0.1/32")
 	if err := a.applyManaged(context.Background(), p, protection); err != nil {
 		t.Fatal(err)

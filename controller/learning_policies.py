@@ -54,6 +54,8 @@ def initialize(db):
     db.execute("CREATE INDEX IF NOT EXISTS learning_evidence_session ON learning_evidence(session_id,server_id)")
     from .approval_views import _expression
     db.execute("CREATE INDEX IF NOT EXISTS learning_evidence_receipt_session ON learning_evidence_receipts ((" + _expression(db, ("session_id",)) + "))")
+    action, actor, binding = _applied_receipt_fields(db)
+    db.execute(f"CREATE INDEX IF NOT EXISTS learning_applied_audit_receipt ON audit (({actor}),({binding})) WHERE {action}")
     if getattr(db, "dialect", "sqlite") == "postgresql":
         db.execute("ALTER TABLE learning_allow_policies ADD COLUMN IF NOT EXISTS server_id TEXT NOT NULL DEFAULT ''")
         db.execute("ALTER TABLE learning_allow_policies ADD COLUMN IF NOT EXISTS session_id TEXT NOT NULL DEFAULT ''")
@@ -439,6 +441,33 @@ def verify_assignment(store, identifier, payload):
         return {**approved, "version": approved["generation"], "ips": sorted(server.get("ips", [])), "ssh_ports": protection["ssh_ports"], "management_sources": protection["management_sources"], "controller_origin": protection["controller_url"], "controller_addresses": protection.get("controller_addresses", [])}
 
 
+def _cleanup_ids(overlay):
+    return {authority["policy_id"] for authority in overlay["authorities"]
+            if authority["kind"] == "reviewed" and not authority["services"]} - set(overlay["policy_ids"])
+
+
+def _applied_receipt_fields(db):
+    from .approval_views import _expression
+    return (_expression(db, ("action",)) + "='learning_allow.applied'",
+            _expression(db, ("actor",)), _expression(db, ("details", "binding_digest")))
+
+
+def _recorded_applied_receipt(db, overlay):
+    from .approval_views import _expression
+    action, actor, binding = _applied_receipt_fields(db)
+    details = _expression(db, ("details",))
+    row = db.execute(f"SELECT {details} FROM audit WHERE {action} AND {actor}=? AND {binding}=? LIMIT 1",
+                     ("agent:" + overlay["server_id"], overlay["binding_digest"])).fetchone()
+    if row:
+        receipt = json.loads(row[0])
+        if (receipt.get("status") == "applied"
+                and receipt.get("generation") == receipt.get("applied_generation") == overlay["generation"]
+                and receipt.get("digest") == receipt.get("applied_digest") == overlay["digest"]
+                and receipt.get("binding_digest") == overlay["binding_digest"]):
+            return receipt
+    return None
+
+
 def report_outcome(store, db, server, value):
     if not isinstance(value, dict) or value.get("status") not in ("applied", "preview", "blocked", "rolled_back", "error"):
         raise ValueError("Invalid learning allow outcome")
@@ -456,6 +485,7 @@ def report_outcome(store, db, server, value):
     applied_digest = value.get("applied_digest", historical["digest"] if value["status"] == "applied" else "")
     if isinstance(applied_generation, bool) or not isinstance(applied_generation, int) or applied_generation < 0 or not isinstance(applied_digest, str):
         raise ValueError("Invalid last-applied learning overlay")
+    last_good = None
     if applied_generation:
         last_good = store._get(db, "learning_allow_history", server["id"] + ":" + str(applied_generation))
         if not last_good or last_good["digest"] != applied_digest or applied_generation > generation:
@@ -492,14 +522,30 @@ def report_outcome(store, db, server, value):
         if generation == host["generation"]:
             host["status"] = value["status"]
             host["error"] = error
-            for policy in _all_policies(store, db, server["id"], include_removed=True):
+            cleanup_ids = _cleanup_ids(historical)
+            policies = _all_policies(store, db, server["id"], include_removed=True)
+            # Earlier controllers overwrote completed policy receipts with
+            # later failures. Repair only when the agent's last applied
+            # overlay and its original, exact applied audit receipt agree.
+            previous_cleanup_ids = set()
+            if last_good and applied_generation == host.get("applied_generation") and applied_generation < generation:
+                previous_cleanup_ids = cleanup_ids & _cleanup_ids(last_good)
+            needs_repair = any(policy.get("removed") and policy.get("removal_pending")
+                               and policy["id"] in previous_cleanup_ids for policy in policies)
+            previous_cleanup = _recorded_applied_receipt(db, last_good) if needs_repair else None
+            for policy in policies:
                 if policy.get("removed"):
-                    if not any(authority["policy_id"] == policy["id"] for authority in historical["authorities"]):
+                    if policy["id"] not in cleanup_ids:
                         continue
-                    policy["last_outcome"] = result
-                    policy["removal_pending"] = value["status"] != "applied" or policy["id"] in historical["policy_ids"]
-                    policy["status"] = "removed" if not policy["removal_pending"] else value["status"]
-                    policy["error"] = error
+                    if policy.get("removal_pending") is False and (
+                            value["status"] != "applied" or (policy.get("last_outcome") or {}).get("generation") != generation):
+                        continue
+                    receipt = result
+                    if result["status"] != "applied" and previous_cleanup and policy["id"] in previous_cleanup_ids:
+                        receipt = previous_cleanup
+                    removed = receipt["status"] == "applied"
+                    policy.update(last_outcome=receipt, removal_pending=not removed,
+                                  status="removed" if removed else receipt["status"], error=receipt["error"])
                     _put_policy(store, db, policy)
                     continue
                 if policy["id"] not in historical["policy_ids"]:

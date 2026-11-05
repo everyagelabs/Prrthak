@@ -5,15 +5,15 @@ import (
 	"strings"
 )
 
-// Only the full normalized, non-TCP/UDP default host-IPv6 definition is exempt.
-// A matching name, extra service/port/source, different target or extra rich rule
-// never qualifies. The object remains view-only even when it is non-overlapping.
+// Recognize the full stock host IPv6 policy, with or without the firewalld MLD
+// backport. Unknown rules or settings can overlap managed traffic. A recognized
+// policy is non-overlapping and remains view-only.
 func safeHostIPv6Policy(text string) bool {
 	fields := map[string]string{}
 	rules := map[string]bool{}
 	header := false
 	inRich := false
-	wanted := map[string]bool{"neighbour-advertisement": true, "neighbour-solicitation": true, "router-advertisement": true, "redirect": true}
+	baseRules, mldRules := 0, 0
 	for _, raw := range strings.Split(text, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" {
@@ -33,7 +33,15 @@ func safeHostIPv6Policy(text string) bool {
 				return false
 			}
 			name, ok := assignment(tokens[3], "name")
-			if !ok || !wanted[name] || rules[name] {
+			if !ok || rules[name] {
+				return false
+			}
+			switch name {
+			case "neighbour-advertisement", "neighbour-solicitation", "router-advertisement", "redirect":
+				baseRules++
+			case "mld-listener-done", "mld-listener-query", "mld-listener-report", "mld2-listener-report":
+				mldRules++
+			default:
 				return false
 			}
 			rules[name] = true
@@ -50,7 +58,7 @@ func safeHostIPv6Policy(text string) bool {
 		fields[key] = strings.Join(strings.Fields(value), " ")
 		inRich = key == "rich rules"
 	}
-	if !header || len(fields) != 12 || len(rules) != 4 {
+	if !header || len(fields) != 12 || baseRules != 4 || (mldRules != 0 && mldRules != 4) {
 		return false
 	}
 	priority, e := strconv.Atoi(fields["priority"])
