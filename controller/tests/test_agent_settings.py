@@ -40,6 +40,22 @@ class AgentSettingsTests(unittest.TestCase):
         self.assertEqual(settings.assignment(self.store, "old")["discovery_interval_seconds"], 120)
         self.assertEqual(next(row for row in saved["servers"] if row["server_id"] == "old")["status"], "unsupported")
 
+    def test_polling_status_and_preview_show_the_endpoint_reported_agent_version(self):
+        report = {"hostname": "billing", "ips": ["10.1.1.7"], "listeners": [],
+                  "capabilities": [settings.CAPABILITY], "agent_version": "0.18.19"}
+        self.store.report("billing", report)
+        statuses = {row["server_id"]: row for row in settings.get(self.store)["servers"]}
+        self.assertEqual(statuses["billing"]["agent_version"], "0.18.19")
+        self.assertEqual(statuses["old"]["agent_version"], "")
+        preview = settings.preview(self.store, self.body(control_interval_seconds=90))
+        affected = {row["server_id"]: row for row in preview["affected_servers"]}
+        self.assertEqual(affected["billing"]["agent_version"], "0.18.19")
+        self.assertEqual(affected["old"]["agent_version"], "")
+        self.store.report("billing", {**report, "agent_version": "0.18.23"})
+        current = next(row for row in settings.get(self.store)["servers"] if row["server_id"] == "billing")
+        self.assertEqual(current["agent_version"], "0.18.23")
+        self.assertEqual(current["desired"]["version"], 0)
+
     def test_priority_specificity_and_stable_tie_break_resolve_each_interval_independently(self):
         rules = [self.rule("tag", control_interval_seconds=25, discovery_interval_seconds=600),
                  self.rule("group", selector={}, group_ids=[self.group["id"]], control_interval_seconds=20),

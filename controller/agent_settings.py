@@ -130,7 +130,7 @@ def get(store):
         config = _config(store, db)
         servers, memberships = _context(store, db)
         return {**config, "capability": CAPABILITY, "precedence": "Higher priority, then explicit server, group, more-specific tags, stable rule ID; intervals resolve independently",
-                "servers": [{"server_id": server["id"], "hostname": server["hostname"], "last_seen": server.get("last_seen"), "reported_control_interval_seconds": server.get("control_interval_seconds"), "reported_discovery_interval_seconds": server.get("discovery_interval_seconds"), **_status(server, _desired(config, server, memberships))} for server in sorted(servers, key=lambda item: (item["hostname"].casefold(), item["id"]))]}
+                "servers": [{"server_id": server["id"], "hostname": server["hostname"], "agent_version": server.get("agent_version", ""), "last_seen": server.get("last_seen"), "reported_control_interval_seconds": server.get("control_interval_seconds"), "reported_discovery_interval_seconds": server.get("discovery_interval_seconds"), **_status(server, _desired(config, server, memberships))} for server in sorted(servers, key=lambda item: (item["hostname"].casefold(), item["id"]))]}
 
 
 def assignment(store, server_id, db=None):
@@ -165,7 +165,7 @@ def preview(store, value):
         for server in servers:
             prior, proposed = _desired(before, server, memberships), _desired(after, server, memberships)
             if prior["digest"] != proposed["digest"]:
-                impacts.append({"server_id": server["id"], "hostname": server["hostname"], "before": prior, "after": proposed, "supported": CAPABILITY in server.get("capabilities", [])})
+                impacts.append({"server_id": server["id"], "hostname": server["hostname"], "agent_version": server.get("agent_version", ""), "before": prior, "after": proposed, "supported": CAPABILITY in server.get("capabilities", [])})
         return {"before": before, "after": after, "changed": changed, "affected_servers": impacts, "effective_change_count": len(impacts), "target_server_count": len(servers)}
 
 
