@@ -41,6 +41,8 @@ type Agent struct {
 	checkLearningHealth                  func(context.Context, *LearningAllow, Protection, string) error
 	protection                           *Protection
 	protectionDiscoverySequence          uint64
+	protectionFirewalldState             string
+	protectionUFWActive                  bool
 	armManaged                           func(context.Context, string, *managedJournal) error
 	checkManagedHealth                   func(context.Context, *Policy, Protection, string) error
 	Config                               Config
@@ -465,11 +467,16 @@ func (a *Agent) report(ctx context.Context) error {
 	r.AppliedVersion = a.State.AppliedVersion
 	r.ApplyStatus = "preview"
 	r.ApplyError = a.applyError
-	if a.protection == nil || a.protectionDiscoverySequence != r.discoverySequence {
+	// Service state is refreshed on each heartbeat, independently of the much
+	// slower listener inventory. A stopped firewall (or new UFW conflict) must
+	// invalidate readiness, and recovery must not wait for another full scan.
+	if a.protection == nil || a.protectionDiscoverySequence != r.discoverySequence || a.protectionFirewalldState != r.FirewalldState || a.protectionUFWActive != r.UFWActive {
 		protection := a.managedProtectionFromReport(r)
 		a.enrichHostDefaultDenyProtection(ctx, &protection)
 		a.protection = &protection
 		a.protectionDiscoverySequence = r.discoverySequence
+		a.protectionFirewalldState = r.FirewalldState
+		a.protectionUFWActive = r.UFWActive
 	}
 	r.Protection = a.protection
 	a.enrichManagedStatus()

@@ -68,7 +68,27 @@ function firewallActivationHTML(){
 function firewallMaintenanceReason(reason){
  if(reason==='stop traffic learning and monitoring before source-bank maintenance')return 'Traffic capture must stop before firewall maintenance. In Traffic, stop learning and monitoring for this endpoint, wait for collection to finish, then request a fresh assessment.';
  if(reason==='stop continuous hit monitoring before source-bank maintenance')return 'Turn off continuous hit monitoring for this endpoint in Traffic, then request a fresh assessment.';
+ if(reason==='Remove active or pending managed enforcement and whole-host deny before this operation')return 'Remove the active or pending managed policies and whole-server default deny, wait for the agent to confirm removal, then request a fresh assessment.';
+ if(reason==='Turn off managed enforcement in the endpoint configuration before this operation')return 'Managed enforcement is enabled in this endpoint’s configuration. Turn it off through a reviewed endpoint configuration change, wait for the agent to report the change, then request a fresh assessment.';
+ if(reason==='Remove active or pending learned access rules before this operation')return 'Remove the active or pending learned access rules in Policies, wait for the agent to confirm removal, then request a fresh assessment.';
  return reason;
+}
+function firewallActivationErrorDetails(error){
+ const payload=error?.payload,plan=payload?.plan;
+ const reasons=[...(Array.isArray(payload?.blockers)?payload.blockers:[]),...(Array.isArray(plan?.blockers)?plan.blockers:[])];
+ const blockers=[...new Set(reasons.filter(reason=>typeof reason==='string'&&reason.trim()).map(reason=>firewallMaintenanceReason(reason.slice(0,4096))))].slice(0,50);
+ const id=typeof plan?.server_id==='string'?plan.server_id:typeof payload?.server_id==='string'?payload.server_id:'';
+ const server=(state.data?.servers||[]).find(item=>item.id===id);
+ return {message:typeof error?.message==='string'?error.message.slice(0,4096):'Firewall assessment could not complete.',endpoint:server?.hostname||id,blockers};
+}
+function firewallActivationErrorHTML(error){
+ const detail=firewallActivationErrorDetails(error);
+ return `<strong>${h(detail.message)}</strong>${detail.endpoint?`<p>Endpoint: ${h(detail.endpoint)}</p>`:''}${detail.blockers.length?`<ul>${detail.blockers.map(reason=>`<li>${h(reason)}</li>`).join('')}</ul>`:''}`;
+}
+function showFirewallActivationError(error,form){
+ const slot=form?$('#form-error',form):$('#form-error');
+ if(slot){slot.hidden=false;slot.innerHTML=firewallActivationErrorHTML(error);}
+ else{const detail=firewallActivationErrorDetails(error);formError(new Error([detail.message,detail.endpoint,...detail.blockers].filter(Boolean).join('\n')));}
 }
 function firewallActivationReceiptHTML(item){
  const {receipt, job} = item;
@@ -174,7 +194,7 @@ async function refreshFirewallActivationAssessment(){
   });
   result.ready=ready;result.expires=expires;
   result.message=`<h3>Assessment results</h3><ul class="firewall-assessment-list">${lines.join('')}</ul>`;
- }catch(error){result.ready=false;result.message=`<p class="form-error">${h(error.message)}</p>`;}
+ }catch(error){result.ready=false;result.message=`<div class="form-error">${firewallActivationErrorHTML(error)}</div>`;}
  finally{result.loading=false;if($('#modal').open&&$('#firewall-activation-form')===result.form)renderFirewallAssessment(result.form);}
 }
 function firewallActivationFactsHTML(facts={},operation=''){
@@ -196,10 +216,12 @@ async function firewallActivationAction(button){
  if(action==='firewall-activation-refresh'){await loadFirewallActivation();return true;}
  if(action==='firewall-activation-previous'||action==='firewall-activation-next'){state.firewallActivationOffset=Math.max(0,num(state.firewallActivationOffset)+(action.endsWith('next')?50:-50));await loadFirewallActivation();return true;}
  const owner=firewallActivationIdentity();button.disabled=true;
+ let assessmentForm=null;
  try{
   if(action==='firewall-activation-assess'){
    if(!canWrite())return true;
    const form=$('#firewall-activation-form'),selection=firewallActivationSelection(form);
+   assessmentForm=form;state.firewallActivationAssessment=null;renderFirewallAssessment(form);
    const response=await api('/firewall-activation/assess',{method:'POST',body:selection});
    if(owner!==firewallActivationIdentity()||!$('#modal').open||$('#firewall-activation-form')!==form)return true;
    state.firewallActivationAssessment={owner,form,key:firewallAssessmentKey(selection),jobs:response.items||[],ready:false,message:'<p class="help-text">Waiting for the agent to report its assessment.</p>'};
@@ -209,7 +231,7 @@ async function firewallActivationAction(button){
   }else if(action==='firewall-activation-inspect'){
    const page=await api('/firewall-activation/query',{method:'POST',body:{server_ids:[button.dataset.id],limit:1,details:true}});if(owner!==firewallActivationIdentity())return true;const item=page.items?.[0];if(item)showModal('Endpoint firewall details',`<div class="modal-body"><h3>${h(item.hostname||item.server_id)}</h3>${firewallActivationReceiptHTML(item)}${item.receipt?.assessment?firewallActivationFactsHTML(item.receipt.assessment,item.receipt.target_operation):'<p class="help-text">Request an assessment to check the endpoint’s firewall.</p>'}</div><div class="modal-footer"><button class="button secondary" data-action="close-modal">Close</button>${canWrite()&&(item.ufw_active||['migrate_ufw','prepare_egress','enable_native_counters'].includes(item.receipt?.target_operation))?'<button type="button" class="button secondary" data-action="endpoint-configuration" data-id="'+h(item.server_id)+'">Configure protected SSH access</button>':''}</div>`,'ENDPOINT FIREWALL SERVICE');
   }
- }catch(error){if(owner===firewallActivationIdentity())formError(new Error([error.message,...(error.payload?.blockers||[])].join(' ')));}finally{button.disabled=false;}return true;
+ }catch(error){if(owner===firewallActivationIdentity()&&(!assessmentForm||$('#modal').open&&$('#firewall-activation-form')===assessmentForm))showFirewallActivationError(error,assessmentForm);}finally{button.disabled=false;}return true;
 }
 async function firewallActivationSubmit(event){
  const form=event.target;if(!['firewall-activation-form','firewall-activation-review-form'].includes(form.id))return false;event.preventDefault();if(!canWrite())return true;
@@ -225,7 +247,7 @@ async function firewallActivationSubmit(event){
    const plan=state.firewallActivationReview,phrase=String(new FormData(form).get('confirmation_phrase')||''),ack=$('#firewall-activation-ack');const acknowledged=ack.checked;ack.checked=false;
    if(!firewallActivationReviewUsable(plan,phrase,acknowledged))throw new Error('Refresh the exact review, type its phrase and manually acknowledge downtime.');
    await api('/firewall-activation/'+encodeURIComponent(plan.id)+'/confirm',{method:'POST',body:{digest:plan.digest,confirmation_nonce:plan.confirmation_nonce,confirmation_phrase:phrase,acknowledge_downtime:true}});
-   if(owner!==firewallActivationIdentity())return true;state.firewallActivationReview=null;closeModal();toast('Maintenance intent assigned. Wait for authenticated endpoint completion or rollback receipts; queued is not applied.');await loadFirewallActivation();
+   if(owner!==firewallActivationIdentity()||!$('#modal').open||$('#firewall-activation-review-form')!==form||state.firewallActivationReview!==plan||state.firewallActivationReviewOwner!==owner)return true;state.firewallActivationReview=null;closeModal();toast('Maintenance intent assigned. Wait for authenticated endpoint completion or rollback receipts; queued is not applied.');await loadFirewallActivation();
   }
- }catch(error){if(owner===firewallActivationIdentity())formError(new Error([error.message,...(error.payload?.blockers||[])].join(' ')));}finally{if(submit&&form.id==='firewall-activation-form')submit.disabled=false;}return true;
+ }catch(error){if(owner===firewallActivationIdentity()&&$('#modal').open&&$('#'+form.id)===form)showFirewallActivationError(error,form);}finally{if(submit&&form.id==='firewall-activation-form'&&$('#modal').open&&$('#firewall-activation-form')===form)renderFirewallAssessment(form);}return true;
 }

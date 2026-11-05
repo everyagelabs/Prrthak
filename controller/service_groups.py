@@ -126,7 +126,9 @@ def preview(store, value, identifier=None):
         changed_servers = []
         for server in compiled["servers"]:
             if server["id"] in target_ids and digest(compiled["payloads"][server["id"]]) != server.get("_compiled", {}).get("digest"):
-                changed_servers.append({"id": server["id"], "hostname": server.get("hostname", server["id"]), "current_version": server.get("_compiled", {}).get("version", 0)})
+                changed_servers.append({"id": server["id"], "hostname": server.get("hostname", server["id"]),
+                                        "ips": list(server.get("ips") or []),
+                                        "current_version": server.get("_compiled", {}).get("version", 0)})
         changed_servers.sort(key=lambda server: (server["hostname"].casefold(), server["id"]))
         return {"before": public(old, policies) if old else None, "after": public(group, policies), "changed": changed,
                 "ports_changed": old is None or old["ports"] != group["ports"],

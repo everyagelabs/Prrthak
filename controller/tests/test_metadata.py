@@ -34,6 +34,30 @@ class CentralMetadataTests(unittest.TestCase):
             metadata.reconcile_all(self.store, db)
             self.store.compile_all(db)
 
+    def test_bulk_preview_freezes_reported_ips_for_five_and_two_unchanged_hosts(self):
+        expected = {}
+        for index in range(5):
+            identifier = 'node' + str(index)
+            addresses = ['172.31.3.' + str(index + 1), '100.66.222.' + str(index + 1), '2001:db8::' + str(index + 1)]
+            self.host(identifier, ips=addresses, transport_ip='198.51.100.99')
+            self.store.update_server(identifier, {'tags': {'application': 'billing'}}, 'admin')
+            expected[identifier] = sorted(addresses)
+        before = {table: copy.deepcopy(self.store.all(table)) for table in ('servers', 'policies', 'audit')}
+        for selected in (list(expected), ['node1', 'node3']):
+            preview = metadata.bulk_preview(self.store, {'server_ids': selected,
+                'tag_updates': {'application': 'billing'}})
+            self.assertEqual(preview['summary']['matched_servers'], len(selected))
+            self.assertEqual(preview['summary']['changed_servers'], 0)
+            self.assertEqual({row['server_id']: row['ips'] for row in preview['items']},
+                             {identifier: expected[identifier] for identifier in selected})
+            self.assertNotIn('198.51.100.99', str(preview))
+            for table, rows in before.items():
+                self.assertEqual(self.store.all(table), rows, table)
+        self.host('node1', ips=['172.31.9.1'])
+        with self.assertRaises(WorkflowConflict):
+            metadata.bulk_apply(self.store, preview['id'],
+                {'confirmation_nonce': preview['confirmation_nonce']}, 'admin')
+
     def test_current_and_future_hosts_follow_saved_subnet_without_enrollment_tags(self):
         self.host()
         self.assertIsNone(self.store.server('node1')['location_id'])

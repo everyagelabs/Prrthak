@@ -148,6 +148,7 @@ function endpointPickerRefresh(picker,action=''){
   if(action!=='count')$('[data-endpoint-results]',picker).innerHTML=endpointPickerRows(name,matches,selected);
   if(form.id==='learning-form'&&['count','select','clear'].includes(action))refreshLearningPreview();
   if(form.id==='policy-form')updatePolicyTargets();
+  if(form.id==='group-form')updateGroupPreview();
 }
 function endpointPickerAction(button){
   const picker=button.closest('[data-endpoint-picker]');

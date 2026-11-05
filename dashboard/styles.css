@@ -670,7 +670,7 @@ th { background: linear-gradient(#fffafa, #fff0f3); color: #55343f; font-weight:
 @media(max-width:760px){.tag-catalogue-toolbar{padding:14px}.saved-tag-picker{padding:12px}.saved-tag-options{grid-template-columns:1fr}}
 .alert-view-controls{flex-wrap:wrap;gap:12px}
 .bulk-alert-controls{display:flex;flex-wrap:wrap;gap:8px}
-.target-preview .target-member{align-items:flex-start;max-width:100%;gap:8px;padding:9px 11px}
+.target-preview .target-member,.service-group-impact .target-member{align-items:flex-start;max-width:100%;gap:8px;padding:9px 11px}
 .target-preview .target-member>svg{flex:0 0 14px;width:14px;height:14px;margin-top:2px}
 .target-member-identity{display:flex;flex-direction:column;gap:4px;min-width:0;overflow-wrap:anywhere}
 .target-member-identity strong{font-size:12px;font-weight:650;color:#49313a}

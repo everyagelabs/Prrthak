@@ -1,0 +1,335 @@
+{
+  "fixture_kind": "Saved RHEL10 firewalld 2.4.3 read-only policy metadata; NOT native NFLOG packet/wire evidence",
+  "captured_at": "2026-11-05T15:36:32.171909+00:00",
+  "source_receipt": "stock-policy-audit-20261105T153627Z-structured.json",
+  "render_note": "--info-policy and --policy NAME --list-all share print_policy_info in the pinned upstream v2.4.3 command.py",
+  "commands": [
+    {
+      "kind": "version",
+      "argv": [
+        "/usr/bin/firewall-cmd",
+        "--version"
+      ],
+      "scope": null,
+      "policy": null,
+      "started_at": "2026-11-05T15:36:28.397914+00:00",
+      "exit": 0,
+      "stdout": "2.4.3\n",
+      "stderr": "",
+      "runtime_seconds": 0.195273,
+      "ended_at": "2026-11-05T15:36:28.593207+00:00"
+    },
+    {
+      "kind": "get-policies",
+      "argv": [
+        "/usr/bin/firewall-cmd",
+        "--get-policies"
+      ],
+      "scope": "runtime",
+      "policy": null,
+      "started_at": "2026-11-05T15:36:28.593290+00:00",
+      "exit": 0,
+      "stdout": "allow-host-ipv6 gateway-dmz-to-HOST gateway-lan-to-HOST gateway-lan-to-work gateway-lan-to-world gateway-world-to-HOST\n",
+      "stderr": "",
+      "runtime_seconds": 0.2362,
+      "ended_at": "2026-11-05T15:36:28.829507+00:00"
+    },
+    {
+      "kind": "get-policies",
+      "argv": [
+        "/usr/bin/firewall-cmd",
+        "--permanent",
+        "--get-policies"
+      ],
+      "scope": "permanent",
+      "policy": null,
+      "started_at": "2026-11-05T15:36:28.829580+00:00",
+      "exit": 0,
+      "stdout": "allow-host-ipv6 gateway-dmz-to-HOST gateway-lan-to-HOST gateway-lan-to-work gateway-lan-to-world gateway-world-to-HOST\n",
+      "stderr": "",
+      "runtime_seconds": 0.233651,
+      "ended_at": "2026-11-05T15:36:29.063247+00:00"
+    },
+    {
+      "kind": "get-active-policies",
+      "argv": [
+        "/usr/bin/firewall-cmd",
+        "--get-active-policies"
+      ],
+      "scope": "runtime",
+      "policy": null,
+      "started_at": "2026-11-05T15:36:29.063318+00:00",
+      "exit": 0,
+      "stdout": "allow-host-ipv6\n  ingress-zones: ANY\n  egress-zones: HOST\n",
+      "stderr": "",
+      "runtime_seconds": 0.236178,
+      "ended_at": "2026-11-05T15:36:29.299513+00:00"
+    },
+    {
+      "kind": "info-policy",
+      "argv": [
+        "/usr/bin/firewall-cmd",
+        "--info-policy=allow-host-ipv6"
+      ],
+      "scope": "runtime",
+      "policy": "allow-host-ipv6",
+      "started_at": "2026-11-05T15:36:29.299589+00:00",
+      "exit": 0,
+      "stdout": "allow-host-ipv6 (active)\n  disable: no\n  priority: -15000\n  target: CONTINUE\n  ingress-zones: ANY\n  egress-zones: HOST\n  services: \n  ports: \n  protocols: \n  masquerade: no\n  forward-ports: \n  source-ports: \n  icmp-blocks: \n  rich rules: \n\trule family=\"ipv6\" icmp-type name=\"mld-listener-done\" accept\n\trule family=\"ipv6\" icmp-type name=\"mld-listener-query\" accept\n\trule family=\"ipv6\" icmp-type name=\"mld-listener-report\" accept\n\trule family=\"ipv6\" icmp-type name=\"mld2-listener-report\" accept\n\trule family=\"ipv6\" icmp-type name=\"neighbour-advertisement\" accept\n\trule family=\"ipv6\" icmp-type name=\"neighbour-solicitation\" accept\n\trule family=\"ipv6\" icmp-type name=\"redirect\" accept\n\trule family=\"ipv6\" icmp-type name=\"router-advertisement\" accept\n",
+      "stderr": "",
+      "runtime_seconds": 0.233255,
+      "ended_at": "2026-11-05T15:36:29.532882+00:00"
+    },
+    {
+      "kind": "info-policy",
+      "argv": [
+        "/usr/bin/firewall-cmd",
+        "--permanent",
+        "--info-policy=allow-host-ipv6"
+      ],
+      "scope": "permanent",
+      "policy": "allow-host-ipv6",
+      "started_at": "2026-11-05T15:36:29.532967+00:00",
+      "exit": 0,
+      "stdout": "allow-host-ipv6\n  disable: no\n  priority: -15000\n  target: CONTINUE\n  ingress-zones: ANY\n  egress-zones: HOST\n  services: \n  ports: \n  protocols: \n  masquerade: no\n  forward-ports: \n  source-ports: \n  icmp-blocks: \n  rich rules: \n\trule family=\"ipv6\" icmp-type name=\"mld-listener-done\" accept\n\trule family=\"ipv6\" icmp-type name=\"mld-listener-query\" accept\n\trule family=\"ipv6\" icmp-type name=\"mld-listener-report\" accept\n\trule family=\"ipv6\" icmp-type name=\"mld2-listener-report\" accept\n\trule family=\"ipv6\" icmp-type name=\"neighbour-advertisement\" accept\n\trule family=\"ipv6\" icmp-type name=\"neighbour-solicitation\" accept\n\trule family=\"ipv6\" icmp-type name=\"redirect\" accept\n\trule family=\"ipv6\" icmp-type name=\"router-advertisement\" accept\n",
+      "stderr": "",
+      "runtime_seconds": 0.234738,
+      "ended_at": "2026-11-05T15:36:29.767721+00:00"
+    },
+    {
+      "kind": "info-policy",
+      "argv": [
+        "/usr/bin/firewall-cmd",
+        "--info-policy=gateway-dmz-to-HOST"
+      ],
+      "scope": "runtime",
+      "policy": "gateway-dmz-to-HOST",
+      "started_at": "2026-11-05T15:36:29.767800+00:00",
+      "exit": 0,
+      "stdout": "gateway-dmz-to-HOST (disabled)\n  disable: yes\n  priority: 1000\n  target: CONTINUE\n  ingress-zones: dmz\n  egress-zones: HOST\n  services: dhcp dns\n  ports: \n  protocols: \n  masquerade: no\n  forward-ports: \n  source-ports: \n  icmp-blocks: \n  rich rules: \n",
+      "stderr": "",
+      "runtime_seconds": 0.235979,
+      "ended_at": "2026-11-05T15:36:30.003796+00:00"
+    },
+    {
+      "kind": "info-policy",
+      "argv": [
+        "/usr/bin/firewall-cmd",
+        "--permanent",
+        "--info-policy=gateway-dmz-to-HOST"
+      ],
+      "scope": "permanent",
+      "policy": "gateway-dmz-to-HOST",
+      "started_at": "2026-11-05T15:36:30.003900+00:00",
+      "exit": 0,
+      "stdout": "gateway-dmz-to-HOST\n  disable: yes\n  priority: 1000\n  target: CONTINUE\n  ingress-zones: dmz\n  egress-zones: HOST\n  services: dhcp dns\n  ports: \n  protocols: \n  masquerade: no\n  forward-ports: \n  source-ports: \n  icmp-blocks: \n  rich rules: \n",
+      "stderr": "",
+      "runtime_seconds": 0.272578,
+      "ended_at": "2026-11-05T15:36:30.276496+00:00"
+    },
+    {
+      "kind": "info-policy",
+      "argv": [
+        "/usr/bin/firewall-cmd",
+        "--info-policy=gateway-lan-to-HOST"
+      ],
+      "scope": "runtime",
+      "policy": "gateway-lan-to-HOST",
+      "started_at": "2026-11-05T15:36:30.276574+00:00",
+      "exit": 0,
+      "stdout": "gateway-lan-to-HOST (disabled)\n  disable: yes\n  priority: 1000\n  target: CONTINUE\n  ingress-zones: internal home trusted\n  egress-zones: HOST\n  services: dhcp dns ssh\n  ports: \n  protocols: \n  masquerade: no\n  forward-ports: \n  source-ports: \n  icmp-blocks: \n  rich rules: \n",
+      "stderr": "",
+      "runtime_seconds": 0.234398,
+      "ended_at": "2026-11-05T15:36:30.510988+00:00"
+    },
+    {
+      "kind": "info-policy",
+      "argv": [
+        "/usr/bin/firewall-cmd",
+        "--permanent",
+        "--info-policy=gateway-lan-to-HOST"
+      ],
+      "scope": "permanent",
+      "policy": "gateway-lan-to-HOST",
+      "started_at": "2026-11-05T15:36:30.511064+00:00",
+      "exit": 0,
+      "stdout": "gateway-lan-to-HOST\n  disable: yes\n  priority: 1000\n  target: CONTINUE\n  ingress-zones: internal home trusted\n  egress-zones: HOST\n  services: dhcp dns ssh\n  ports: \n  protocols: \n  masquerade: no\n  forward-ports: \n  source-ports: \n  icmp-blocks: \n  rich rules: \n",
+      "stderr": "",
+      "runtime_seconds": 0.231979,
+      "ended_at": "2026-11-05T15:36:30.743061+00:00"
+    },
+    {
+      "kind": "info-policy",
+      "argv": [
+        "/usr/bin/firewall-cmd",
+        "--info-policy=gateway-lan-to-work"
+      ],
+      "scope": "runtime",
+      "policy": "gateway-lan-to-work",
+      "started_at": "2026-11-05T15:36:30.743142+00:00",
+      "exit": 0,
+      "stdout": "gateway-lan-to-work (disabled)\n  disable: yes\n  priority: 1000\n  target: ACCEPT\n  ingress-zones: internal home trusted\n  egress-zones: work\n  services: ftp tftp\n  ports: \n  protocols: \n  masquerade: no\n  forward-ports: \n  source-ports: \n  icmp-blocks: \n  rich rules: \n",
+      "stderr": "",
+      "runtime_seconds": 0.232537,
+      "ended_at": "2026-11-05T15:36:30.975695+00:00"
+    },
+    {
+      "kind": "info-policy",
+      "argv": [
+        "/usr/bin/firewall-cmd",
+        "--permanent",
+        "--info-policy=gateway-lan-to-work"
+      ],
+      "scope": "permanent",
+      "policy": "gateway-lan-to-work",
+      "started_at": "2026-11-05T15:36:30.975772+00:00",
+      "exit": 0,
+      "stdout": "gateway-lan-to-work\n  disable: yes\n  priority: 1000\n  target: ACCEPT\n  ingress-zones: internal home trusted\n  egress-zones: work\n  services: ftp tftp\n  ports: \n  protocols: \n  masquerade: no\n  forward-ports: \n  source-ports: \n  icmp-blocks: \n  rich rules: \n",
+      "stderr": "",
+      "runtime_seconds": 0.247687,
+      "ended_at": "2026-11-05T15:36:31.223475+00:00"
+    },
+    {
+      "kind": "info-policy",
+      "argv": [
+        "/usr/bin/firewall-cmd",
+        "--info-policy=gateway-lan-to-world"
+      ],
+      "scope": "runtime",
+      "policy": "gateway-lan-to-world",
+      "started_at": "2026-11-05T15:36:31.223552+00:00",
+      "exit": 0,
+      "stdout": "gateway-lan-to-world (disabled)\n  disable: yes\n  priority: 1000\n  target: ACCEPT\n  ingress-zones: internal home trusted\n  egress-zones: external public\n  services: ftp tftp\n  ports: \n  protocols: \n  masquerade: no\n  forward-ports: \n  source-ports: \n  icmp-blocks: \n  rich rules: \n",
+      "stderr": "",
+      "runtime_seconds": 0.232757,
+      "ended_at": "2026-11-05T15:36:31.456325+00:00"
+    },
+    {
+      "kind": "info-policy",
+      "argv": [
+        "/usr/bin/firewall-cmd",
+        "--permanent",
+        "--info-policy=gateway-lan-to-world"
+      ],
+      "scope": "permanent",
+      "policy": "gateway-lan-to-world",
+      "started_at": "2026-11-05T15:36:31.456405+00:00",
+      "exit": 0,
+      "stdout": "gateway-lan-to-world\n  disable: yes\n  priority: 1000\n  target: ACCEPT\n  ingress-zones: internal home trusted\n  egress-zones: external public\n  services: ftp tftp\n  ports: \n  protocols: \n  masquerade: no\n  forward-ports: \n  source-ports: \n  icmp-blocks: \n  rich rules: \n",
+      "stderr": "",
+      "runtime_seconds": 0.235412,
+      "ended_at": "2026-11-05T15:36:31.691834+00:00"
+    },
+    {
+      "kind": "info-policy",
+      "argv": [
+        "/usr/bin/firewall-cmd",
+        "--info-policy=gateway-world-to-HOST"
+      ],
+      "scope": "runtime",
+      "policy": "gateway-world-to-HOST",
+      "started_at": "2026-11-05T15:36:31.691943+00:00",
+      "exit": 0,
+      "stdout": "gateway-world-to-HOST (disabled)\n  disable: yes\n  priority: 1000\n  target: CONTINUE\n  ingress-zones: external public\n  egress-zones: HOST\n  services: dhcpv6-client\n  ports: \n  protocols: \n  masquerade: no\n  forward-ports: \n  source-ports: \n  icmp-blocks: \n  rich rules: \n",
+      "stderr": "",
+      "runtime_seconds": 0.234782,
+      "ended_at": "2026-11-05T15:36:31.926743+00:00"
+    },
+    {
+      "kind": "info-policy",
+      "argv": [
+        "/usr/bin/firewall-cmd",
+        "--permanent",
+        "--info-policy=gateway-world-to-HOST"
+      ],
+      "scope": "permanent",
+      "policy": "gateway-world-to-HOST",
+      "started_at": "2026-11-05T15:36:31.926824+00:00",
+      "exit": 0,
+      "stdout": "gateway-world-to-HOST\n  disable: yes\n  priority: 1000\n  target: CONTINUE\n  ingress-zones: external public\n  egress-zones: HOST\n  services: dhcpv6-client\n  ports: \n  protocols: \n  masquerade: no\n  forward-ports: \n  source-ports: \n  icmp-blocks: \n  rich rules: \n",
+      "stderr": "",
+      "runtime_seconds": 0.244933,
+      "ended_at": "2026-11-05T15:36:32.171773+00:00"
+    }
+  ],
+  "vendor_xml": [
+    {
+      "policy": "allow-host-ipv6",
+      "scope": "vendor",
+      "path": "/usr/lib/firewalld/policies/allow-host-ipv6.xml",
+      "exists": true,
+      "sha256": "021a11944ba9c8e2e9d7d58457bd07b6bbb7e3d7dcb2b82e855a013b400b4b4b"
+    },
+    {
+      "policy": "gateway-dmz-to-HOST",
+      "scope": "vendor",
+      "path": "/usr/lib/firewalld/policies/gateway-dmz-to-HOST.xml",
+      "exists": true,
+      "sha256": "1f18cfb8532a0db7b83bdfcb519fa49af1b481a037a261f2c62e1b4955ce9c8e"
+    },
+    {
+      "policy": "gateway-lan-to-HOST",
+      "scope": "vendor",
+      "path": "/usr/lib/firewalld/policies/gateway-lan-to-HOST.xml",
+      "exists": true,
+      "sha256": "342d935909ca1250e66a23125685c4de8ce4358d4660dbd2e76d9b7a9cd66439"
+    },
+    {
+      "policy": "gateway-lan-to-work",
+      "scope": "vendor",
+      "path": "/usr/lib/firewalld/policies/gateway-lan-to-work.xml",
+      "exists": true,
+      "sha256": "65eb09a3aceba1d05702474c9b113492d724afc88d53e98507ac2ccedafa7807"
+    },
+    {
+      "policy": "gateway-lan-to-world",
+      "scope": "vendor",
+      "path": "/usr/lib/firewalld/policies/gateway-lan-to-world.xml",
+      "exists": true,
+      "sha256": "693101fb4fad052dc859b5c33ab924345b077e8aa8424e677abca6f2d7c451b1"
+    },
+    {
+      "policy": "gateway-world-to-HOST",
+      "scope": "vendor",
+      "path": "/usr/lib/firewalld/policies/gateway-world-to-HOST.xml",
+      "exists": true,
+      "sha256": "739d70d5b8c1f9a9cecfe88c0b64d75116bc2185c4e29ed0bbd63528eeb91b8f"
+    },
+    {
+      "policy": "allow-host-ipv6",
+      "scope": "local-override",
+      "path": "/etc/firewalld/policies/allow-host-ipv6.xml",
+      "exists": false
+    },
+    {
+      "policy": "gateway-dmz-to-HOST",
+      "scope": "local-override",
+      "path": "/etc/firewalld/policies/gateway-dmz-to-HOST.xml",
+      "exists": false
+    },
+    {
+      "policy": "gateway-lan-to-HOST",
+      "scope": "local-override",
+      "path": "/etc/firewalld/policies/gateway-lan-to-HOST.xml",
+      "exists": false
+    },
+    {
+      "policy": "gateway-lan-to-work",
+      "scope": "local-override",
+      "path": "/etc/firewalld/policies/gateway-lan-to-work.xml",
+      "exists": false
+    },
+    {
+      "policy": "gateway-lan-to-world",
+      "scope": "local-override",
+      "path": "/etc/firewalld/policies/gateway-lan-to-world.xml",
+      "exists": false
+    },
+    {
+      "policy": "gateway-world-to-HOST",
+      "scope": "local-override",
+      "path": "/etc/firewalld/policies/gateway-world-to-HOST.xml",
+      "exists": false
+    }
+  ]
+}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -225,7 +226,12 @@ func (a *Agent) plannedCaptureSidecars(ctx context.Context, scopes []capturePort
 	if err != nil {
 		return nil, nil, err
 	}
-	if _, err = liveHostDefaultDenyKernelContext(ctx, a.Commands, raw, zone); err != nil {
+	kernelDigest, err := liveHostDefaultDenyKernelContext(ctx, a.Commands, raw, zone)
+	if err != nil {
+		return nil, nil, err
+	}
+	policyProof, err := beginCaptureGatewayPolicyProof(ctx, a.Commands, snapshot)
+	if err != nil {
 		return nil, nil, err
 	}
 	gaps := []string{"Packets dropped by earlier filters, such as Tailscale anti-spoofing, and untracked traffic may be absent from firewalld NFLOG."}
@@ -278,8 +284,8 @@ func (a *Agent) plannedCaptureSidecars(ctx context.Context, scopes []capturePort
 			return nil, gaps, errors.New("unsupported direct/source-zone/NAT context for exact NFLOG verdicts")
 		}
 		if rule.Kind == "policy" {
-			_, detail, ok := strings.Cut(rule.Value, "\n")
-			if !ok || !safeHostIPv6Policy(detail) {
+			name, detail, ok := strings.Cut(rule.Value, "\n")
+			if !ok || !safeHostIPv6Policy(detail) && (policyProof == nil || !slices.Contains(policyProof.gateways, name)) {
 				return nil, gaps, errors.New("unsupported policy ordering for exact NFLOG verdicts")
 			}
 		}
@@ -368,6 +374,9 @@ func (a *Agent) plannedCaptureSidecars(ctx context.Context, scopes []capturePort
 	}
 	if len(result) == 0 {
 		return nil, gaps, errors.New("no verifiable terminal deny path exists for selected ports")
+	}
+	if err := policyProof.finish(ctx, a.Commands, zone, kernelDigest); err != nil {
+		return nil, gaps, err
 	}
 	return result, gaps, nil
 }

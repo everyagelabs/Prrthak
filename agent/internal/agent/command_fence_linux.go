@@ -16,11 +16,12 @@ import (
 )
 
 type commandFence struct {
-	SchemaVersion int    `json:"schema_version"`
-	Nonce         string `json:"nonce"`
-	BootID        string `json:"boot_id"`
-	OwnerPID      int    `json:"owner_pid"`
-	OwnerIdentity string `json:"owner_identity"`
+	SchemaVersion int                `json:"schema_version"`
+	Nonce         string             `json:"nonce"`
+	BootID        string             `json:"boot_id"`
+	OwnerPID      int                `json:"owner_pid"`
+	OwnerIdentity string             `json:"owner_identity"`
+	Diagnostic    *commandDiagnostic `json:"diagnostic,omitempty"`
 }
 
 func kernelBootID() (string, error) {
@@ -53,6 +54,9 @@ func readCommandFence(path string) (*commandFence, error) {
 		return nil, errUncertainCommand
 	}
 	if _, err := strconv.ParseUint(strings.TrimPrefix(record.OwnerIdentity, record.BootID+":"), 10, 64); err != nil {
+		return nil, errUncertainCommand
+	}
+	if record.Diagnostic != nil && !validCommandDiagnostic(record.Diagnostic, record.BootID) {
 		return nil, errUncertainCommand
 	}
 	return &record, nil
@@ -89,12 +93,21 @@ func checkCommandFence(leasePath string, retirePreviousBoot bool) error {
 		return errUncertainCommand
 	}
 	if retirePreviousBoot {
+		// Keep the last unresolved operation for RCA. A different boot proves
+		// the old process tree cannot survive; empty current process lists do not.
+		if err := archivePreviousBootCommandFence(path, record, boot); err != nil {
+			return fmt.Errorf("%w: cannot preserve previous-boot command diagnostic", errUncertainCommand)
+		}
 		return clearCommandFence(path, record.Nonce)
 	}
 	return nil
 }
 
 func createCommandFence(leasePath string) (*commandFence, string, error) {
+	return createCommandFenceForCommand(leasePath, "", nil)
+}
+
+func createCommandFenceForCommand(leasePath, name string, args []string) (*commandFence, string, error) {
 	path, err := commandFencePath(leasePath)
 	if err != nil {
 		return nil, "", err
@@ -110,7 +123,7 @@ func createCommandFence(leasePath string) (*commandFence, string, error) {
 	if _, err = rand.Read(nonce); err != nil {
 		return nil, "", err
 	}
-	record := &commandFence{1, hex.EncodeToString(nonce), boot, os.Getpid(), processIdentity(os.Getpid())}
+	record := &commandFence{SchemaVersion: 1, Nonce: hex.EncodeToString(nonce), BootID: boot, OwnerPID: os.Getpid(), OwnerIdentity: processIdentity(os.Getpid()), Diagnostic: newCommandDiagnostic(name, args)}
 	if record.OwnerIdentity == "" {
 		return nil, "", errors.New("command owner identity is unavailable")
 	}

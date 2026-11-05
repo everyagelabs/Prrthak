@@ -29,6 +29,41 @@ function fixture({role='admin',request}={}){
  const action=(name,extra={})=>c.metadataAction({disabled:false,dataset:{action:name,...extra}});
  return {c,element,requests,errors,toasts,submit,inputCSV,choose,action,loads:()=>loads,state:()=>vm.runInContext('metadataAsync',c),flush:()=>new Promise(setImmediate)};
 }
+test('bulk five and two endpoint reviews show frozen reported addresses without applying unchanged assignments',async()=>{
+ for(const selected of [[1,2,3,4,5],[2,4]]){
+  const ids=selected.map(index=>'host-'+index),review=plan('bulk',selected.length);
+  review.payload.server_ids=ids;
+  review.summary={matched_servers:ids.length,changed_servers:0};
+  review.items=selected.map(index=>({server_id:'host-'+index,hostname:'api-'+index,
+   ips:['172.31.3.'+index,'100.66.222.'+index,'2001:db8::'+index],changed:false,
+   before:{tags:{application:'billing'}},after:{tags:{application:'billing'}}}));
+  const f=fixture({request:url=>url.endsWith('/bulk/preview')?review:undefined});
+  f.c.state.data.servers=Array.from({length:5},(_,i)=>({id:'host-'+(i+1),hostname:'api-'+(i+1),ips:['198.51.100.99']}));
+  f.c.showMetadataBulk(ids);
+  await f.submit('metadata-bulk-form',{tag_mode:'merge',tags:'application=billing',location_mode:'keep'});
+  let html=f.element('#modal-content').innerHTML;
+  assert.match(html,new RegExp(`<strong>${ids.length}</strong>Matched servers`));
+  assert.match(html,/<strong>0<\/strong>Changed servers/);
+  for(const index of selected){assert.match(html,new RegExp(`api-${index}`));assert.ok(html.includes(`Reported IPs: 172.31.3.${index}, 100.66.222.${index}, 2001:db8::${index}`));}
+  assert.doesNotMatch(html,/198\.51\.100\.99/,'review must not substitute current or transport addresses');
+  for(const index of [1,2,3,4,5].filter(index=>!selected.includes(index)))assert.doesNotMatch(html,new RegExp(`api-${index}`));
+  const writes=f.requests.filter(row=>row.options.method==='POST');
+  assert.equal(writes.length,1);assert.equal(writes[0].url,'/api/v1/metadata/bulk/preview');
+  assert.deepEqual(writes[0].body.server_ids,ids);
+  review.items[0].ips=['203.0.113.99'];f.c.metadataRenderPreview();html=f.element('#modal-content').innerHTML;
+  assert.doesNotMatch(html,/203\.0\.113\.99/,'frozen review addresses cannot change after preview');
+  assert.equal(f.requests.filter(row=>row.options.method==='POST').length,1,'viewing the preview must not apply assignments');
+ }
+});
+test('bulk review escapes identities and reports missing frozen IPs without a cache fallback',()=>{
+ const f=fixture(),review=plan('bulk');review.items[0].hostname='api <script>';
+ review.items[0].ips=['192.0.2.9','<img src=x onerror=alert(1)>'];
+ f.c.state.data.servers[1].ips=['198.51.100.99'];
+ f.c.showMetadataPreview(review,'bulk');const html=f.element('#modal-content').innerHTML;
+ assert.match(html,/api &lt;script&gt;/);assert.match(html,/&lt;img src=x onerror=alert\(1\)&gt;/);
+ assert.doesNotMatch(html,/<script>|<img|198\.51\.100\.99/);
+ assert.match(html,/Reported IPs: IP not reported/);assert.equal(f.requests.length,0);
+});
 test('CSV preview success and failure cannot replace a later dialog, reopen a closed session or cross an identity',async()=>{
  for(const mode of ['replace','close','reopen','identity','logout','error']){
   const pending=deferred(),f=fixture({request:url=>url.endsWith('/imports/preview')?pending.promise:undefined});f.c.showMetadataCSV();const call=f.submit('metadata-csv-form',{csv:'ip,application\n10.1.0.1,billing'});

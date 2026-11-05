@@ -2,7 +2,9 @@
 
 **One place to see your Linux servers and control who may connect to their services.**
 
-This explains what you asked for and how Prṛthak does it. The current implementation is **0.18.25**. Use the [current commands and support profiles](installation-commands.md). For the illustrated flow, start with the [controller picture guide](guide/simple/controller-installation.html), then follow the [agent picture guide](guide/simple/agent-installation.html).
+This explains what you asked for and how Prṛthak does it. The current implementation is **0.18.26**. Use the [current commands and support profiles](installation-commands.md). For the illustrated flow, start with the [controller picture guide](guide/simple/controller-installation.html), then follow the [agent picture guide](guide/simple/agent-installation.html).
+
+In this update, policy-impact and server-assignment previews include the servers’ reported IP addresses. Clearing a static group shows zero members immediately. Firewall assessment failures explain why the action is blocked. The agent also refreshes readiness when firewalld starts or stops, while retaining lockout and rollback checks. A command whose process-tree completion is uncertain remains blocked; the agent saves a small redacted diagnostic for investigation. RHEL 10 disabled stock gateway policies are recognized only when both firewall scopes, active-policy readback and native rule ordering agree. Live firewall acceptance must still be tested on the upgraded agent.
 
 ## The controller is the control room
 

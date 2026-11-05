@@ -113,7 +113,10 @@ func runFencedCommand(cmd *exec.Cmd) error {
 	var path string
 	if len(cmd.ExtraFiles) > 0 {
 		var err error
-		fence, path, err = createCommandFence(cmd.ExtraFiles[0].Name())
+		if len(cmd.Args) < 3 || cmd.Args[1] != commandSupervisorArgument {
+			return errors.New("invalid private command supervisor invocation")
+		}
+		fence, path, err = createCommandFenceForCommand(cmd.ExtraFiles[0].Name(), cmd.Args[2], cmd.Args[3:])
 		if err != nil {
 			return err
 		}
@@ -128,6 +131,20 @@ func runFencedCommand(cmd *exec.Cmd) error {
 				return clearErr
 			}
 		} else if fenceErr := checkCommandFence(cmd.ExtraFiles[0].Name(), false); fenceErr != nil {
+			// Wait has observed this exact supervisor exit, but that alone is
+			// never a tree-drain receipt. Preserve its originating command and
+			// final observed stage even when the supervisor was killed outright.
+			_ = updateCommandDiagnostic(path, fence.Nonce, func(d *commandDiagnostic) {
+				d.Stage = "supervisor-exited-unproven"
+				d.LastEvidence = "supervisor-exit-without-drain-receipt"
+				if d.Supervisor == nil {
+					d.Supervisor = &commandProcessDiagnostic{PID: cmd.Process.Pid}
+				}
+				if cmd.ProcessState != nil {
+					code := cmd.ProcessState.ExitCode()
+					d.SupervisorExitCode = &code
+				}
+			})
 			return fenceErr
 		}
 	}
@@ -141,16 +158,24 @@ func superviseCommand(name string, args []string) (code int, result error) {
 	if err != nil || parent < 1 {
 		return 125, errors.New("invalid command owner")
 	}
+	terms := make(chan os.Signal, 1)
+	signal.Notify(terms, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	defer signal.Stop(terms)
+	var diagnosticPath, diagnosticNonce string
 	if os.Getenv(commandSupervisorLease) == "1" {
 		path, nonce := os.Getenv(commandSupervisorFence), os.Getenv(commandSupervisorFenceNonce)
 		record, err := readCommandFence(path)
 		if err != nil || record.Nonce != nonce || record.OwnerPID != parent {
 			return 125, errUncertainCommand
 		}
+		diagnosticPath, diagnosticNonce = path, nonce
 		defer func() {
 			// SIGKILL cannot run this defer: its durable record survives even
 			// if every descendant closes all inherited lease descriptors.
 			if !commandTreeProvenDrained() {
+				_ = updateCommandDiagnostic(path, nonce, func(d *commandDiagnostic) {
+					d.Stage, d.LastEvidence = "drain-unproven", "kernel-echild-unproven"
+				})
 				code, result = 125, errUncertainCommand
 			} else if err := clearCommandFence(path, nonce); err != nil {
 				code, result = 125, err
@@ -161,10 +186,15 @@ func superviseCommand(name string, args []string) (code int, result error) {
 			// before retiring this exact never-executed startup reservation.
 			return 125, errors.New("command owner exited before startup")
 		}
+		if err := updateCommandDiagnostic(path, nonce, func(d *commandDiagnostic) {
+			d.Supervisor = commandProcessIdentity(os.Getpid())
+			d.Stage = "supervisor-started"
+		}); err != nil {
+			// No worker has started. The defer still requires kernel proof
+			// before retiring the reservation; diagnostics grant no authority.
+			return 125, errors.New("cannot persist command supervisor identity")
+		}
 	}
-	terms := make(chan os.Signal, 1)
-	signal.Notify(terms, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
-	defer signal.Stop(terms)
 	// PR_SET_CHILD_SUBREAPER makes double-forked or setsid descendants our
 	// children when their parents die. Process groups alone cannot fence them.
 	if _, _, errno := syscall.Syscall6(syscall.SYS_PRCTL, 36, 1, 0, 0, 0, 0); errno != 0 {
@@ -199,7 +229,41 @@ func superviseCommand(name string, args []string) (code int, result error) {
 		return 125, err
 	}
 	defer child.Process.Release()
-	return drainCommandTree(child.Process.Pid, terms)
+	var diagnosticErr error
+	if diagnosticPath != "" {
+		diagnosticErr = updateCommandDiagnostic(diagnosticPath, diagnosticNonce, func(d *commandDiagnostic) {
+			d.Worker = commandProcessIdentity(child.Process.Pid)
+			d.Stage, d.LastEvidence = "worker-running", "worker-started"
+		})
+		if diagnosticErr != nil {
+			// The worker may already have run. Retain the independent helper
+			// and drain it normally instead of returning past a live subtree.
+			select {
+			case terms <- syscall.SIGTERM:
+			default: // An existing cancellation already requests the same drain.
+			}
+		}
+	}
+	noteDrain := func(reason string) {
+		if diagnosticPath == "" {
+			return
+		}
+		_ = updateCommandDiagnostic(diagnosticPath, diagnosticNonce, func(d *commandDiagnostic) {
+			d.Stage, d.LastEvidence = "draining", reason
+			if d.DrainStartedAt == "" {
+				d.DrainStartedAt = time.Now().UTC().Format(time.RFC3339Nano)
+				d.DrainReason = reason
+			}
+		})
+	}
+	if diagnosticErr != nil {
+		noteDrain("diagnostic-write-failed")
+	}
+	code, result = drainCommandTree(child.Process.Pid, terms, noteDrain)
+	if diagnosticErr != nil {
+		return 125, errors.New("command worker diagnostic failed; worker tree drained")
+	}
+	return code, result
 }
 
 func cleanSupervisorEnvironment() []string {
@@ -212,12 +276,19 @@ func cleanSupervisorEnvironment() []string {
 	return env
 }
 
-func drainCommandTree(commandPID int, terms <-chan os.Signal) (int, error) {
+func drainCommandTree(commandPID int, terms <-chan os.Signal, noteDrain func(string)) (int, error) {
 	deadline := time.NewTimer(15 * time.Second)
 	defer deadline.Stop()
 	tick := time.NewTicker(10 * time.Millisecond)
 	defer tick.Stop()
-	draining, code := false, 125
+	draining, code, workerReaped := false, 125, false
+	reportedEvidence := map[string]bool{}
+	note := func(evidence string) {
+		if !reportedEvidence[evidence] {
+			noteDrain(evidence)
+			reportedEvidence[evidence] = true
+		}
+	}
 	for {
 		// Only this goroutine reaps children. A PID read from our children list
 		// cannot be reused before we reap it, so no unrelated process is killed.
@@ -225,7 +296,9 @@ func drainCommandTree(commandPID int, terms <-chan os.Signal) (int, error) {
 			// Retain the lease and retry even if /proc cannot be read. Avoid
 			// diagnostics on this path: a closed output pipe must not terminate
 			// the supervisor before it has drained all descendants.
-			_ = killSupervisorChildren()
+			if err := killSupervisorChildren(); err != nil {
+				note("children-signal-failed")
+			}
 		}
 		for {
 			var status syscall.WaitStatus
@@ -240,12 +313,14 @@ func drainCommandTree(commandPID int, terms <-chan os.Signal) (int, error) {
 				// Fail closed: do not release the lease while child state is
 				// uncertain. EINTR/ECHILD are the ordinary wait transitions.
 				draining = true
+				note("wait-failed")
 				break
 			}
 			if pid == 0 {
 				break
 			}
 			if pid == commandPID {
+				workerReaped = true
 				if !draining {
 					if status.Exited() {
 						code = status.ExitStatus()
@@ -256,15 +331,24 @@ func drainCommandTree(commandPID int, terms <-chan os.Signal) (int, error) {
 				// A successful command may leave grandchildren behind. Drain
 				// those before reporting its original exit status to the owner.
 				draining = true
+				// Normal short-lived commands need no extra drain I/O. Their
+				// fence is removed only after ECHILD, as before.
 			}
+		}
+		if workerReaped {
+			// Persist normal worker exit only if children still remain. A
+			// successful command with no descendants returns at ECHILD above.
+			note("worker-exited")
 		}
 		select {
 		case <-terms:
 			draining = true
 			code = 124
+			note("owner-canceled")
 		case <-deadline.C:
 			draining = true
 			code = 124
+			note("deadline-expired")
 		case <-tick.C:
 		}
 	}

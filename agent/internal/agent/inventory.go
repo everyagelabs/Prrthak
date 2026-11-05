@@ -150,8 +150,13 @@ func (a *Agent) inventoryReport(ctx context.Context, now time.Time) Report {
 		} else {
 			report.FirewalldState = "not-running"
 		}
+		a.inventory.FirewalldState = report.FirewalldState
 		if text, e := a.Commands.Run(ctx, "ufw", "status"); e == nil {
 			report.UFWActive = strings.Contains(strings.ToLower(text), "status: active")
+			// Retain the latest successful observation. A later query failure
+			// must not erase an already observed firewall conflict by copying
+			// the older full-discovery state on the next heartbeat.
+			a.inventory.UFWActive = report.UFWActive
 		}
 	}
 	return report

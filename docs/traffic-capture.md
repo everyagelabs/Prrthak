@@ -111,6 +111,27 @@ verified denied-packet capture. Legacy generations can require an explicitly
 reviewed refresh; until then the coverage gap stays visible. No blanket
 all-denied-packets or complete-ledger claim is made.
 
+Firewalld 2.4.3 ships five disabled gateway policy templates. The NFLOG planner
+recognizes their exact runtime and permanent definitions, including `disable:
+yes`, priority, targets, zones and services. It then checks fresh policy names,
+active-policy bindings and unchanged live INPUT ordering. Custom, enabled,
+missing or changed policy definitions remain unsupported. This compatibility
+check never activates a template or changes its access rules.
+
+The definitions are pinned to the [official firewalld 2.4.3 source](https://github.com/firewalld/firewalld/tree/865b0da0a73927b152ab6d2f7c1da9a03f5d4a51/config/policies).
+Tests label upstream-derived fixtures separately from saved RHEL 10 read-only
+metadata. Both match the same strict classifier; neither is native packet or
+wire evidence. The existing live terminal-reject and packet-receipt checks are
+still required before the dashboard can show native denial verification.
+The compatibility path admits at most six policy objects per scope. It rechecks
+all their definitions, including the unchanged IPv6 control policy. With all
+five templates and that control policy present, the proof adds 18 policy queries
+and a final live INPUT proof per NFLOG plan reconciliation, outside the
+port/family loop. Complete native nftables data needs 19 read-only commands;
+opaque Tailscale data uses the existing bounded backend readbacks as well.
+This adds no polling timer and no work to accepted-only capture or hosts without
+those templates.
+
 ## API and replay contract
 
 New learning requests and monitor previews store a reviewed

@@ -38,6 +38,17 @@ test('selection stays explicit, no downtime is pre-acknowledged, and readonly ca
 test('fresh assessment uses selected exact operation and never submits approval or service change',async()=>{
  const f=fixture(),selection=f.element('#firewall-activation-form');Object.assign(selection,form());await f.c.firewallActivationAction({dataset:{action:'firewall-activation-assess'}});assert.equal(f.requests[0].url,'/firewall-activation/assess');assert.equal(f.requests[0].options.body.operation,'migrate_ufw');assert.equal(f.requests[0].options.body.server_ids[0],'host-one');assert.equal('acknowledge_downtime' in f.requests[0].options.body,false);assert.match(f.messages[0],/Read-only endpoint assessment requested/);
 });
+test('late preview completion cannot replace a newer assessment dialog status',async()=>{
+ const pending=deferred(),f=fixture(url=>url.endsWith('/preview')?pending.promise:page());
+ const previous=f.element('#firewall-activation-form');Object.assign(previous,form(),{fields:{'button[type="submit"]':{disabled:false}}});
+ f.c.state.firewallActivationAssessment={owner:f.c.firewallActivationIdentity(),form:previous,key:f.c.firewallAssessmentKey({operation:'migrate_ufw',server_ids:['host-one'],group_ids:[]}),jobs:[],ready:true,expires:Date.now()+60000};
+ const running=f.c.firewallActivationSubmit(submit(previous));
+ const current={...form(),fields:{'button[type="submit"]':{disabled:true}}};
+ f.elements.set('#firewall-activation-form',current);f.element('#firewall-assessment-status').innerHTML='New assessment still running';
+ pending.resolve(plan());await running;
+ assert.equal(f.element('#firewall-assessment-status').innerHTML,'New assessment still running');
+ assert.equal(current.fields['button[type="submit"]'].disabled,true);assert.equal(f.modals.length,0);
+});
 test('starting firewalld waits for the exact assessment and a blocked review has no confirmation fields',async()=>{
  const job={id:'fresh',server_id:'host-one',plan_digest:'fresh-digest'};
  const f=fixture(url=>url.endsWith('/assess')?{items:[job]}:url.endsWith('/query')?{
@@ -118,7 +129,32 @@ test('stop and default allow are explicit reviewed choices with distinct consequ
  }
 });
 test('push resets manual acknowledgement and sends exact frozen identity; assigned is not applied',async()=>{
- const f=fixture(),review=plan();f.c.showFirewallActivationReview(review);f.element('#firewall-activation-ack').checked=true;await f.c.firewallActivationSubmit(submit({id:'firewall-activation-review-form',values:{confirmation_phrase:review.challenge}}));assert.equal(f.requests[0].url,'/firewall-activation/review-one/confirm');assert.equal(f.requests[0].options.body.confirmation_nonce,'exact-nonce');assert.equal(f.requests[0].options.body.digest,'exact-digest');assert.equal(f.requests[0].options.body.acknowledge_downtime,true);assert.equal(f.element('#firewall-activation-ack').checked,false);assert.match(f.messages[0],/queued is not applied/);
+ const f=fixture(),review=plan();f.c.showFirewallActivationReview(review);const current=f.element('#firewall-activation-review-form');Object.assign(current,{id:'firewall-activation-review-form',values:{confirmation_phrase:review.challenge}});f.element('#firewall-activation-ack').checked=true;await f.c.firewallActivationSubmit(submit(current));assert.equal(f.requests[0].url,'/firewall-activation/review-one/confirm');assert.equal(f.requests[0].options.body.confirmation_nonce,'exact-nonce');assert.equal(f.requests[0].options.body.digest,'exact-digest');assert.equal(f.requests[0].options.body.acknowledge_downtime,true);assert.equal(f.element('#firewall-activation-ack').checked,false);assert.match(f.messages[0],/queued is not applied/);
+});
+test('late successful confirmation preserves a newer dialog and its exact current review',async()=>{
+ for(const replacement of ['form','plan','closed','identity']){
+  const pending=deferred(),f=fixture(url=>url.endsWith('/confirm')?pending.promise:page()),previous=plan();
+  f.c.showFirewallActivationReview(previous);
+  const oldForm=f.element('#firewall-activation-review-form');Object.assign(oldForm,{id:'firewall-activation-review-form',values:{confirmation_phrase:previous.challenge}});
+  f.element('#firewall-activation-ack').checked=true;
+  const running=f.c.firewallActivationSubmit(submit(oldForm));
+  assert.equal(f.requests.length,1);assert.equal(f.element('#firewall-activation-ack').checked,false);
+  const current=replacement==='form'?previous:{...plan(),id:'review-new',digest:'new-exact-digest'};
+  f.c.showFirewallActivationReview(current);
+  let currentForm=oldForm;
+  if(replacement==='form'){
+   currentForm={id:'firewall-activation-review-form',values:{confirmation_phrase:''},fields:{'button[type="submit"]':{disabled:true}}};
+   f.elements.set('#firewall-activation-review-form',currentForm);
+  }
+  if(replacement==='closed')f.c.closeModal();
+  if(replacement==='identity')f.c.state.user={id:'other-admin'};
+  pending.resolve({status:'assigned'});await running;
+  assert.equal(f.c.state.firewallActivationReview,current,replacement);
+  assert.equal(f.element('#modal').open,replacement!=='closed',replacement);
+  assert.equal(f.messages.length,0,'old success must not report status for the new review');
+  assert.equal(f.requests.length,1,'old success must not refresh or replace the new dialog');
+  if(replacement==='form')assert.equal(currentForm.fields['button[type="submit"]'].disabled,true);
+ }
 });
 test('full assessments load only for explicit single-endpoint inspection',async()=>{
  const f=fixture();await f.c.firewallActivationAction({dataset:{action:'firewall-activation-inspect',id:'host-one'}});assert.equal(f.requests[0].url,'/firewall-activation/query');assert.equal(f.requests[0].options.body.details,true);assert.equal(f.requests[0].options.body.limit,1);assert.equal(f.requests[0].options.body.server_ids.length,1);await f.c.loadFirewallActivation(false);assert.equal('details' in f.requests[1].options.body,false);

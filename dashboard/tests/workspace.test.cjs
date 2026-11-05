@@ -598,6 +598,32 @@ function renderedForm(env,id,values={}) {
 }
 function submitRendered(env,form) {return env.listeners.submit.at(-1)({preventDefault(){},target:form});}
 function servicePreview(overrides={}) {return {before:serviceGroup,after:{...serviceGroup,revision:3,ports:[{port:443,protocol:'tcp'},{port:9443,protocol:'tcp'}]},ports_changed:true,effective_change_count:2,target_server_count:3,affected_policies:[{id:'policy-1',name:'Billing policy',revision:4}],affected_servers:[{id:'host-1',hostname:'api <one>'},{id:'host-2',hostname:'api-two'}],requires_managed_review:true,...overrides};}
+test('service group access preview renders all reported IPs with exact affected scope and never saves by itself',async()=>{
+ const ips=['172.31.3.131','100.66.222.60','2001:db8::60'];
+ const preview=servicePreview({effective_change_count:1,target_server_count:1,
+  affected_servers:[{id:'host-1',hostname:'api <owner>',ips,transport_ip:'198.51.100.99'}]});
+ const env=await workspace('services',{mode:'entra',role:'admin',responses:{'POST /api/v1/service-groups/preview':preview}});
+ await env.click('service-group-edit',{id:'web-ports'});
+ const form=renderedForm(env,'service-group-form',{name:'Web application',description:'',ports:'443/tcp, 9443/tcp'});
+ await submitRendered(env,form);
+ const html=env.element('#service-group-impact').innerHTML;
+ assert.match(html,/<strong>1<\/strong> endpoint bundles change across <strong>1<\/strong> target endpoints/);
+ assert.match(html,/api &lt;owner&gt;/);for(const ip of ips)assert.ok(html.includes(ip));
+ assert.doesNotMatch(html,/<owner>|198\.51\.100\.99|api-two/);
+ const writes=mutations(env);assert.equal(writes.length,1);assert.equal(writes[0].url,'/api/v1/service-groups/preview');
+ assert.equal(writes[0].options.method,'POST');assertCookieMutation(writes[0]);
+});
+test('service group impact preview escapes address text and identifies unavailable reported IPs',async()=>{
+ const env=await workspace('services',{mode:'entra',role:'admin',responses:{'POST /api/v1/service-groups/preview':servicePreview({affected_servers:[
+  {id:'host-1',hostname:'api-one',ips:['192.0.2.9','<img src=x onerror=alert(1)>']},
+  {id:'host-2',hostname:'api-two'}]})}});
+ await env.click('service-group-edit',{id:'web-ports'});
+ const form=renderedForm(env,'service-group-form',{name:'Web application',description:'',ports:'443/tcp, 9443/tcp'});
+ await submitRendered(env,form);const html=env.element('#service-group-impact').innerHTML;
+ assert.match(html,/192\.0\.2\.9, &lt;img src=x onerror=alert\(1\)&gt;/);
+ assert.match(html,/IP not reported/);assert.doesNotMatch(html,/<img|10\.1\.0\.2/);
+ assert.equal(mutations(env).length,1);
+});
 test('Service groups shows different discovered services on one port and only prefills a draft',async()=>{
  const listeners=[{port:443,protocol:'tcp',service:'HTTPS',application:'Payments <web>'},{port:443,protocol:'tcp',process:'sshd'},{port:53,protocol:'udp',service:'DNS',process:'named'}];
  const responses={'/api/v1/overview':{...fixture,servers:[{...host,listeners}],meta:{...fixture.meta,demo:false}}};
@@ -2620,4 +2646,96 @@ test('saved tag filter preserves other filters and applies exact selected values
  const env=await workspace('servers',{responses:{'/api/v1/tags?limit=200&offset=0&q=':savedTagPage()}});env.run('state.filters.ports=["8443/tcp"];state.filters.locations=["location:loc-1"];state.filters.custom={existing:["preserved"]};render()');assert.match(env.element('#view-content').innerHTML,/data-action="tag-filter-open"/);
  await env.click('tag-filter-open');env.run('tagFilterAction({dataset:{action:"tag-filter-select",key:"owner",value:"Finance, risk=core"},checked:true})');await env.click('tag-filter-apply');
  assert.deepEqual(JSON.parse(env.run('JSON.stringify(state.filters.custom)')),{existing:['preserved'],owner:['Finance, risk=core']});assert.deepEqual(JSON.parse(env.run('JSON.stringify(state.filters.ports)')),['8443/tcp']);assert.deepEqual(JSON.parse(env.run('JSON.stringify(state.filters.locations)')),['location:loc-1']);
+});
+
+function staticGroupPicker(env,selected){
+ const form=renderedForm(env,'group-form',{group_name:'QA static targets',group_type:'static',group_members:[...selected],group_selector:'',group_location_id:''});
+ env.element('[name="group_type"]').value='static';
+ const picker=env.element('#group-endpoints'),results=env.element('group-picker-results'),fields={
+  '[data-endpoint-search]':{value:''},'[data-endpoint-location]':{value:''},
+  '[data-endpoint-count]':env.element('group-picker-count'),
+  '[data-action="endpoint-picker-select"]':{disabled:false},'[data-action="endpoint-picker-clear"]':{disabled:false},
+  '[data-endpoint-results]':results,
+ };
+ picker.dataset.fieldName='group_members';picker.closest=selector=>selector==='form'?form:null;
+ picker.querySelector=selector=>fields[selector]||null;
+ let html='';Object.defineProperty(results,'innerHTML',{configurable:true,get:()=>html,set(value){
+  html=value;
+  // Model the browser's successful controls after production picker replaces
+  // its DOM, including hidden selections outside the displayed search page.
+  form.values.group_members=[...value.matchAll(/<input\b([^>]+)>/g)].filter(([,attributes])=>/name="group_members"/.test(attributes)&&(/type="hidden"/.test(attributes)||/\bchecked(?:\s|$)/.test(attributes))).map(([,attributes])=>attributes.match(/value="([^"]*)"/)[1]);
+ }});
+ env.run('updateGroupPreview()');
+ return {form,picker,fields,async click(action){const button={disabled:false,dataset:{action},closest:selector=>selector==='[data-endpoint-picker]'?picker:null};env.context.groupPickerActionButton=button;return env.run('handleAction({target:{closest:()=>groupPickerActionButton}})');},change(ids){
+  form.values.group_members=[...ids];
+  const target={id:'',name:'group_members',value:selected[0]||'',checked:ids.length>0,dataset:{},form,closest:selector=>selector==='[data-endpoint-picker]'?picker:selector==='form'?form:null,matches:()=>false};
+  for(const listener of env.listeners.change)listener({target});
+ }};
+}
+test('static group bulk Clear and Select update the actual member preview immediately',async()=>{
+ const servers=Array.from({length:5},(_,index)=>({...host,id:'static-'+index,hostname:'static-server-'+index,ips:['10.40.0.'+(index+1)]}));
+ const env=await workspace('servers',{responses:{'/api/v1/overview':{...fixture,servers}}});
+ env.run('showGroupForm()');const picker=staticGroupPicker(env,servers.map(server=>server.id));
+ assert.match(env.element('#group-member-preview').innerHTML,/5 affected endpoints</);
+ await picker.click('endpoint-picker-clear');
+ assert.match(picker.fields['[data-endpoint-count]'].textContent,/0 selected/);
+ assert.match(env.element('#group-member-preview').innerHTML,/0 affected endpoints</);
+ assert.match(env.element('#group-member-preview').innerHTML,/An empty static group matches no servers/);
+ assert.doesNotMatch(env.element('#group-member-preview').innerHTML,/static-server-[0-4]/);
+ await picker.click('endpoint-picker-select');
+ assert.match(picker.fields['[data-endpoint-count]'].textContent,/5 selected/);
+ assert.match(env.element('#group-member-preview').innerHTML,/5 affected endpoints</);
+ assert.equal(mutations(env).length,0);
+});
+test('empty static create and edit submit exact empty membership while dynamic selectors stay required',async()=>{
+ const env=await workspace('servers');env.run('showGroupForm()');
+ let picker=staticGroupPicker(env,['host-1']);picker.change([]);
+ assert.match(env.element('#group-member-preview').innerHTML,/0 affected endpoints</);
+ await submitRendered(env,picker.form);
+ let requests=mutations(env).filter(row=>row.url==='/api/v1/groups');
+ assert.equal(requests.length,1);assert.equal(requests[0].options.method,'POST');
+ assert.deepEqual(JSON.parse(requests[0].options.body),{name:'QA static targets',type:'static',selector:{},server_ids:[]});
+ env.run('state.data.groups.push({id:"empty-static",name:"Empty targets",type:"static",selector:{},server_ids:[]});showGroupForm("empty-static")');
+ picker=staticGroupPicker(env,[]);await submitRendered(env,picker.form);
+ requests=mutations(env).filter(row=>row.url==='/api/v1/groups/empty-static');
+ assert.equal(requests.length,1);assert.deepEqual(JSON.parse(requests[0].options.body).server_ids,[]);
+ env.run('showGroupForm()');const dynamic=renderedForm(env,'group-form',{group_name:'No selector',group_type:'dynamic',group_selector:'',group_location_id:''});
+ const before=mutations(env).length;await submitRendered(env,dynamic);
+ assert.equal(mutations(env).length,before);assert.match(env.element('#form-error').textContent,/Dynamic groups need at least one tag pair/);
+});
+test('static group one to zero to one cycle preserves exact payload and never widens empty membership',async()=>{
+ let members=['host-1'];const bodies=[];
+ const group=()=>({id:'static-cycle',name:'QA static targets',type:'static',selector:{},server_ids:[...members]});
+ const env=await workspace('servers',{responses:{'/api/v1/overview':()=>({...fixture,groups:[group()]}),'PUT /api/v1/groups/static-cycle':options=>{const body=JSON.parse(options.body);bodies.push(body);members=[...body.server_ids];return group();}}});
+ env.run('showGroupForm("static-cycle")');let picker=staticGroupPicker(env,members);
+ picker.change([]);assert.match(env.element('#group-member-preview').innerHTML,/0 affected endpoints</);
+ await submitRendered(env,picker.form);
+ assert.deepEqual(members,[]);assert.deepEqual(bodies[0].server_ids,[]);
+ assert.deepEqual(JSON.parse(env.run('JSON.stringify(policyTargetServers({selector:{},group_ids:["static-cycle"]}).map(server=>server.id))')),[]);
+ env.run('showGroupForm("static-cycle")');picker=staticGroupPicker(env,[]);picker.change(['host-1']);
+ assert.match(env.element('#group-member-preview').innerHTML,/1 affected endpoint</);
+ await submitRendered(env,picker.form);
+ assert.deepEqual(bodies.map(body=>body.server_ids),[[],['host-1']]);
+ assert.ok(bodies.every(body=>body.type==='static'&&Object.keys(body.selector).length===0));
+ assert.deepEqual(JSON.parse(env.run('JSON.stringify(policyTargetServers({selector:{},group_ids:["static-cycle"]}).map(server=>server.id))')),['host-1']);
+});
+test('failed firewall assessment displays nested actionable blockers and cannot reuse old readiness',async()=>{
+ const reason='Turn off managed enforcement in the endpoint configuration before this operation';
+ const env=await workspace('firewall',{responses:{'POST /api/v1/firewall-activation/assess':{responseStatus:409,data:{error:'Firewall assessment is unavailable',plan:{server_id:'host-1',blockers:[reason,'Review <unsafe> endpoint before retrying']}}}}});
+ env.run('state.data.servers[0].hostname="api <owner>";showFirewallActivationForm("host-1","deactivate_existing")');
+ const form=renderedForm(env,'firewall-activation-form',{operation:'deactivate_existing'});
+ form.querySelectorAll=selector=>selector.includes('server_ids')?[{value:'host-1'}]:[];
+ env.context.readyAssessmentForm=form;
+ env.run('state.firewallActivationAssessment={owner:firewallActivationIdentity(),form:readyAssessmentForm,key:firewallAssessmentKey({operation:"deactivate_existing",server_ids:["host-1"],group_ids:[]}),jobs:[],ready:true,expires:Date.now()+60000};renderFirewallAssessment(readyAssessmentForm)');
+ assert.equal(env.element('button[type="submit"]').disabled,false);
+ await env.click('firewall-activation-assess');
+ const html=env.element('#form-error').innerHTML;
+ assert.match(html,/Firewall assessment is unavailable/);assert.match(html,/Endpoint: api &lt;owner&gt;/);
+ assert.match(html,/Turn it off through a reviewed endpoint configuration change/);assert.match(html,/wait for the agent to report the change/);
+ assert.match(html,/Review &lt;unsafe&gt; endpoint/);assert.doesNotMatch(html,/<owner>|<unsafe>/);
+ assert.equal(env.element('button[type="submit"]').disabled,true);assert.equal(env.run('state.firewallActivationAssessment'),null);
+ await submitRendered(env,form);
+ const requests=mutations(env).filter(row=>row.url!=='/api/v1/firewall-activation/query');
+ assert.deepEqual(requests.map(row=>row.url),['/api/v1/firewall-activation/assess']);
+ assert.doesNotMatch(env.element('#modal-content').innerHTML,/name="confirmation_phrase"|name="acknowledge_downtime"/);
 });

@@ -1,0 +1,47 @@
+{
+  "fixture_kind": "Upstream-derived v2.4.3 semantic/render fixture; NOT a captured RHEL policy readback or wire test",
+  "upstream_commit": "865b0da0a73927b152ab6d2f7c1da9a03f5d4a51",
+  "renderer_url": "https://github.com/firewalld/firewalld/blob/865b0da0a73927b152ab6d2f7c1da9a03f5d4a51/src/firewall/command.py",
+  "renderer_blob_sha": "8d84f4222fc2e27cb2184fe56c0452fd450a9e2a",
+  "disable_semantics_url": "https://github.com/firewalld/firewalld/blob/865b0da0a73927b152ab6d2f7c1da9a03f5d4a51/src/firewall/core/fw_policy.py",
+  "disable_semantics_blob_sha": "5e5d2358fd6010c217c071b175f86164d0d4db03",
+  "policy_defaults_url": "https://github.com/firewalld/firewalld/blob/865b0da0a73927b152ab6d2f7c1da9a03f5d4a51/src/firewall/core/io/policy.py",
+  "policy_defaults_blob_sha": "1feb2525fc6ac22d12a408fe2825c9dd6c259a27",
+  "policies": [
+    {
+      "name": "gateway-dmz-to-HOST",
+      "xml_url": "https://github.com/firewalld/firewalld/blob/865b0da0a73927b152ab6d2f7c1da9a03f5d4a51/config/policies/gateway-dmz-to-HOST.xml",
+      "xml_blob_sha": "a93a2b6c5c0841a91aa3fd296975413ee665c9bc",
+      "runtime": "gateway-dmz-to-HOST (disabled)\n  disable: yes\n  priority: 1000\n  target: CONTINUE\n  ingress-zones: dmz\n  egress-zones: HOST\n  services: dhcp dns\n  ports:\n  protocols:\n  masquerade: no\n  forward-ports:\n  source-ports:\n  icmp-blocks:\n  rich rules:\n",
+      "permanent": "gateway-dmz-to-HOST\n  disable: yes\n  priority: 1000\n  target: CONTINUE\n  ingress-zones: dmz\n  egress-zones: HOST\n  services: dhcp dns\n  ports:\n  protocols:\n  masquerade: no\n  forward-ports:\n  source-ports:\n  icmp-blocks:\n  rich rules:\n"
+    },
+    {
+      "name": "gateway-lan-to-HOST",
+      "xml_url": "https://github.com/firewalld/firewalld/blob/865b0da0a73927b152ab6d2f7c1da9a03f5d4a51/config/policies/gateway-lan-to-HOST.xml",
+      "xml_blob_sha": "0f183ac7b4f7e317aa245d03c94ebf4cee68b965",
+      "runtime": "gateway-lan-to-HOST (disabled)\n  disable: yes\n  priority: 1000\n  target: CONTINUE\n  ingress-zones: internal home trusted\n  egress-zones: HOST\n  services: dhcp dns ssh\n  ports:\n  protocols:\n  masquerade: no\n  forward-ports:\n  source-ports:\n  icmp-blocks:\n  rich rules:\n",
+      "permanent": "gateway-lan-to-HOST\n  disable: yes\n  priority: 1000\n  target: CONTINUE\n  ingress-zones: internal home trusted\n  egress-zones: HOST\n  services: dhcp dns ssh\n  ports:\n  protocols:\n  masquerade: no\n  forward-ports:\n  source-ports:\n  icmp-blocks:\n  rich rules:\n"
+    },
+    {
+      "name": "gateway-lan-to-work",
+      "xml_url": "https://github.com/firewalld/firewalld/blob/865b0da0a73927b152ab6d2f7c1da9a03f5d4a51/config/policies/gateway-lan-to-work.xml",
+      "xml_blob_sha": "b7c50ae76f3d80db338995a1969f22264c9aa26a",
+      "runtime": "gateway-lan-to-work (disabled)\n  disable: yes\n  priority: 1000\n  target: ACCEPT\n  ingress-zones: internal home trusted\n  egress-zones: work\n  services: ftp tftp\n  ports:\n  protocols:\n  masquerade: no\n  forward-ports:\n  source-ports:\n  icmp-blocks:\n  rich rules:\n",
+      "permanent": "gateway-lan-to-work\n  disable: yes\n  priority: 1000\n  target: ACCEPT\n  ingress-zones: internal home trusted\n  egress-zones: work\n  services: ftp tftp\n  ports:\n  protocols:\n  masquerade: no\n  forward-ports:\n  source-ports:\n  icmp-blocks:\n  rich rules:\n"
+    },
+    {
+      "name": "gateway-lan-to-world",
+      "xml_url": "https://github.com/firewalld/firewalld/blob/865b0da0a73927b152ab6d2f7c1da9a03f5d4a51/config/policies/gateway-lan-to-world.xml",
+      "xml_blob_sha": "907c3f871a0802931973d6bb8b3f8e45f7f68846",
+      "runtime": "gateway-lan-to-world (disabled)\n  disable: yes\n  priority: 1000\n  target: ACCEPT\n  ingress-zones: internal home trusted\n  egress-zones: external public\n  services: ftp tftp\n  ports:\n  protocols:\n  masquerade: no\n  forward-ports:\n  source-ports:\n  icmp-blocks:\n  rich rules:\n",
+      "permanent": "gateway-lan-to-world\n  disable: yes\n  priority: 1000\n  target: ACCEPT\n  ingress-zones: internal home trusted\n  egress-zones: external public\n  services: ftp tftp\n  ports:\n  protocols:\n  masquerade: no\n  forward-ports:\n  source-ports:\n  icmp-blocks:\n  rich rules:\n"
+    },
+    {
+      "name": "gateway-world-to-HOST",
+      "xml_url": "https://github.com/firewalld/firewalld/blob/865b0da0a73927b152ab6d2f7c1da9a03f5d4a51/config/policies/gateway-world-to-HOST.xml",
+      "xml_blob_sha": "5ee593d48cbf180c22b9b560f6e13d6b62638ac3",
+      "runtime": "gateway-world-to-HOST (disabled)\n  disable: yes\n  priority: 1000\n  target: CONTINUE\n  ingress-zones: external public\n  egress-zones: HOST\n  services: dhcpv6-client\n  ports:\n  protocols:\n  masquerade: no\n  forward-ports:\n  source-ports:\n  icmp-blocks:\n  rich rules:\n",
+      "permanent": "gateway-world-to-HOST\n  disable: yes\n  priority: 1000\n  target: CONTINUE\n  ingress-zones: external public\n  egress-zones: HOST\n  services: dhcpv6-client\n  ports:\n  protocols:\n  masquerade: no\n  forward-ports:\n  source-ports:\n  icmp-blocks:\n  rich rules:\n"
+    }
+  ]
+}

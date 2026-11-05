@@ -271,7 +271,7 @@ def consume_plan(store, db, value, actor):
 
 def item(before, after):
     fields = ("tags", "location_id")
-    return {"server_id": before["id"], "hostname": before.get("hostname", before["id"]),
+    return {"server_id": before["id"], "hostname": before.get("hostname", before["id"]), "ips": list(before.get("ips") or []),
         "before": {key: before.get(key) for key in fields}, "after": {key: after.get(key) for key in fields},
         "conflicts": after.get("metadata_conflicts", []), "changed": any(before.get(key) != after.get(key) for key in (*fields, "location_source", "tag_sources")),
         "location_source": after.get("location_source"), "tag_sources": after.get("tag_sources", {})}

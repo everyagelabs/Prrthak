@@ -340,6 +340,17 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(self.store.assignment("target")[0]["services"], [])
         self.assertTrue(self.store.assignment("source")[0]["services"])
 
+    def test_empty_static_group_create_and_one_zero_one_cycle_never_widens_policy_targets(self):
+        group = self.store.save_group({"name": "Empty approved targets", "type": "static", "selector": {}, "server_ids": []}, "admin")
+        self.policy(selector={}, group_ids=[group["id"]])
+        for members in ([], ["target"], [], ["target"]):
+            saved = self.store.save_group({"name": "Exact static targets", "type": "static", "selector": {}, "server_ids": members}, "admin", group["id"])
+            self.assertEqual(saved["server_ids"], members)
+            self.assertEqual(bool(self.store.assignment("target")[0]["services"]), "target" in members)
+            self.assertEqual(self.store.assignment("source")[0]["services"], [])
+        with self.assertRaises(ValueError):
+            self.store.save_group({"name": "No selector", "type": "dynamic", "selector": {}, "server_ids": []}, "admin")
+
     def test_group_rename_preserves_versions_and_member_edit_changes_only_targets(self):
         group = self.store.save_group({"name": "Test", "type": "static", "server_ids": ["target"]}, "admin")
         self.policy(selector={}, group_ids=[group["id"]])

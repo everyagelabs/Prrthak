@@ -159,6 +159,23 @@ class ServiceGroupTests(unittest.TestCase):
         self.assertIn({"port": 8443, "protocol": "tcp"}, restored["services"][0]["service_group_snapshot"]["ports"])
         self.assertEqual(self.bundle()["version"], unchanged["version"])
 
+    def test_impact_preview_includes_only_affected_reported_addresses_without_writes(self):
+        addresses = ["172.31.3.131", "100.66.222.60", "2001:db8::60"]
+        self.report("target", addresses, {"role": "target"}, transport_ip="198.51.100.99")
+        web = self.catalogue()
+        self.policy(web)
+        before = {table: copy.deepcopy(self.store.all(table)) for table in ("servers", "policies", "service_groups", "audit")}
+        impact = service_groups.preview(self.store, {**web, "expected_revision": 1,
+            "ports": web["ports"] + [{"port": 8443, "protocol": "tcp"}]})
+        self.assertEqual(impact["effective_change_count"], 1)
+        self.assertEqual(impact["affected_server_ids"], ["target"])
+        self.assertEqual(impact["affected_servers"][0]["ips"], sorted(addresses))
+        self.assertNotIn("198.51.100.99", json.dumps(impact))
+        for table, rows in before.items():
+            self.assertEqual(self.store.all(table), rows, table)
+        impact["affected_servers"][0]["ips"].clear()
+        self.assertEqual(self.store.server("target")["ips"], sorted(addresses))
+
     def test_delete_guards_and_missing_reference_fail_closed(self):
         web = self.catalogue()
         clients = self.group("Pinned source", server_ids=["source-a"])
