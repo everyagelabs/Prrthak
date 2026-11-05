@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"sort"
 	"strings"
 )
@@ -50,8 +52,76 @@ func hostDefaultDenyLinkContext(raw string) (string, []string, error) {
 // Bound and inspect the live nftables structure, not only firewalld's cached
 // zone text. No raw nft/iptables mutations are performed by this feature.
 func hostDefaultDenyKernelContext(raw, zone string) (string, error) {
+	return nftHostInputKernelProof(raw, zone, false, nil)
+}
+
+func liveHostDefaultDenyKernelContext(ctx context.Context, commands CommandRunner, raw, zone string) (string, error) {
+	// Fixture runners supply synthetic rulesets from a different kernel. In
+	// production nft and procfs must both describe the agent's namespace.
+	switch commands.(type) {
+	case ExecRunner, *ExecRunner:
+		if err := checkNoLegacyNetfilterHooks(""); err != nil {
+			return "", err
+		}
+		digest, err := stableNftHostInputKernelProof(ctx, commands, raw, zone, false)
+		if err != nil {
+			return "", err
+		}
+		if err := checkNoLegacyNetfilterHooks(""); err != nil {
+			return "", err
+		}
+		return digest, nil
+	default:
+		return stableNftHostInputKernelProof(ctx, commands, raw, zone, false)
+	}
+}
+
+func checkNoLegacyNetfilterHooks(root string) error {
+	for _, path := range []string{"/proc/net/ip_tables_names", "/proc/net/ip6_tables_names"} {
+		raw, err := os.ReadFile(root + path)
+		if os.IsNotExist(err) {
+			continue // No legacy table registered for this family.
+		}
+		if err != nil || len(raw) > 4096 || strings.TrimSpace(string(raw)) != "" {
+			return errors.New("legacy or unreadable iptables hooks prevent nftables host-input proof")
+		}
+	}
+	return nil
+}
+
+func inactiveTailscaleKernelProof(ctx context.Context, commands CommandRunner, raw string) (string, error) {
+	return stableNftHostInputKernelProof(ctx, commands, raw, "", true)
+}
+
+func stableNftHostInputKernelProof(ctx context.Context, commands CommandRunner, raw, zone string, tailscaleOnly bool) (string, error) {
+	usedReadback := false
+	read := func(family string, request tailscaleProofRequest) ([]string, bool) {
+		usedReadback = true
+		return readTailscaleXTables(ctx, commands, family, request)
+	}
+	digest, err := nftHostInputKernelProof(raw, zone, tailscaleOnly, read)
+	if err != nil || !usedReadback {
+		return digest, err
+	}
+	// Require the same structural proof and opaque-rule arguments on both
+	// reads. Counters and rule handles are intentionally outside the proof.
+	latest, err := commands.Run(ctx, "nft", "-j", "list", "ruleset")
+	if err != nil {
+		return "", err
+	}
+	current, err := nftHostInputKernelProof(latest, zone, tailscaleOnly, read)
+	if err != nil {
+		return "", err
+	}
+	if current != digest {
+		return "", errors.New("live nftables input context changed during native rule readback")
+	}
+	return digest, nil
+}
+
+func nftHostInputKernelProof(raw, zone string, tailscaleOnly bool, read tailscaleProofReader) (string, error) {
 	bad := func() (string, error) { return "", errors.New("unsupported live nftables input context") }
-	if len(raw) > 8*1024*1024 || !firewallName.MatchString(zone) {
+	if len(raw) > 8*1024*1024 || !tailscaleOnly && !firewallName.MatchString(zone) {
 		return bad()
 	}
 	var document struct {
@@ -63,6 +133,8 @@ func hostDefaultDenyKernelContext(raw, zone string) (string, error) {
 	input, zonePre, established, loopback, dispatch := false, false, false, false, false
 	base := map[string][]json.RawMessage{}
 	compat := make(nftTailscaleContext)
+	legacyNAT := make(legacyFirewalldNAT)
+	probes := make(inertXTablesProbes)
 	dispatchChains := map[string]bool{"filter_INPUT_POLICIES": true, "filter_INPUT_ZONES": true, "filter_INPUT_ZONES_SOURCE": true, "filter_INPUT_POLICIES_pre": true, "filter_INPUT_POLICIES_post": true}
 	for _, object := range document.Objects {
 		if len(object) != 1 {
@@ -76,11 +148,26 @@ func hostDefaultDenyKernelContext(raw, zone string) (string, error) {
 			if json.Unmarshal(body, &item) != nil {
 				return bad()
 			}
+			if known, inert := probes.admit(kind, item, body); known {
+				if !inert {
+					return bad()
+				}
+				continue
+			}
+			if !tailscaleOnly && isLegacyFirewalldNAT(kind, item) {
+				if !legacyNAT.add(kind, item) {
+					return bad()
+				}
+				continue
+			}
 			if item.Family != "inet" || kind == "table" && item.Name != "firewalld" || kind != "table" && item.Table != "firewalld" {
 				if !compat.add(kind, item, body) {
 					return bad()
 				}
 				continue
+			}
+			if tailscaleOnly {
+				return bad()
 			}
 			if kind == "chain" && item.Hook == "input" && item.Prio == nil {
 				return bad()
@@ -181,15 +268,22 @@ func hostDefaultDenyKernelContext(raw, zone string) (string, error) {
 			}
 		}
 	}
-	if !input || !zonePre || !established || !loopback || !dispatch {
+	if !probes.complete() || tailscaleOnly && len(compat) == 0 || !tailscaleOnly && (!input || !zonePre || !established || !loopback || !dispatch) {
 		return bad()
 	}
 	if len(compat) > 0 {
-		proof, ok := compat.proof()
+		proof, ok := compat.proof(read)
 		if !ok {
 			return bad()
 		}
 		base["iptables-nft tailscale"] = []json.RawMessage{proof}
+	}
+	if len(legacyNAT) > 0 {
+		proof, ok := legacyNAT.proof()
+		if !ok {
+			return bad()
+		}
+		base["firewalld family NAT dispatch"] = []json.RawMessage{proof}
 	}
 	encoded, _ := json.Marshal(base)
 	return shaText(string(encoded)), nil

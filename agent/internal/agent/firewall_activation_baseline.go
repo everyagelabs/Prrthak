@@ -336,6 +336,12 @@ func (a *Agent) firewallActivationBaseline(ctx context.Context, operation string
 			if err != nil {
 				return block(err)
 			}
+			if facts.Backend == "nftables" {
+				baseline.NativeContext, err = activationFirewallContext(ctx, a.Commands, root, true, false, nil)
+				if err != nil {
+					return block(err)
+				}
+			}
 			facts.Notes = append(facts.Notes, "Stopping firewalld removes its live filtering and disables it at boot. Its permanent rules stay on the endpoint. Inbound services can become reachable.")
 		}
 	} else {

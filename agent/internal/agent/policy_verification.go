@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const conntrackTimestampPrerequisite = "Kernel conntrack birth timestamps are unavailable. Allow verification requires net.netfilter.nf_conntrack_timestamp=1 before requesting a fresh verification window and opening new connections. No sysctl was changed."
+
 func (a *Agent) verificationTimestampAvailable() bool {
 	if a.policyVerificationTimestampAvailable != nil {
 		return a.policyVerificationTimestampAvailable()
@@ -193,7 +195,7 @@ func (a *Agent) preparePolicyVerification(ctx context.Context, p *Policy) error 
 	if !a.verificationTimestampAvailable() {
 		for i := range state.Report.Ports {
 			if state.Report.Ports[i].Allow.Status == "awaiting" {
-				state.Report.Ports[i].Allow = PolicyVerificationCase{Status: "unavailable", Reason: "Kernel conntrack birth timestamps are unavailable; observer time cannot prove a post-arm connection. No sysctl was changed."}
+				state.Report.Ports[i].Allow = PolicyVerificationCase{Status: "unavailable", Reason: conntrackTimestampPrerequisite}
 			}
 		}
 	}

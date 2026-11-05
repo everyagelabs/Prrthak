@@ -136,10 +136,14 @@ test('account shell moves real identity to the top right and keeps controller an
 test('sidebar shows standalone controller connection and only fetches HA health when active outside Overview', async () => {
  const shell=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
  assert.doesNotMatch(shell,/controller-badge/);
- assert.match(shell,/<aside[\s\S]*id="setup-button"[\s\S]*id="sidebar-controller-health"[\s\S]*id="controller-display-name"[\s\S]*id="sidebar-ha-health"[^>]*hidden[\s\S]*<\/aside>/);
+ assert.match(shell,/id="connection-label" class="sr-only"/);
+ assert.match(shell,/<nav id="navigation"><\/nav>\s*<button[^>]*id="setup-button"[^>]*>[^]*?<\/button>\s*<div class="sidebar-bottom">/);
+ assert.match(shell,/<aside[\s\S]*id="setup-button"[\s\S]*id="sidebar-controller-health"[^>]*>[^]*?id="controller-display-name"[^]*?id="controller-version"[^>]*hidden[^]*?<\/div>\s*<div[^>]*id="sidebar-ha-health"[^>]*hidden[\s\S]*<\/aside>/);
  const env=await workspace('servers');
  assert.equal(env.element('#sidebar-controller-health').dataset.state,'healthy');
  assert.equal(env.element('#sidebar-controller-health').title,'Controller connected');
+ assert.equal(env.element('#controller-version').textContent,'v0.1.0');
+ assert.equal(env.element('#controller-version').hidden,false);
  assert.equal(env.element('#sidebar-ha-health').hidden,true);
  assert.equal(env.requests.some(({url})=>url==='/api/v1/cluster'),false);
  env.context.apiResponses['/api/v1/overview']={responseStatus:503,data:{error:'Temporarily unavailable'}};
@@ -159,21 +163,28 @@ test('active HA sidebar reports controller readiness from direct entry and degra
  assert.equal(controller.title,'Primary DC connected');
  assert.equal(ha.hidden,false);
  assert.equal(ha.dataset.state,'healthy');
+ assert.equal(env.element('#sidebar-ha-label').textContent,'HA healthy');
  assert.match(ha.title,/2\/2 controllers ready/);
  env.context.apiResponses['/api/v1/cluster']={...cluster,nodes:[{...primary,ready:false},cluster.nodes[1]]};
  await env.run('refreshClusterStatus()');
  assert.equal(controller.dataset.state,'warning');
  assert.equal(controller.title,'Primary DC not ready');
  assert.equal(ha.dataset.state,'warning');
+ assert.equal(env.element('#sidebar-ha-label').textContent,'HA degraded');
  assert.match(ha.title,/1\/2 controllers ready/);
  env.context.apiResponses['/api/v1/cluster']={...cluster,nodes:[primary]};
  await env.run('refreshClusterStatus()');
  assert.equal(ha.dataset.state,'warning');
  assert.match(ha.title,/Only one controller reporting/);
+ env.context.apiResponses['/api/v1/cluster']={...cluster,nodes:cluster.nodes.map(node=>({...node,status:'offline',ready:false}))};
+ await env.run('refreshClusterStatus()');
+ assert.equal(ha.dataset.state,'offline');
+ assert.equal(env.element('#sidebar-ha-label').textContent,'HA down');
+ assert.match(ha.title,/0\/2 controllers ready/);
  env.context.apiResponses['/api/v1/cluster']={responseStatus:503,data:{error:'Not available'}};
  await env.run('refreshClusterStatus()');
  assert.equal(ha.dataset.state,'offline');
- assert.equal(ha.title,'HA status unavailable');
+ assert.equal(ha.title,'HA unavailable');
 });
 test('account Manage users shortcut preserves existing Super Admin gates and profile access for all three roles',async()=>{
  for(const role of ['read_only','admin','super_admin']){const env=await workspace('servers',{mode:'entra',role});await env.click('account-toggle');const html=env.element('#account-menu-panel').innerHTML;assert.match(html,/My profile|Display preferences/);assert.equal(html.includes('data-action="account-users"'),role==='super_admin');assert.equal(env.element('#navigation').innerHTML.includes('href="/access"'),false);assert.equal(env.element('#view-tabs').innerHTML.includes('href="/access"'),false);await env.click('account-users');assert.deepEqual(env.routeHistory,role==='super_admin'?['/access']:[]);assert.deepEqual(env.navigation,[]);await env.click('account-profile');assert.match(env.element('#modal-content').innerHTML,new RegExp(role==='read_only'?'Read Only':role==='super_admin'?'Super Admin':'Admin'));assert.equal(mutations(env).length,0);}

@@ -27,6 +27,41 @@ type captureSidecarState struct {
 	Rules   []captureSidecar `json:"rules"`
 }
 
+var errCaptureRichLanguage = errors.New("this firewalld version does not accept NFLOG rich rules")
+
+func queryCaptureSidecar(ctx context.Context, commands CommandRunner, rule captureSidecar) (bool, error) {
+	out, err := commands.Run(ctx, "firewall-cmd", "--zone="+rule.Zone, "--query-rich-rule="+rule.text())
+	switch strings.TrimSpace(out) {
+	case "yes":
+		return err == nil, err
+	case "no":
+		return false, nil
+	}
+	if err != nil && strings.Contains(out, "INVALID_RULE:") {
+		return false, errCaptureRichLanguage
+	}
+	return false, errors.New("NFLOG rich-rule query could not be verified")
+}
+
+func captureSidecarPresentForCleanup(ctx context.Context, commands CommandRunner, rule captureSidecar) (bool, error) {
+	present, err := queryCaptureSidecar(ctx, commands, rule)
+	if !errors.Is(err, errCaptureRichLanguage) {
+		return present, err
+	}
+	// Older firewalld rejects the syntax even for a query. That rejection
+	// alone is not proof that an earlier capture intent left no live rule.
+	list, err := commands.Run(ctx, "firewall-cmd", "--zone="+rule.Zone, "--list-rich-rules")
+	if err != nil {
+		return false, err
+	}
+	for _, line := range strings.Split(list, "\n") {
+		if strings.Contains(line, rule.Prefix) {
+			return false, errors.New("unsupported NFLOG rule may still be installed")
+		}
+	}
+	return false, nil
+}
+
 func captureGroup(stateDir string) uint16 {
 	value, _ := strconv.ParseUint(shaText(stateDir)[:4], 16, 16)
 	return uint16(48000 + value%10000)
@@ -75,7 +110,7 @@ func clearTrafficCaptureSidecars(ctx context.Context, stateDir string, commands 
 		return errors.New("NFLOG cleanup requires the existing enforcement mutation lease")
 	}
 	for _, rule := range state.Rules {
-		present, err := firewallQuery(ctx, commands, "runtime", rule.Zone, "rich_rule", rule.text())
+		present, err := captureSidecarPresentForCleanup(ctx, commands, rule)
 		if err != nil {
 			return fmt.Errorf("NFLOG cleanup query: %w", err)
 		}
@@ -84,7 +119,7 @@ func clearTrafficCaptureSidecars(ctx context.Context, stateDir string, commands 
 				return err
 			}
 		}
-		present, err = firewallQuery(ctx, commands, "runtime", rule.Zone, "rich_rule", rule.text())
+		present, err = captureSidecarPresentForCleanup(ctx, commands, rule)
 		if err != nil || present {
 			return errors.New("NFLOG cleanup absence could not be verified before access mutation")
 		}
@@ -157,7 +192,7 @@ func (a *Agent) plannedCaptureSidecars(ctx context.Context, scopes []capturePort
 	if err != nil {
 		return nil, nil, err
 	}
-	if _, err = hostDefaultDenyKernelContext(raw, zone); err != nil {
+	if _, err = liveHostDefaultDenyKernelContext(ctx, a.Commands, raw, zone); err != nil {
 		return nil, nil, err
 	}
 	gaps := []string{"Packets dropped by earlier filters, such as Tailscale anti-spoofing, and untracked traffic may be absent from firewalld NFLOG."}

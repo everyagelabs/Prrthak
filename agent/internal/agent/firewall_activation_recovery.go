@@ -252,6 +252,12 @@ func rollbackFirewallActivation(ctx context.Context, commands CommandRunner, pat
 			if err := restoreSourceBankBindings(ctx, commands, value.Baseline.SourceBanks.RuntimeBindings); err != nil {
 				return failure(err)
 			}
+			if value.Baseline.NativeContext != "" {
+				restored, err := activationFirewallContext(ctx, commands, root, true, false, nil)
+				if err != nil || restored != value.Baseline.NativeContext {
+					return failure(errors.New("original foreign firewall context did not verify after restoring firewalld"))
+				}
+			}
 		}
 		if (value.Assignment.Operation == "migrate_ufw" || value.Assignment.Operation == "activate_existing") && value.Baseline.Assessment.UFWEnabled != "absent" {
 			if err := activationRestoreUnit(ctx, commands, "ufw", value.Baseline.Assessment.UFWActive, value.Baseline.Assessment.UFWEnabled); err != nil {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -455,6 +456,60 @@ func TestTrafficCaptureLearningPrefixDoesNotAdoptForeignAllowRules(t *testing.T)
 type trafficCaptureFixture struct {
 	flows  []capturedFlow
 	closed bool
+}
+
+type deniedCaptureFixture struct{ trafficCaptureFixture }
+
+func (*deniedCaptureFixture) SetDeniedPrefixes(uint16, []string) error { return nil }
+
+type oldCaptureLanguageRunner struct {
+	CommandRunner
+	list string
+}
+
+func (r oldCaptureLanguageRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+	if name == "firewall-cmd" && len(args) == 2 {
+		if strings.HasPrefix(args[1], "--query-rich-rule=") && strings.Contains(args[1], " nflog ") {
+			return "Error: INVALID_RULE: unknown element nflog", errors.New("unsupported rich language")
+		}
+		if args[1] == "--list-rich-rules" && r.list != "" {
+			return r.list, nil
+		}
+	}
+	return r.CommandRunner.Run(ctx, name, args...)
+}
+
+func TestUnsupportedNflogGrammarDoesNotWriteCaptureIntent(t *testing.T) {
+	ctx := context.Background()
+	a, firewall, protection := managedTestAgent(t)
+	if err := a.applyManaged(ctx, managedTestPolicy(protection, 1, "198.51.100.0/24"), protection); err != nil {
+		t.Fatal(err)
+	}
+	a.Commands = oldCaptureLanguageRunner{CommandRunner: &hostDenyFake{CommandRunner: firewall, nft: tailscaleKernelFixture(), forwarding: "0 0"}}
+	a.trafficCapture = &deniedCaptureFixture{}
+	now := time.Now().UTC()
+	scopes := []capturePortScope{{Port: Port{18080, "tcp"}, Kind: captureDenied, StartsAt: now.Add(-time.Second), ExpiresAt: now.Add(time.Minute)}}
+	mutations := firewall.mutations
+	if err := a.reconcileCaptureSidecars(ctx, scopes, now); !errors.Is(err, errCaptureRichLanguage) {
+		t.Fatal("expected an explicit grammar prerequisite:", err)
+	}
+	if _, err := os.Stat(captureSidecarPath(a.Config.StateDir)); !os.IsNotExist(err) || firewall.mutations != mutations {
+		t.Fatal("unsupported grammar persisted a capture intent or changed the firewall")
+	}
+}
+
+func TestUnsupportedNflogCleanupRequiresLiveInventory(t *testing.T) {
+	ctx := context.Background()
+	firewall := newFirewallFake()
+	rule := captureSidecar{Zone: "public", Family: "ipv4", Port: Port{18080, "tcp"}, Group: 50000, Prefix: "PRTVaaaaaaaaaaaaaaaa:", Priority: managedCaptureReject}
+	runner := oldCaptureLanguageRunner{CommandRunner: firewall}
+	if present, err := captureSidecarPresentForCleanup(ctx, runner, rule); err != nil || present {
+		t.Fatal("read-only native inventory did not prove clean state", present, err)
+	}
+	runner.list = rule.text()
+	if _, err := captureSidecarPresentForCleanup(ctx, runner, rule); err == nil {
+		t.Fatal("cleanup guessed a still-present rule was absent")
+	}
 }
 
 func (f *trafficCaptureFixture) Configure([]capturePortScope) error { return nil }

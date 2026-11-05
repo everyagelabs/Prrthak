@@ -15,30 +15,53 @@ import (
 // understood firewall authority. A valid permanent file is not evidence that
 // kernel forwarding/container/legacy rules are safe to change.
 func activationInactiveContext(ctx context.Context, commands CommandRunner, root string, ufw bool, rules []FirewallActivationRule) (string, error) {
+	return activationFirewallContext(ctx, commands, root, false, ufw, rules)
+}
+
+var errActivationForeignKernel = errors.New("foreign kernel firewall objects block activation; they are never flushed")
+
+func activationFirewallContext(ctx context.Context, commands CommandRunner, root string, firewalldActive, ufw bool, rules []FirewallActivationRule) (string, error) {
 	host, err := activationHostContext(ctx, commands, root)
 	if err != nil {
 		return "", err
 	}
 	// Legacy xtables hooks can coexist with nftables. Do not infer absence from
 	// an empty nft ruleset or silently flush a second firewall authority.
-	for _, path := range []string{"/proc/net/ip_tables_names", "/proc/net/ip6_tables_names"} {
-		raw, err := os.ReadFile(root + path)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil || len(raw) > 4096 || strings.TrimSpace(string(raw)) != "" {
-			return "", errors.New("legacy or unreadable iptables hooks require manual firewall migration")
-		}
+	if err := checkNoLegacyNetfilterHooks(root); err != nil {
+		return "", errors.New("legacy or unreadable iptables hooks require manual firewall migration")
 	}
 	raw, err := commands.Run(ctx, "nft", "-j", "list", "ruleset")
 	if err != nil {
 		return "", errors.New("native kernel firewall inventory is required before activation")
 	}
+	if firewalldActive {
+		raw, err = activationForeignNftObjects(raw)
+		if err != nil {
+			return "", err
+		}
+		commands = activationForeignNftRunner{commands}
+	}
 	kernel, err := activationInactiveKernel(raw, ufw, rules)
+	if errors.Is(err, errActivationForeignKernel) && activationUsesNftables(root) {
+		kernel, err = inactiveTailscaleKernelProof(ctx, commands, raw)
+		if err != nil {
+			return "", fmt.Errorf("%w: %v", errActivationForeignKernel, err)
+		}
+	}
 	if err != nil {
 		return "", err
 	}
 	return directApprovalDigest(map[string]any{"host": host, "kernel": kernel}), nil
+}
+
+type activationForeignNftRunner struct{ CommandRunner }
+
+func (r activationForeignNftRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+	raw, err := r.CommandRunner.Run(ctx, name, args...)
+	if err == nil && name == "nft" && len(args) == 3 && args[0] == "-j" && args[1] == "list" && args[2] == "ruleset" {
+		return activationForeignNftObjects(raw)
+	}
+	return raw, err
 }
 
 func activationHostContext(ctx context.Context, commands CommandRunner, root string) (string, error) {
@@ -46,7 +69,7 @@ func activationHostContext(ctx context.Context, commands CommandRunner, root str
 	if err != nil {
 		return "", err
 	}
-	topology, err := nativeNetworkTopology(ctx, commands)
+	topology, err := readNativeNetworkTopology(ctx, commands, true)
 	if err != nil {
 		return "", err
 	}
@@ -75,6 +98,85 @@ func activationHostContext(ctx context.Context, commands CommandRunner, root str
 	return directApprovalDigest(map[string]any{"namespace": namespace, "topology": topology, "links": linkDigest}), nil
 }
 
+func activationUsesNftables(root string) bool {
+	raw, err := readPreparationSystemFile(root, "/etc/firewalld/firewalld.conf", 65536)
+	if err != nil {
+		return false
+	}
+	found := false
+	for _, line := range strings.Split(string(raw), "\n") {
+		if key, value, ok := strings.Cut(line, "="); ok && strings.TrimSpace(key) == "FirewallBackend" {
+			if found || strings.TrimSpace(value) != "nftables" {
+				return false
+			}
+			found = true
+		}
+	}
+	return found
+}
+
+// Bind the reviewed foreign context across service start/stop without
+// treating firewalld's own nftables table as a second firewall authority.
+func activationForeignNftObjects(raw string) (string, error) {
+	var doc struct {
+		Objects []map[string]json.RawMessage `json:"nftables"`
+	}
+	if len(raw) > 8<<20 || json.Unmarshal([]byte(raw), &doc) != nil || doc.Objects == nil || len(doc.Objects) > 40000 {
+		return "", errors.New("kernel firewall context is unavailable")
+	}
+	foreign := doc.Objects[:0]
+	firewalld := false
+	legacyNAT := make(legacyFirewalldNAT)
+	probes := make(inertXTablesProbes)
+	for _, object := range doc.Objects {
+		if len(object) != 1 {
+			return "", errors.New("ambiguous kernel firewall object")
+		}
+		for kind, body := range object {
+			var item nftKernelItem
+			if json.Unmarshal(body, &item) != nil {
+				return "", errors.New("invalid kernel firewall object")
+			}
+			if known, inert := probes.admit(kind, item, body); known {
+				if !inert {
+					return "", errors.New("unexpected rule or chain in an xtables probe table")
+				}
+				continue
+			}
+			if isLegacyFirewalldNAT(kind, item) {
+				if !legacyNAT.add(kind, item) {
+					return "", errors.New("unexpected objects in firewalld family NAT tables")
+				}
+				continue
+			}
+			if item.Family != "inet" || kind == "table" && item.Name != "firewalld" || kind != "table" && item.Table != "firewalld" {
+				foreign = append(foreign, object)
+				continue
+			}
+			if kind == "table" {
+				if firewalld {
+					return "", errors.New("ambiguous native firewalld table")
+				}
+				firewalld = true
+			}
+		}
+	}
+	if !firewalld {
+		return "", errors.New("the active firewalld table could not be verified")
+	}
+	if !probes.complete() {
+		return "", errors.New("xtables probe table context is incomplete")
+	}
+	if len(legacyNAT) > 0 {
+		if _, ok := legacyNAT.proof(); !ok {
+			return "", errors.New("firewalld family NAT tables have active translation or unsupported dispatch")
+		}
+	}
+	doc.Objects = foreign
+	encoded, err := json.Marshal(doc)
+	return string(encoded), err
+}
+
 func activationInactiveKernel(raw string, ufw bool, expected []FirewallActivationRule) (string, error) {
 	if len(raw) > 8<<20 {
 		return "", errors.New("kernel firewall context exceeds bound")
@@ -89,6 +191,7 @@ func activationInactiveKernel(raw string, ufw bool, expected []FirewallActivatio
 	observed := map[string][]string{}
 	wanted := map[string][]string{}
 	policies := map[string]map[string]string{}
+	probes := make(inertXTablesProbes)
 	for _, rule := range expected {
 		key := rule.Family
 		wanted[key] = append(wanted[key], activationNumericRuleKey(rule))
@@ -102,7 +205,17 @@ func activationInactiveKernel(raw string, ufw bool, expected []FirewallActivatio
 				continue
 			}
 			if !ufw {
-				return "", errors.New("foreign kernel firewall objects block activation; they are never flushed")
+				var item nftKernelItem
+				if json.Unmarshal(body, &item) != nil {
+					return "", errors.New("invalid kernel firewall object")
+				}
+				if known, inert := probes.admit(kind, item, body); known {
+					if !inert {
+						return "", errors.New("unexpected rule or chain in an xtables probe table")
+					}
+					continue
+				}
+				return "", errActivationForeignKernel
 			}
 			var item struct {
 				Family string                       `json:"family"`
@@ -219,6 +332,9 @@ func activationInactiveKernel(raw string, ufw bool, expected []FirewallActivatio
 	}
 	// Rule order above is significant. Object counters and volatile handles are
 	// excluded; topology/config generation is bound separately.
+	if !probes.complete() {
+		return "", errors.New("xtables probe table context is incomplete")
+	}
 	return directApprovalDigest(canonical), nil
 }
 func activationNumericRuleKey(rule FirewallActivationRule) string {

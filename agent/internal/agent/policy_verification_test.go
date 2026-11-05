@@ -150,8 +150,20 @@ func TestPolicyVerificationMissingKernelBirthCapabilityIsUnavailableWithoutSysct
 		t.Fatal(err)
 	}
 	row := a.State.PolicyVerification.Report.Ports[0]
-	if row.Allow.Status != "unavailable" || row.Deny.Status != "awaiting" || commands.mutations != before {
+	if row.Allow.Status != "unavailable" || !strings.Contains(row.Allow.Reason, "net.netfilter.nf_conntrack_timestamp=1") || row.Deny.Status != "awaiting" || commands.mutations != before {
 		t.Fatal("missing metadata fabricated proof or changed policy", row)
+	}
+	if scopes := a.policyVerificationScopes(a.currentTime()); len(scopes) != 1 || scopes[0].Kind != captureDenied {
+		t.Fatal("missing allow capability suppressed the independent deny observer", scopes)
+	}
+	deny := verificationEvent(t, a, false)
+	if !a.observePolicyVerification([]capturedFlow{deny}) {
+		t.Fatal("valid terminal deny witness ignored with conntrack timestamps disabled")
+	}
+	a.updatePolicyVerification(a.currentTime(), nil)
+	report := a.State.PolicyVerification.Report
+	if report.State != "unavailable" || report.Ports[0].Allow.Status != "unavailable" || report.Ports[0].Deny.Status != "verified" {
+		t.Fatal("independent deny witness incorrectly proved the whole rollout", report)
 	}
 }
 

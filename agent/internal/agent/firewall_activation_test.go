@@ -22,9 +22,13 @@ type activationFake struct {
 	foreignRace                            bool
 	allowTarget                            string
 	noActiveZone                           bool
+	permanentCapture                       string
 }
 
 func (f *activationFake) Run(ctx context.Context, name string, args ...string) (string, error) {
+	if name == "firewall-offline-cmd" && len(args) == 2 && args[1] == "--list-rich-rules" {
+		return f.permanentCapture, nil
+	}
 	if name == "firewall-offline-cmd" && len(args) == 1 {
 		switch args[0] {
 		case "--get-default-zone":
@@ -270,6 +274,69 @@ func activationPolicy(t *testing.T, a *Agent, operation string, baseline firewal
 	_, policy := signPolicyForTest(t, &Policy{ServerID: "host-a", Mode: "monitor", FirewallActivation: request}, time.Now())
 	return policy
 }
+
+func TestFirewallActivationDistinguishesStaleDrainsFromLiveCapture(t *testing.T) {
+	for _, tc := range []struct {
+		name                                   string
+		recent, live, remembered, permanent    bool
+		inactiveProof, badSidecar, wantBlocked bool
+	}{
+		{name: "old journal tail"},
+		{name: "old runtime rule absent on stopped host", remembered: true, inactiveProof: true},
+		{name: "old runtime rule without absence proof", remembered: true, wantBlocked: true},
+		{name: "remembered rule still permanent", remembered: true, permanent: true, inactiveProof: true, wantBlocked: true},
+		{name: "unreadable NFLOG ledger", badSidecar: true, inactiveProof: true, wantBlocked: true},
+		{name: "stop tail in grace period", recent: true, wantBlocked: true},
+		{name: "active traffic assignment", live: true, wantBlocked: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, fake, baseline, protection := activationFixture(t, "activate_existing")
+			now := a.currentTime()
+			session := sessionAt(now)
+			session.StartsAt = now.Add(-2 * time.Hour)
+			session.Ports = []Port{{18080, "tcp"}}
+			if tc.live {
+				a.State.Policy = &Policy{LearningSessions: []Session{session}}
+			}
+			cutoff := now.Add(-time.Hour)
+			if tc.recent {
+				cutoff = now
+			}
+			a.queueDrain(session, cutoff)
+			if tc.remembered {
+				a.State.Rules = []OwnedRule{{session.ID, "public", ObservationRule(session, session.Ports[0]), session.ExpiresAt}}
+			}
+			if tc.inactiveProof {
+				baseline.NativeContext = shaText("verified inactive kernel")
+				baseline.Digest = activationDigest(baseline)
+				a.firewallActivation.Baseline = func() (firewallActivationBaseline, Protection, error) {
+					return baseline, protection, nil
+				}
+			}
+			if tc.permanent {
+				fake.permanentCapture = a.State.Rules[0].Rule
+			}
+			if tc.badSidecar {
+				path := captureSidecarPath(a.Config.StateDir)
+				if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("unreadable ledger"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			policy := activationPolicy(t, a, "assess", baseline, protection)
+			handled, err := a.processFirewallActivation(context.Background(), policy)
+			receipt := ReadFirewallActivationStatus(a.Config.StateDir)
+			if !handled || (err != nil) != tc.wantBlocked || receipt == nil || (receipt.Status == "blocked") != tc.wantBlocked || len(fake.writes) != 0 {
+				t.Fatalf("handled=%v error=%v receipt=%+v service writes=%v", handled, err, receipt, fake.writes)
+			}
+			if _, kept := a.State.PendingDrains[session.ID]; !kept {
+				t.Fatal("maintenance assessment discarded historical evidence")
+			}
+		})
+	}
+}
 func TestFirewallActivationFourReviewedOperationsAndIdempotentReceipts(t *testing.T) {
 	for _, operation := range []string{"activate_existing", "migrate_ufw", "prepare_egress", "enable_native_counters"} {
 		t.Run(operation, func(t *testing.T) {
@@ -410,6 +477,73 @@ func TestFirewallActivationBroadChangesRefuseLocalEnforcement(t *testing.T) {
 			receipt := ReadFirewallActivationStatus(a.Config.StateDir)
 			if err == nil || receipt == nil || receipt.Status != "blocked" || len(commands.writes) != 0 {
 				t.Fatal("managed default deny did not block service change", err, receipt)
+			}
+		})
+	}
+}
+
+func TestFirewallActivationDefaultAllowIgnoresOnlyProvenEmptyLearning(t *testing.T) {
+	for _, scenario := range []string{"no learning history", "verified cleanup rebound", "unconfirmed cleanup", "new tombstone", "desired access", "active authority", "invalid binding", "foreign endpoint", "cached rules remain"} {
+		t.Run(scenario, func(t *testing.T) {
+			a, commands, baseline, protection := activationFixture(t, "activate_allow_all")
+			commands.defaultZone = "public"
+			commands.activeZones = "public\n  interfaces: eth0\n"
+			commands.noActiveZone = true
+			commands.allowTarget = "ACCEPT"
+			policy := activationPolicy(t, a, "activate_allow_all", baseline, protection)
+			overlay := LearningAllow{ServerID: policy.ServerID, TargetIPsDigest: targetIPsDigest(baseline.Assessment.IPs)}
+			setBinding := func(value *LearningAllow) {
+				var err error
+				value.Digest, err = learningAllowDigest(value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				value.BindingDigest = learningAllowBinding(value)
+			}
+			if scenario != "no learning history" {
+				overlay.Generation = 2
+				overlay.Authorities = []LearningAuthority{{PolicyID: "cleaned-grant", Kind: "reviewed"}}
+				setBinding(&overlay)
+				if scenario != "unconfirmed cleanup" {
+					nonce := strings.Repeat("a", 32)
+					prior := &LearningAllowBundle{Assignment: overlay, CommitNonce: nonce}
+					if scenario == "cached rules remain" {
+						prior.Rules = []ManagedRule{{Zone: "public", Rule: "test existing learned rule"}}
+					}
+					journal := &managedJournal{Nonce: nonce, Phase: "committed", PID: os.Getpid(), Next: *learningBundleRecord(prior)}
+					if err := saveManagedJournal(learningJournalPath(a.Config.StateDir, nonce), journal); err != nil {
+						t.Fatal(err)
+					}
+				}
+				overlay.Generation = 3
+				overlay.ProtectionDigest = shaText("new protection")
+			}
+			switch scenario {
+			case "new tombstone":
+				overlay.Authorities = []LearningAuthority{{PolicyID: "unconfirmed-grant", Kind: "reviewed"}}
+			case "desired access":
+				overlay.PolicyIDs = []string{"active-grant"}
+				overlay.Services = []Service{{Port: 8443, Protocol: "tcp", Sources: []string{"10.0.0.2/32"}}}
+			case "active authority":
+				overlay.Authorities = []LearningAuthority{{PolicyID: "cleaned-grant", Kind: "auto"}}
+			case "foreign endpoint":
+				overlay.ServerID = "other-endpoint"
+			}
+			setBinding(&overlay)
+			if scenario == "invalid binding" {
+				overlay.BindingDigest = shaText("unrelated")
+			}
+			policy.LearningAllow = &overlay
+			policy.AssignmentDigest = ""
+			_, policy = signPolicyForTest(t, policy, time.Now())
+			handled, err := a.processFirewallActivation(context.Background(), policy)
+			receipt := ReadFirewallActivationStatus(a.Config.StateDir)
+			if scenario == "no learning history" || scenario == "verified cleanup rebound" {
+				if err != nil || !handled || receipt == nil || receipt.Status != "completed" || !commands.active {
+					t.Fatal("proven empty learning overlay prevented activation", handled, err, receipt)
+				}
+			} else if err == nil || !handled || receipt == nil || receipt.Status != "blocked" || len(commands.writes) != 0 {
+				t.Fatal("unverified or active learning overlay did not block activation", handled, err, receipt)
 			}
 		})
 	}

@@ -116,17 +116,17 @@
         <button class="icon-button sidebar-toggle" id="sidebar-toggle" type="button" aria-label="Collapse sidebar" title="Collapse sidebar" aria-expanded="true" aria-controls="workspace-sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button>
       </div>
       <nav id="navigation"></nav>
+      <button class="nav-item" id="setup-button" type="button" aria-label="Agent setup" title="Agent setup"><span id="setup-icon"></span><span>Agent setup</span><span class="nav-arrow" aria-hidden="true">↗</span></button>
       <div class="sidebar-bottom">
-        <button class="nav-item" id="setup-button" type="button" aria-label="Agent setup" title="Agent setup"><span id="setup-icon"></span>Agent setup<span class="nav-arrow" aria-hidden="true">↗</span></button>
         <div class="sidebar-health">
           <div class="sidebar-health-row" id="sidebar-controller-health" data-state="pending" role="status">
-            <span class="connection-dot" aria-hidden="true"></span><span class="sidebar-health-label"><span id="controller-display-name">Controller</span> <span id="connection-label">connecting</span></span><span class="sidebar-health-short" aria-hidden="true">Ctrl</span>
+            <span class="connection-dot" aria-hidden="true"></span><span class="sidebar-health-label"><span id="controller-display-name">Controller</span> <span id="connection-label" class="sr-only">connecting</span></span><span class="sidebar-health-short" aria-hidden="true">Ctrl</span>
+            <span id="controller-version" class="sidebar-controller-version" title="Controller version" hidden></span>
           </div>
           <div class="sidebar-health-row" id="sidebar-ha-health" data-state="pending" role="status" hidden>
             <span class="connection-dot" aria-hidden="true"></span><span class="sidebar-health-label" id="sidebar-ha-label"></span><span class="sidebar-health-short" aria-hidden="true">HA</span>
           </div>
         </div>
-        <p class="sidebar-controller-version" title="Controller version"><span class="sidebar-version-label">Controller</span><span id="controller-version">—</span></p>
         <p class="sidebar-updated" id="last-updated">Waiting for first sync</p>
       </div>
     </aside>

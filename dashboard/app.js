@@ -267,26 +267,34 @@ function renderSidebarStatus() {
   if (label.textContent !== status) label.textContent = status;
   controller.dataset.state = tone;
   controller.title = `${displayName} ${status}`;
+  const version = state.data?.meta?.version;
+  const versionLabel = $('#controller-version');
+  const versionText = version ? `v${version}` : '';
+  if (versionLabel.textContent !== versionText) versionLabel.textContent = versionText;
+  versionLabel.hidden = !version;
 
   const ha = $('#sidebar-ha-health');
   ha.hidden = state.data?.meta?.ha !== true;
   if (ha.hidden) return;
 
   let haStatus = 'Checking HA status';
+  let haDetails = '';
   let haTone = 'pending';
   if (state.controllerUnavailable || state.clusterError || cluster && cluster.ha !== true) {
-    haStatus = 'HA status unavailable';
+    haStatus = 'HA unavailable';
     haTone = 'offline';
   } else if (cluster) {
     const count = nodes.filter(ready).length;
-    haTone = count === 0 ? 'offline' : count > 1 && count === nodes.length ? 'healthy' : 'warning';
-    haStatus = nodes.length === 1 && count === 1 ? 'HA · Only one controller reporting' :
-      nodes.length ? `HA · ${count}/${nodes.length} controllers ready` : 'HA · No controllers reporting';
+    const healthy = count > 1 && count === nodes.length && currentNode && ready(currentNode);
+    haTone = count === 0 ? 'offline' : healthy ? 'healthy' : 'warning';
+    haStatus = !nodes.length ? 'HA unavailable' : count === 0 ? 'HA down' : healthy ? 'HA healthy' : 'HA degraded';
+    haDetails = nodes.length === 1 && count === 1 ? 'Only one controller reporting' :
+      nodes.length ? `${count}/${nodes.length} controllers ready` : 'No controllers reporting';
   }
   const haLabel = $('#sidebar-ha-label');
   if (haLabel.textContent !== haStatus) haLabel.textContent = haStatus;
   ha.dataset.state = haTone;
-  ha.title = haStatus;
+  ha.title = [haStatus, haDetails].filter(Boolean).join(' · ');
 }
 
 function renderChrome(){
@@ -299,8 +307,6 @@ function renderChrome(){
   document.title=`${views[state.view][0]} · Prṛthak`;$('#page-title').textContent=views[state.view][1];$('#page-description').textContent=views[state.view][2];
   $('#last-updated').textContent=state.lastSync?`Updated ${state.lastSync.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`:'Waiting for first sync';
   $('#demo-banner').hidden=state.authType!=='demo';
-  const version = state.data?.meta?.version;
-  $('#controller-version').textContent = version ? `v${version}` : '—';
   renderSidebarStatus();
   renderAccountMenu();
   renderPolicyDeploymentsChrome();

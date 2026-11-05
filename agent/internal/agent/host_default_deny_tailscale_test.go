@@ -3,10 +3,167 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 )
+
+type connmarkKernelCommands struct {
+	CommandRunner
+	raw, version, mangle, udp, masquerade string
+}
+
+func (f connmarkKernelCommands) Run(ctx context.Context, name string, args ...string) (string, error) {
+	switch name + " " + strings.Join(args, " ") {
+	case "nft -j list ruleset":
+		return f.raw, nil
+	case "iptables --version", "ip6tables --version":
+		return name + " v1.8.5 " + f.version, nil
+	case "iptables -t mangle -S", "ip6tables -t mangle -S":
+		return f.mangle, nil
+	case "iptables -t filter -S ts-input", "ip6tables -t filter -S ts-input":
+		return f.udp, nil
+	case "iptables -t nat -S ts-postrouting", "ip6tables -t nat -S ts-postrouting":
+		return f.masquerade, nil
+	default:
+		if f.CommandRunner != nil {
+			return f.CommandRunner.Run(ctx, name, args...)
+		}
+		return "", fmt.Errorf("unexpected command: %s %v", name, args)
+	}
+}
+
+func TestTailscaleConnmarkKernelRequiresStableNftReadback(t *testing.T) {
+	ctx := context.Background()
+	for _, legacyJSON := range []bool{false, true} {
+		raw := tailscaleConnmarkFixture(t, legacyJSON, false)
+		f := connmarkKernelCommands{
+			raw:        raw,
+			version:    "(nf_tables)",
+			mangle:     "-P PREROUTING ACCEPT\n-P INPUT ACCEPT\n-P FORWARD ACCEPT\n-P OUTPUT ACCEPT\n-P POSTROUTING ACCEPT\n" + tailscaleConnmarkRestore + "\n" + tailscaleConnmarkSave,
+			udp:        "-N ts-input\n-A ts-input -i tailscale0 -j ACCEPT\n-A ts-input -p udp -m udp --dport 41641 -j ACCEPT\n",
+			masquerade: tailscaleMasqueradeReadback,
+		}
+		if _, err := hostDefaultDenyKernelContext(raw, "public"); err == nil {
+			t.Fatal("opaque CONNMARK rules were accepted without independent readback")
+		}
+		digest, err := liveHostDefaultDenyKernelContext(ctx, f, raw, "public")
+		if err != nil || !validDigest(digest) {
+			t.Fatalf("expected verified newer Tailscale layout with legacy JSON %t: %q, %v", legacyJSON, digest, err)
+		}
+		inactive := tailscaleConnmarkFixture(t, legacyJSON, true)
+		inactiveRunner := f
+		inactiveRunner.raw = inactive
+		if digest, err := inactiveTailscaleKernelProof(ctx, inactiveRunner, inactive); err != nil || !validDigest(digest) {
+			t.Fatalf("expected Tailscale-only proof with firewalld inactive: %q, %v", digest, err)
+		}
+		if _, err := inactiveTailscaleKernelProof(ctx, f, raw); err == nil {
+			t.Fatal("inactive proof accepted a firewalld table")
+		}
+		if _, err := liveHostDefaultDenyKernelContext(ctx, inactiveRunner, inactive, "public"); err == nil {
+			t.Fatal("live proof accepted a missing firewalld table")
+		}
+		for name, edit := range map[string]func(*connmarkKernelCommands){
+			"legacy backend": func(r *connmarkKernelCommands) { r.version = "(legacy)" },
+			"non-Tailscale mark mask": func(r *connmarkKernelCommands) {
+				r.mangle = strings.ReplaceAll(r.mangle, "0xff0000", "0xffff0000")
+			},
+			"unqualified restore": func(r *connmarkKernelCommands) {
+				r.mangle = strings.ReplaceAll(r.mangle, " -m connmark ! --mark 0x0/0xff0000", "")
+			},
+			"extra mark rule": func(r *connmarkKernelCommands) {
+				r.mangle += "\n-A INPUT -j MARK --set-xmark 0x1/0xffffffff"
+			},
+			"kernel snapshot changed": func(r *connmarkKernelCommands) {
+				r.raw = strings.Replace(r.raw, `"name":"OUTPUT","policy":"accept","prio":-150`, `"name":"OUTPUT","policy":"drop","prio":-150`, 1)
+			},
+		} {
+			t.Run(fmt.Sprintf("%s legacyJSON=%t", name, legacyJSON), func(t *testing.T) {
+				changed := f
+				edit(&changed)
+				if changed == f {
+					t.Fatal("test did not change input")
+				}
+				if _, err := liveHostDefaultDenyKernelContext(ctx, changed, raw, "public"); err == nil {
+					t.Fatal("accepted unproven kernel/readback context")
+				}
+			})
+		}
+		if legacyJSON {
+			changed := f
+			changed.udp = strings.Replace(f.udp, "41641", "51641", 1)
+			if next, err := liveHostDefaultDenyKernelContext(ctx, changed, raw, "public"); err != nil || next == digest {
+				t.Fatalf("legacy opaque UDP port did not bind into the proof: %q, %v", next, err)
+			}
+			for _, bad := range []string{
+				"",
+				tailscaleMasqueradeReadback + " --to-ports 15000",
+				strings.Replace(tailscaleMasqueradeReadback, "0x40000/0xff0000", "0x50000/0xff0000", 1),
+			} {
+				changed := f
+				changed.masquerade = bad
+				if _, err := liveHostDefaultDenyKernelContext(ctx, changed, raw, "public"); err == nil {
+					t.Fatal("opaque source NAT accepted with unavailable or altered readback")
+				}
+			}
+		}
+	}
+}
+
+func tailscaleConnmarkFixture(t *testing.T, legacyJSON, inactive bool) string {
+	t.Helper()
+	var doc struct {
+		Objects []map[string]json.RawMessage `json:"nftables"`
+	}
+	if err := json.Unmarshal([]byte(tailscaleKernelFixture()), &doc); err != nil {
+		t.Fatal(err)
+	}
+	var objects, moved []map[string]json.RawMessage
+	const udpPort = `{"match":{"op":"==","left":{"payload":{"protocol":"udp","field":"dport"}},"right":41641}}`
+	const mark = `{"match":{"op":"==","left":{"&":[{"meta":{"key":"mark"}},16711680]},"right":262144}}`
+	for _, object := range doc.Objects {
+		for kind, raw := range object {
+			body := string(raw)
+			if inactive && strings.Contains(body, `"family":"inet"`) {
+				continue
+			}
+			if legacyJSON {
+				body = strings.ReplaceAll(body, udpPort, nftUDPProtocol+","+nftXTMatch("udp"))
+				body = strings.ReplaceAll(body, mark, nftXTMatch("mark"))
+				object[kind] = json.RawMessage(body)
+			}
+			if kind == "rule" && strings.Contains(body, `"family":"ip","table":"filter","chain":"ts-input"`) && (strings.Contains(body, `{"return":null}`) || strings.Contains(body, `{"drop":null}`)) {
+				moved = append(moved, object)
+			} else {
+				objects = append(objects, object)
+			}
+		}
+	}
+	// Tailscale now appends the two IPv4 anti-spoof rules after its tunnel
+	// and UDP accepts. The existing isolated fixture records the older order.
+	doc.Objects = append(objects, moved...)
+	for _, family := range []string{"ip", "ip6"} {
+		const target = `{"xt":{"type":"target","name":"CONNMARK"}}`
+		outMatch := `{"match":{"op":"!=","left":{"&":[{"meta":{"key":"mark"}},16711680]},"right":0}}`
+		if legacyJSON {
+			outMatch = nftXTMatch("mark")
+		}
+		for _, chain := range []struct{ name, hook, kind, match string }{
+			{"PREROUTING", "prerouting", "filter", nftXTMatch("connmark")},
+			{"OUTPUT", "output", "route", outMatch},
+		} {
+			definition := fmt.Sprintf(`{"family":%q,"table":"mangle","name":%q,"policy":"accept","prio":-150,"hook":%q,"type":%q}`, family, chain.name, chain.hook, chain.kind)
+			rule := fmt.Sprintf(`{"family":%q,"table":"mangle","chain":%q,"expr":[%s,%s,%s]}`, family, chain.name, nftXTMatch("conntrack"), chain.match, target)
+			doc.Objects = append(doc.Objects, map[string]json.RawMessage{"chain": json.RawMessage(definition)}, map[string]json.RawMessage{"rule": json.RawMessage(rule)})
+		}
+	}
+	body, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
+}
 
 func TestHostDefaultDenyTailscaleKernelProof(t *testing.T) {
 	raw := tailscaleKernelFixture()

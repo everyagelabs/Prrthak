@@ -179,21 +179,7 @@ func TestFirewallActivationNativeHostPreflightRejectsForwardingBridgeNamespaceAn
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, dir := range []string{"/proc/self/ns", "/proc/1/ns", "/proc/sys/net/ipv4", "/proc/sys/net/ipv6/conf/all", "/proc/net"} {
-		if err := os.MkdirAll(root+dir, 0755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, name := range []string{"/proc/self/ns/net", "/proc/1/ns/net"} {
-		if err := os.Symlink("net:[fixture-host]", root+name); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, name := range []string{"/proc/sys/net/ipv4/ip_forward", "/proc/sys/net/ipv6/conf/all/forwarding"} {
-		if err := os.WriteFile(root+name, []byte("0\n"), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	writeActivationNetworkFixture(t, root)
 	if digest, err := activationInactiveContext(context.Background(), activationContextRunner{}, root, false, nil); err != nil || !validDigest(digest) {
 		t.Fatal("ordinary empty host context rejected", digest, err)
 	}
@@ -217,5 +203,218 @@ func TestFirewallActivationNativeHostPreflightRejectsForwardingBridgeNamespaceAn
 	}
 	if _, err := activationInactiveContext(context.Background(), activationContextRunner{}, root, false, nil); err == nil {
 		t.Fatal("foreign namespace ignored")
+	}
+}
+
+func writeActivationNetworkFixture(t *testing.T, root string) {
+	t.Helper()
+	for _, dir := range []string{"/proc/self/ns", "/proc/1/ns", "/proc/sys/net/ipv4", "/proc/sys/net/ipv6/conf/all", "/proc/net"} {
+		if err := os.MkdirAll(root+dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"/proc/self/ns/net", "/proc/1/ns/net"} {
+		if err := os.Symlink("net:[fixture-host]", root+name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"/proc/sys/net/ipv4/ip_forward", "/proc/sys/net/ipv6/conf/all/forwarding"} {
+		if err := os.WriteFile(root+name, []byte("0\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+type activationTailscaleRoutingRunner struct {
+	CommandRunner
+	rules4, rules6, routes4, routes6, links string
+}
+
+func (r activationTailscaleRoutingRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+	switch name + " " + strings.Join(args, " ") {
+	case "ip -4 -j rule show":
+		return r.rules4, nil
+	case "ip -6 -j rule show":
+		return r.rules6, nil
+	case "ip -4 -j route show table all":
+		return r.routes4, nil
+	case "ip -6 -j route show table all":
+		return r.routes6, nil
+	case "ip -j -d link show", "ip -j link show":
+		return r.links, nil
+	}
+	return r.CommandRunner.Run(ctx, name, args...)
+}
+
+func activationTailscaleRoutingFixture(runner CommandRunner) activationTailscaleRoutingRunner {
+	const rules = `[{"priority":0,"src":"all","table":"local"},{"priority":5210,"src":"all","fwmark":"0x80000","fwmask":"0xff0000","table":"main"},{"priority":5230,"src":"all","fwmark":"0x80000","fwmask":"0xff0000","table":"default"},{"priority":5250,"src":"all","fwmark":"0x80000","fwmask":"0xff0000","action":"unreachable"},{"priority":5270,"src":"all","table":"52"},{"priority":32766,"src":"all","table":"main"}`
+	return activationTailscaleRoutingRunner{
+		CommandRunner: runner,
+		rules4:        rules + `,{"priority":32767,"src":"all","table":"default"}]`, rules6: rules + "]",
+		routes4: `[{"dst":"100.66.222.20","dev":"tailscale0","table":"52","scope":"link","flags":[]},{"type":"local","dst":"100.66.222.30","dev":"tailscale0","table":"local","protocol":"kernel","scope":"host","prefsrc":"100.66.222.30","flags":[]}]`,
+		routes6: `[{"dst":"fd7a:115c:a1e0::20","dev":"tailscale0","table":"52","metric":1024,"flags":[],"pref":"medium"},{"dst":"fd7a:115c:a1e0::30","dev":"tailscale0","protocol":"kernel","metric":256,"flags":[],"pref":"medium"},{"type":"multicast","dst":"ff00::/8","dev":"tailscale0","table":"local","protocol":"kernel","metric":256,"flags":[],"pref":"medium"}]`,
+		links:   `[{"ifname":"eth0","link_type":"ether","flags":["UP"]},{"ifname":"tailscale0","link_type":"none","flags":["UP"],"linkinfo":{"info_kind":"tun","info_data":{"type":"tun"}}}]`,
+	}
+}
+
+func TestFirewallActivationRequiresExactTailscaleRoutingAndTunnel(t *testing.T) {
+	ctx := context.Background()
+	runner := activationTailscaleRoutingFixture(activationContextRunner{})
+	if _, err := readNativeNetworkTopology(ctx, runner, true); err != nil {
+		t.Fatal("reviewed Tailscale host routes rejected", err)
+	}
+	if _, err := nativeNetworkTopology(ctx, runner); err == nil {
+		t.Fatal("activation adapter must not authorize egress or quarantine")
+	}
+	for name, mutate := range map[string]func(*activationTailscaleRoutingRunner){
+		"wrong mask": func(r *activationTailscaleRoutingRunner) {
+			r.rules4 = strings.Replace(r.rules4, "0xff0000", "0xffffffff", 1)
+		},
+		"unexpected selector": func(r *activationTailscaleRoutingRunner) {
+			r.rules4 = strings.Replace(r.rules4, `"priority":5270`, `"priority":5270,"iif":"eth0"`, 1)
+		},
+		"changed action": func(r *activationTailscaleRoutingRunner) {
+			r.rules4 = strings.Replace(r.rules4, "unreachable", "blackhole", 1)
+		},
+		"missing rule": func(r *activationTailscaleRoutingRunner) {
+			r.rules4 = strings.Replace(r.rules4, `{"priority":5270,"src":"all","table":"52"},`, "", 1)
+		},
+		"missing family":    func(r *activationTailscaleRoutingRunner) { r.rules6, r.routes6 = "[]", "[]" },
+		"wrong tunnel name": func(r *activationTailscaleRoutingRunner) { r.links = strings.Replace(r.links, "tailscale0", "tun0", 1) },
+		"wrong tunnel type": func(r *activationTailscaleRoutingRunner) {
+			r.links = strings.Replace(r.links, `"type":"tun"`, `"type":"tap"`, 1)
+		},
+		"wrong tunnel interface": func(r *activationTailscaleRoutingRunner) {
+			r.routes4 = strings.Replace(r.routes4, "tailscale0", "eth0", 1)
+		},
+		"subnet route": func(r *activationTailscaleRoutingRunner) {
+			r.routes4 = strings.Replace(r.routes4, "100.66.222.20", "10.0.0.0/24", 1)
+		},
+		"exit-node route": func(r *activationTailscaleRoutingRunner) {
+			r.routes4 = strings.Replace(r.routes4, "100.66.222.20", "default", 1)
+		},
+		"unknown table": func(r *activationTailscaleRoutingRunner) {
+			r.routes4 = strings.Replace(r.routes4, `"table":"52"`, `"table":"53"`, 1)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			changed := runner
+			mutate(&changed)
+			if _, err := readNativeNetworkTopology(ctx, changed, true); err == nil {
+				t.Fatal("ambiguous activation route or tunnel admitted")
+			}
+		})
+	}
+}
+
+func TestFirewallActivationKeepsForeignKernelContextAcrossStartAndStop(t *testing.T) {
+	ctx := context.Background()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeActivationNetworkFixture(t, root)
+	if err := os.MkdirAll(root+"/etc/firewalld", 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(root+"/etc/firewalld/firewalld.conf", []byte("FirewallBackend=nftables\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, legacyJSON := range []bool{false, true} {
+		active := tailscaleConnmarkFixture(t, legacyJSON, false)
+		inactive, err := activationForeignNftObjects(active)
+		if err != nil {
+			t.Fatal(err)
+		}
+		kernel := connmarkKernelCommands{
+			CommandRunner: activationContextRunner{},
+			raw:           inactive, version: "(nf_tables)",
+			mangle:     "-P PREROUTING ACCEPT\n-P INPUT ACCEPT\n-P FORWARD ACCEPT\n-P OUTPUT ACCEPT\n-P POSTROUTING ACCEPT\n" + tailscaleConnmarkRestore + "\n" + tailscaleConnmarkSave,
+			udp:        "-N ts-input\n-A ts-input -i tailscale0 -j ACCEPT\n-A ts-input -p udp -m udp --dport 41641 -j ACCEPT\n",
+			masquerade: tailscaleMasqueradeReadback,
+		}
+		runner := activationTailscaleRoutingFixture(kernel)
+		before, err := activationInactiveContext(ctx, runner, root, false, nil)
+		if err != nil || !validDigest(before) {
+			t.Fatal("Tailscale inactive baseline rejected", before, err)
+		}
+		kernel.raw = active
+		runner.CommandRunner = kernel
+		started, err := activationFirewallContext(ctx, runner, root, true, false, nil)
+		if err != nil || started != before {
+			t.Fatal("starting firewalld changed the verified foreign baseline", before, started, err)
+		}
+		kernel.raw = strings.TrimSuffix(inactive, "]}") + `,{"table":{"family":"inet","name":"foreign"}}]}`
+		runner.CommandRunner = kernel
+		if _, err := activationInactiveContext(ctx, runner, root, false, nil); err == nil {
+			t.Fatal("foreign nftables hook/table admitted")
+		}
+	}
+}
+
+type activationTailscaleServiceRunner struct {
+	*activationFake
+	topology                   activationTailscaleRoutingRunner
+	activeRules, inactiveRules string
+}
+
+func (r *activationTailscaleServiceRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+	switch name {
+	case "nft":
+		if r.active {
+			return r.activeRules, nil
+		}
+		return r.inactiveRules, nil
+	case "ip", "sysctl":
+		return r.topology.Run(ctx, name, args...)
+	default:
+		return r.activationFake.Run(ctx, name, args...)
+	}
+}
+
+func TestFirewallActivationRestoresServiceWhenForeignKernelContextDrifts(t *testing.T) {
+	ctx := context.Background()
+	for _, operation := range []string{"activate_existing", "deactivate_existing"} {
+		t.Run(operation, func(t *testing.T) {
+			a, service, baseline, protection := activationFixture(t, operation)
+			writeActivationNetworkFixture(t, service.root)
+			active := tailscaleKernelFixture()
+			inactive, err := activationForeignNftObjects(active)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runner := &activationTailscaleServiceRunner{
+				activationFake: service, topology: activationTailscaleRoutingFixture(activationContextRunner{}),
+				activeRules: active, inactiveRules: inactive,
+			}
+			a.Commands = runner
+			wasActive := service.active
+			baseline.NativeTopology, err = activationHostContext(ctx, runner, service.root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			baseline.NativeContext, err = activationFirewallContext(ctx, runner, service.root, wasActive, false, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			baseline.Digest = activationDigest(baseline)
+			a.firewallActivation.Baseline = func() (firewallActivationBaseline, Protection, error) {
+				return baseline, protection, nil
+			}
+			if wasActive {
+				runner.inactiveRules = strings.ReplaceAll(inactive, "41641", "51641")
+			} else {
+				runner.activeRules = strings.ReplaceAll(active, "41641", "51641")
+			}
+			_, err = a.processFirewallActivation(ctx, activationPolicy(t, a, operation, baseline, protection))
+			receipt := ReadFirewallActivationStatus(a.Config.StateDir)
+			if err == nil || !strings.Contains(err.Error(), "foreign kernel firewall context changed") || receipt == nil ||
+				receipt.Status != "rolled_back" || service.active != wasActive || service.enabled != wasActive {
+				t.Fatal("foreign context change did not restore the original service", err, receipt)
+			}
+			if got, err := activationFirewallContext(ctx, runner, service.root, wasActive, false, nil); err != nil || got != baseline.NativeContext {
+				t.Fatal("original foreign kernel state did not verify after rollback", got, err)
+			}
+		})
 	}
 }

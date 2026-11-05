@@ -58,11 +58,10 @@ func (a *Agent) firewallActivationStatus(value FirewallActivationReport) error {
 }
 
 func (a *Agent) checkBroadFirewallMaintenance(policy *Policy) error {
-	managed, learned := a.State.ManagedBundle, a.State.LearningAllowBundle
+	managed := a.State.ManagedBundle
 	if a.Config.Enforce || managed != nil && (managed.HostDefaultDeny || len(managed.Rules) != 0 || len(managed.IPSets) != 0) ||
-		learned != nil && (len(learned.Rules) != 0 || len(learned.IPSets) != 0) ||
 		policy.HostDefaultDeny || policy.Enforcement != nil && policy.Enforcement.Authorized ||
-		policy.LearningAllow != nil || len(policy.FirewallChanges) != 0 ||
+		!a.emptyLearningOverlayForMaintenance(policy) || len(policy.FirewallChanges) != 0 ||
 		policy.EgressBundle != nil || policy.Quarantine != nil {
 		return errors.New("remove active or pending firewall enforcement before stopping firewalld or enabling the default inbound allow")
 	}
@@ -74,6 +73,59 @@ func (a *Agent) checkBroadFirewallMaintenance(policy *Policy) error {
 		return errors.New("remove active egress and quarantine controls before this firewall operation")
 	}
 	return nil
+}
+
+func emptyLearningOverlay(overlay *LearningAllow, serverID string) bool {
+	if overlay.ServerID != serverID || overlay.Generation < 0 || len(overlay.Services) != 0 || len(overlay.PolicyIDs) != 0 || len(overlay.Authorities) > 128 {
+		return false
+	}
+	digest, err := learningAllowDigest(overlay)
+	return err == nil && overlay.Digest == digest && overlay.BindingDigest == learningAllowBinding(overlay)
+}
+
+func (a *Agent) emptyLearningOverlayForMaintenance(policy *Policy) bool {
+	desired, prior := policy.LearningAllow, a.State.LearningAllowBundle
+	if desired != nil && !emptyLearningOverlay(desired, policy.ServerID) {
+		return false
+	}
+	if prior == nil {
+		// The controller always sends a generation-zero no-policy envelope
+		// to enrolled endpoints without learning history.
+		return desired == nil || desired.Generation == 0 && !desired.Authorized && len(desired.Authorities) == 0
+	}
+	if len(prior.Rules) != 0 || len(prior.IPSets) != 0 || !emptyLearningOverlay(&prior.Assignment, policy.ServerID) ||
+		prior.Assignment.Generation == 0 || !validManagedNonce(prior.CommitNonce) {
+		return false
+	}
+	journal, err := readManagedJournal(learningJournalPath(a.Config.StateDir, prior.CommitNonce), prior.CommitNonce)
+	if err != nil || journal.Phase != "committed" || !reflect.DeepEqual(journal.Next.Learning, prior) {
+		return false
+	}
+	// The controller retains reviewed removal tombstones after the last grant
+	// was removed. A later protection rebind can repeat those empty receipts.
+	cleaned := make(map[string]bool, len(prior.Assignment.Authorities))
+	for _, authority := range prior.Assignment.Authorities {
+		if authority.Kind != "reviewed" || !changeIDValid(authority.PolicyID) || cleaned[authority.PolicyID] ||
+			len(authority.Services) != 0 || len(authority.Ports) != 0 || len(authority.ObservationKinds) != 0 {
+			return false
+		}
+		cleaned[authority.PolicyID] = true
+	}
+	if desired == nil {
+		return true
+	}
+	if desired.Generation < prior.Assignment.Generation ||
+		desired.Generation == prior.Assignment.Generation && desired.BindingDigest != prior.Assignment.BindingDigest {
+		return false
+	}
+	for _, authority := range desired.Authorities {
+		if authority.Kind != "reviewed" || !cleaned[authority.PolicyID] ||
+			len(authority.Services) != 0 || len(authority.Ports) != 0 || len(authority.ObservationKinds) != 0 {
+			return false
+		}
+		delete(cleaned, authority.PolicyID)
+	}
+	return true
 }
 
 func activationReceipt(request *FirewallActivationAssignment) FirewallActivationReport {
@@ -178,6 +230,13 @@ func (a *Agent) processFirewallActivation(ctx context.Context, policy *Policy) (
 	defer cancel()
 	ctx = bounded
 	baseline, protection, err := a.firewallActivationBaseline(ctx, request.TargetOperation)
+	if err == nil {
+		err = a.captureMaintenanceOwnership(ctx, !baseline.Assessment.FirewalldActive && baseline.NativeContext != "")
+		if err != nil {
+			baseline.Assessment.CanApply = false
+			baseline.Assessment.Blockers = append(baseline.Assessment.Blockers, err.Error())
+		}
+	}
 	result.Assessment = &baseline.Assessment
 	if request.Operation == "assess" {
 		result.BaselineDigest = baseline.Digest
@@ -380,8 +439,12 @@ func (a *Agent) applyFirewallActivation(ctx context.Context, policy *Policy, req
 				return rollback(err)
 			}
 			if baseline.NativeTopology != "" {
-				if _, err := activationInactiveContext(ctx, a.Commands, a.activationRoot(), false, nil); err != nil {
+				current, err := activationInactiveContext(ctx, a.Commands, a.activationRoot(), false, nil)
+				if err != nil {
 					return rollback(err)
+				}
+				if baseline.NativeContext != "" && current != baseline.NativeContext {
+					return rollback(errors.New("foreign kernel firewall context changed while stopping firewalld"))
 				}
 			}
 		} else {
@@ -503,6 +566,12 @@ func (a *Agent) applyFirewallActivation(ctx context.Context, policy *Policy, req
 		}
 		if err != nil || topology != baseline.NativeTopology {
 			return rollback(errors.New("host namespace, routing, links or forwarding changed during activation"))
+		}
+	}
+	if (operation == "activate_existing" || operation == "activate_allow_all") && baseline.Assessment.Backend == "nftables" && baseline.NativeContext != "" {
+		current, err := activationFirewallContext(ctx, a.Commands, a.activationRoot(), true, false, nil)
+		if err != nil || current != baseline.NativeContext {
+			return rollback(errors.New("foreign kernel firewall context changed while starting firewalld"))
 		}
 	}
 	if err := activationAppliedFilesMatch(a.activationRoot(), journal.FirewallActivation); err != nil {

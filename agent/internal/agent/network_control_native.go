@@ -290,7 +290,12 @@ func networkNamespace(root string) (string, error) {
 }
 
 func nativeNetworkTopology(ctx context.Context, runner CommandRunner) ([]map[string]any, error) {
+	return readNativeNetworkTopology(ctx, runner, false)
+}
+
+func readNativeNetworkTopology(ctx context.Context, runner CommandRunner, activation bool) ([]map[string]any, error) {
 	result := []map[string]any{}
+	tailscaleFamilies := 0
 	for _, family := range []string{"-4", "-6"} {
 		raw, err := runner.Run(ctx, "ip", family, "-j", "rule", "show")
 		if err != nil {
@@ -300,18 +305,30 @@ func nativeNetworkTopology(ctx context.Context, runner CommandRunner) ([]map[str
 		if err != nil {
 			return nil, err
 		}
-		for _, value := range rules {
-			row, ok := value.(map[string]any)
-			if !ok {
-				return nil, errors.New("invalid routing rule")
+		tailscale := false
+		if activation {
+			tailscale, err = activationRoutingRules(rules, family)
+			if err != nil {
+				return nil, err
 			}
-			table := fmt.Sprint(row["table"])
-			if table != "local" && table != "main" && table != "default" && table != "255" && table != "254" && table != "253" {
-				return nil, errors.New("policy routing is outside validated host isolation coverage")
+			if tailscale {
+				tailscaleFamilies++
+				result = append(result, map[string]any{"family": family, "routing_rules": rules})
 			}
-			for _, key := range []string{"fwmark", "iif", "oif", "uidrange", "l3mdev", "not"} {
-				if _, exists := row[key]; exists {
-					return nil, errors.New("ambiguous routing selectors prevent host isolation")
+		} else {
+			for _, value := range rules {
+				row, ok := value.(map[string]any)
+				if !ok {
+					return nil, errors.New("invalid routing rule")
+				}
+				table := fmt.Sprint(row["table"])
+				if table != "local" && table != "main" && table != "default" && table != "255" && table != "254" && table != "253" {
+					return nil, errors.New("policy routing is outside validated host isolation coverage")
+				}
+				for _, key := range []string{"fwmark", "iif", "oif", "uidrange", "l3mdev", "not"} {
+					if _, exists := row[key]; exists {
+						return nil, errors.New("ambiguous routing selectors prevent host isolation")
+					}
 				}
 			}
 		}
@@ -328,6 +345,9 @@ func nativeNetworkTopology(ctx context.Context, runner CommandRunner) ([]map[str
 			if !ok {
 				return nil, errors.New("invalid native route")
 			}
+			if activation && !activationRouteSupported(row, family, tailscale) {
+				return nil, errors.New("unrecognized route prevents firewall activation")
+			}
 			copy := map[string]any{"family": family}
 			for _, key := range []string{"dst", "gateway", "dev", "prefsrc", "table", "type", "scope", "metric", "protocol"} {
 				if item, exists := row[key]; exists {
@@ -337,7 +357,11 @@ func nativeNetworkTopology(ctx context.Context, runner CommandRunner) ([]map[str
 			result = append(result, copy)
 		}
 	}
-	raw, err := runner.Run(ctx, "ip", "-j", "link", "show")
+	linkArgs := []string{"-j", "link", "show"}
+	if activation {
+		linkArgs = []string{"-j", "-d", "link", "show"}
+	}
+	raw, err := runner.Run(ctx, "ip", linkArgs...)
 	if err != nil {
 		return nil, errors.New("link inventory unavailable")
 	}
@@ -345,6 +369,7 @@ func nativeNetworkTopology(ctx context.Context, runner CommandRunner) ([]map[str
 	if err != nil {
 		return nil, err
 	}
+	tailscaleLinks := 0
 	for _, value := range links {
 		row, ok := value.(map[string]any)
 		if !ok {
@@ -353,10 +378,19 @@ func nativeNetworkTopology(ctx context.Context, runner CommandRunner) ([]map[str
 		info, _ := row["linkinfo"].(map[string]any)
 		kind, _ := info["info_kind"].(string)
 		switch kind {
-		case "bridge", "veth", "macvlan", "ipvlan", "vxlan", "geneve", "tun", "tap":
+		case "tun":
+			data, _ := info["info_data"].(map[string]any)
+			if !activation || tailscaleFamilies != 2 || row["ifname"] != "tailscale0" || row["master"] != nil || data["type"] != "tun" {
+				return nil, errors.New("unrecognized tunnel requires a separately validated activation adapter")
+			}
+			tailscaleLinks++
+		case "bridge", "veth", "macvlan", "ipvlan", "vxlan", "geneve", "tap":
 			return nil, errors.New("bridges/containers/tunnels require a separately validated isolation adapter")
 		}
 		result = append(result, map[string]any{"link": row["ifname"], "kind": kind, "master": row["master"]})
+	}
+	if tailscaleFamilies != 0 && (tailscaleFamilies != 2 || tailscaleLinks != 1) {
+		return nil, errors.New("complete Tailscale routing and tunnel inventory is required before activation")
 	}
 	sort.Slice(result, func(i, j int) bool { return directApprovalDigest(result[i]) < directApprovalDigest(result[j]) })
 	return result, nil

@@ -137,6 +137,17 @@ func (a *Agent) reconcileCaptureSidecars(ctx context.Context, scopes []capturePo
 		}
 		return nil
 	}
+	if len(rules) > 0 {
+		present, err := queryCaptureSidecar(ctx, a.Commands, rules[0])
+		if err != nil {
+			_ = controller.SetDeniedPrefixes(captureGroup(a.Config.StateDir), nil)
+			return err
+		}
+		if present {
+			_ = controller.SetDeniedPrefixes(captureGroup(a.Config.StateDir), nil)
+			return errors.New("NFLOG instrumentation ownership conflicted")
+		}
+	}
 	if err = controller.SetDeniedPrefixes(captureGroup(a.Config.StateDir), prefixes); err != nil {
 		return err
 	}

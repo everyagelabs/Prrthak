@@ -1,10 +1,12 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -18,6 +20,12 @@ type nftTailscaleChain struct {
 // hooks are safe. Only the verified chains and their reachable INPUT rules
 // can coexist with the firewalld host-input proof.
 type nftTailscaleContext map[string]map[string]*nftTailscaleChain
+
+type tailscaleProofRequest struct {
+	connmark, opaqueUDP, opaqueMasquerade bool
+}
+
+type tailscaleProofReader func(string, tailscaleProofRequest) ([]string, bool)
 
 func (context nftTailscaleContext) add(kind string, item nftKernelItem, raw json.RawMessage) bool {
 	if item.Family != "ip" && item.Family != "ip6" {
@@ -107,12 +115,14 @@ func validTailscaleChain(item nftKernelItem) bool {
 	}
 }
 
-func (context nftTailscaleContext) proof() (json.RawMessage, bool) {
+func (context nftTailscaleContext) proof(read tailscaleProofReader) (json.RawMessage, bool) {
+	requests := map[string]tailscaleProofRequest{}
 	for table, chains := range context {
 		family, name, _ := strings.Cut(table, "/")
 		if context[family+"/filter"] == nil {
 			return nil, false
 		}
+		request := requests[family]
 		for chain, definition := range chains {
 			rules := definition.Rules
 			switch name + "/" + chain {
@@ -121,9 +131,11 @@ func (context nftTailscaleContext) proof() (json.RawMessage, bool) {
 					return nil, false
 				}
 			case "filter/ts-input":
-				if !validTailscaleInput(family, rules) {
+				opaqueUDP, valid := validTailscaleInput(family, rules)
+				if !valid {
 					return nil, false
 				}
+				request.opaqueUDP = opaqueUDP
 			case "filter/FORWARD", "nat/POSTROUTING":
 				target := "ts-" + strings.ToLower(chain)
 				if len(rules) != 0 && !onlyTailscaleJump(rules, target, chains) {
@@ -136,9 +148,16 @@ func (context nftTailscaleContext) proof() (json.RawMessage, bool) {
 				if len(rules) > 1 || len(rules) == 1 && !validTailscaleMasquerade(rules[0]) {
 					return nil, false
 				}
+				request.opaqueMasquerade = len(rules) == 1 && opaqueTailscaleMasquerade(rules[0])
+			case "mangle/PREROUTING", "mangle/OUTPUT":
+				if len(rules) != 0 {
+					if !tailscaleConnmarkPair(chains) {
+						return nil, false
+					}
+					request.connmark = true
+				}
 			default:
-				// In particular, no active destination NAT, pre-routing
-				// marks or additional rules in a competing input hook.
+				// No active destination NAT or competing input hook.
 				if len(rules) != 0 {
 					return nil, false
 				}
@@ -147,8 +166,31 @@ func (context nftTailscaleContext) proof() (json.RawMessage, bool) {
 		if name == "filter" && (chains["INPUT"] == nil || chains["ts-input"] == nil) {
 			return nil, false
 		}
+		requests[family] = request
 	}
-	encoded, err := json.Marshal(context)
+	readback := map[string][]string{}
+	for _, family := range []string{"ip", "ip6"} {
+		request := requests[family]
+		if !request.connmark && !request.opaqueUDP && !request.opaqueMasquerade {
+			continue
+		}
+		if read == nil {
+			return nil, false
+		}
+		rules, ok := read(family, request)
+		if !ok {
+			return nil, false
+		}
+		readback[family] = rules
+	}
+	var proof any = context
+	if len(readback) != 0 {
+		proof = struct {
+			Chains   nftTailscaleContext
+			Readback map[string][]string
+		}{context, readback}
+	}
+	encoded, err := json.Marshal(proof)
 	return encoded, err == nil
 }
 
@@ -172,20 +214,34 @@ const tailscaleInterface = `{"match":{"op":"==","left":{"meta":{"key":"iifname"}
 const nonTailscaleInterface = `{"match":{"op":"!=","left":{"meta":{"key":"iifname"}},"right":"tailscale0"}}`
 const acceptNft = `{"accept":null}`
 
-func validTailscaleInput(family string, rules [][]json.RawMessage) bool {
+func validTailscaleInput(family string, rules [][]json.RawMessage) (opaqueUDP, valid bool) {
 	if len(rules) > 0 && tailscaleLoopbackRule(family, rules[0]) {
 		rules = rules[1:]
 	}
 	if family == "ip" {
-		if len(rules) < 2 || !tailscaleAntiSpoofRule(rules[0], "100.115.92.0", 23, "return") || !tailscaleAntiSpoofRule(rules[1], "100.64.0.0", 10, "drop") {
-			return false
+		switch {
+		case len(rules) < 3:
+			return false, false
+		case tailscaleAntiSpoofPair(rules[0], rules[1]):
+			rules = rules[2:]
+		case tailscaleAntiSpoofPair(rules[len(rules)-2], rules[len(rules)-1]):
+			rules = rules[:len(rules)-2]
+		default:
+			return false, false
 		}
-		rules = rules[2:]
 	}
 	if len(rules) == 0 || !equalNftRule(rules[0], tailscaleInterface, acceptNft) {
-		return false
+		return false, false
 	}
-	return len(rules) == 1 || len(rules) == 2 && tailscaleUDPPortRule(rules[1])
+	if len(rules) == 2 && equalNftRule(rules[1], nftUDPProtocol, nftXTMatch("udp"), acceptNft) {
+		return true, true
+	}
+	return false, len(rules) == 1 || len(rules) == 2 && tailscaleUDPPortRule(rules[1])
+}
+
+func tailscaleAntiSpoofPair(first, second []json.RawMessage) bool {
+	return tailscaleAntiSpoofRule(first, "100.115.92.0", 23, "return") &&
+		tailscaleAntiSpoofRule(second, "100.64.0.0", 10, "drop")
 }
 
 func tailscaleAntiSpoofRule(rule []json.RawMessage, network string, bits int, verdict string) bool {
@@ -216,8 +272,10 @@ func tailscaleLoopbackRule(family string, rule []json.RawMessage) bool {
 	return false
 }
 
+const nftUDPProtocol = `{"match":{"op":"==","left":{"meta":{"key":"l4proto"}},"right":"udp"}}`
+
 func tailscaleUDPPortRule(rule []json.RawMessage) bool {
-	if len(rule) == 3 && nftExpressionEqual(string(rule[0]), `{"match":{"op":"==","left":{"meta":{"key":"l4proto"}},"right":"udp"}}`) {
+	if len(rule) == 3 && nftExpressionEqual(string(rule[0]), nftUDPProtocol) {
 		rule = rule[1:]
 	}
 	if len(rule) != 2 {
@@ -237,6 +295,105 @@ func validTailscaleMasquerade(rule []json.RawMessage) bool {
 	mark := `{"match":{"op":"==","left":{"&":[{"meta":{"key":"mark"}},16711680]},"right":262144}}`
 	// iptables-nft may hide target arguments in JSON. This source-NAT
 	// target is reachable only after routing and outside host INPUT.
-	return equalNftRule(rule, mark, `{"xt":{"type":"target","name":"MASQUERADE"}}`) ||
+	return opaqueTailscaleMasquerade(rule) ||
+		equalNftRule(rule, mark, `{"xt":{"type":"target","name":"MASQUERADE"}}`) ||
 		equalNftRule(rule, mark, `{"masquerade":null}`) || equalNftRule(rule, mark, `{"masquerade":{}}`)
+}
+
+func opaqueTailscaleMasquerade(rule []json.RawMessage) bool {
+	return equalNftRule(rule, nftXTMatch("mark"), `{"xt":{"type":"target","name":"MASQUERADE"}}`)
+}
+
+func nftXTMatch(name string) string {
+	return fmt.Sprintf(`{"xt":{"type":"match","name":%q}}`, name)
+}
+
+func tailscaleConnmarkPair(chains map[string]*nftTailscaleChain) bool {
+	pre, out := chains["PREROUTING"], chains["OUTPUT"]
+	if pre == nil || out == nil || len(pre.Rules) != 1 || len(out.Rules) != 1 {
+		return false
+	}
+	const target = `{"xt":{"type":"target","name":"CONNMARK"}}`
+	const nonzeroMark = `{"match":{"op":"!=","left":{"&":[{"meta":{"key":"mark"}},16711680]},"right":0}}`
+	return equalNftRule(pre.Rules[0], nftXTMatch("conntrack"), nftXTMatch("connmark"), target) &&
+		(equalNftRule(out.Rules[0], nftXTMatch("conntrack"), nftXTMatch("mark"), target) ||
+			equalNftRule(out.Rules[0], nftXTMatch("conntrack"), nonzeroMark, target))
+}
+
+const tailscaleConnmarkRestore = "-A PREROUTING -m conntrack --ctstate RELATED,ESTABLISHED -m connmark ! --mark 0x0/0xff0000 -j CONNMARK --restore-mark --nfmask 0xff0000 --ctmask 0xff0000"
+const tailscaleConnmarkSave = "-A OUTPUT -m conntrack --ctstate NEW -m mark ! --mark 0x0/0xff0000 -j CONNMARK --save-mark --nfmask 0xff0000 --ctmask 0xff0000"
+const tailscaleMasqueradeReadback = "-N ts-postrouting\n-A ts-postrouting -m mark --mark 0x40000/0xff0000 -j MASQUERADE"
+
+// Read from the same binary whose version proves the nft backend. Older RHEL
+// exposes it through the iptables alternative, without a separate -nft name.
+func readTailscaleXTables(ctx context.Context, commands CommandRunner, family string, request tailscaleProofRequest) ([]string, bool) {
+	binary := "iptables"
+	if family == "ip6" {
+		binary = "ip6tables"
+	}
+	version, err := commands.Run(ctx, binary, "--version")
+	fields := strings.Fields(version)
+	if err != nil || len(fields) != 3 || fields[0] != binary || !strings.HasPrefix(fields[1], "v") || fields[2] != "(nf_tables)" {
+		return nil, false
+	}
+	var proof []string
+	if request.connmark {
+		raw, err := commands.Run(ctx, binary, "-t", "mangle", "-S")
+		if err != nil || !validTailscaleConnmarkReadback(raw) {
+			return nil, false
+		}
+		proof = append(proof, tailscaleConnmarkRestore, tailscaleConnmarkSave)
+	}
+	if request.opaqueUDP {
+		raw, err := commands.Run(ctx, binary, "-t", "filter", "-S", "ts-input")
+		port := readTailscaleUDPPort(raw)
+		if err != nil || port == 0 {
+			return nil, false
+		}
+		proof = append(proof, "udp/"+strconv.Itoa(port))
+	}
+	if request.opaqueMasquerade {
+		raw, err := commands.Run(ctx, binary, "-t", "nat", "-S", "ts-postrouting")
+		if err != nil || !slices.Equal(strings.Fields(raw), strings.Fields(tailscaleMasqueradeReadback)) {
+			return nil, false
+		}
+		proof = append(proof, tailscaleMasqueradeReadback)
+	}
+	return proof, true
+}
+
+func validTailscaleConnmarkReadback(raw string) bool {
+	rules := []string{}
+	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
+		line = strings.Join(strings.Fields(line), " ")
+		switch line {
+		case "-P PREROUTING ACCEPT", "-P INPUT ACCEPT", "-P FORWARD ACCEPT", "-P OUTPUT ACCEPT", "-P POSTROUTING ACCEPT":
+			continue
+		}
+		// The parser does not infer any opaque arguments. Only the upstream
+		// save/restore pair with both masks restricted to the Tailscale bits
+		// can affect marks, and then only for established inbound packets
+		// or new outbound traffic. It cannot bypass firewalld's host INPUT.
+		rules = append(rules, line)
+	}
+	return slices.Equal(rules, []string{tailscaleConnmarkRestore, tailscaleConnmarkSave})
+}
+
+func readTailscaleUDPPort(raw string) int {
+	port := 0
+	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 || !slices.Equal(fields[:4], []string{"-A", "ts-input", "-p", "udp"}) {
+			continue
+		}
+		if port != 0 || len(fields) != 10 || !slices.Equal(fields[4:7], []string{"-m", "udp", "--dport"}) || !slices.Equal(fields[8:], []string{"-j", "ACCEPT"}) {
+			return 0
+		}
+		n, err := strconv.ParseUint(fields[7], 10, 16)
+		if err != nil || n == 0 {
+			return 0
+		}
+		port = int(n)
+	}
+	return port
 }

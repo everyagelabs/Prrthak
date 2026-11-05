@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"time"
 )
 
@@ -144,12 +145,22 @@ func (a *Agent) sourceBankProtection(ctx context.Context) Protection {
 	return protection
 }
 
+const captureMaintenanceBlocker = "stop traffic learning and monitoring before source-bank maintenance"
+
 func (a *Agent) sourceBankActivityBlocker(now time.Time) string {
 	if a.State.ManagedBundle != nil && a.State.ManagedBundle.HostDefaultDeny {
 		return "disable whole-server default deny through its reviewed GUI workflow before reload maintenance"
 	}
-	if len(a.State.Rules) > 0 || len(ActiveSessions(a.State.Policy, now)) > 0 || len(a.State.PendingDrains) > 0 || a.trafficCapture != nil || a.probe != nil && a.Config.UnexpectedPortMonitorEnabled {
-		return "stop traffic learning and monitoring before source-bank maintenance"
+	if len(ActiveSessions(a.State.Policy, now)) > 0 || len(a.nativeCaptureScopes(now)) > 0 || a.trafficCapture != nil || a.Config.UnexpectedPortMonitorEnabled {
+		return captureMaintenanceBlocker
+	}
+	// Older entries can outlive a failed journal read. Replaying pre-stop
+	// history is independent of live instrumentation, which is checked below.
+	for _, drain := range a.State.PendingDrains {
+		cutoff := SessionCutoff(drain)
+		if cutoff.IsZero() || now.Before(cutoff.Add(learningDrainGrace)) {
+			return captureMaintenanceBlocker
+		}
 	}
 	if a.State.Policy != nil {
 		for _, monitor := range a.State.Policy.HitMonitors {
@@ -159,6 +170,56 @@ func (a *Agent) sourceBankActivityBlocker(now time.Time) string {
 		}
 	}
 	return ""
+}
+
+func (a *Agent) captureMaintenanceOwnership(ctx context.Context, inactiveKernelVerified bool) error {
+	sidecars, err := readCaptureSidecars(a.Config.StateDir)
+	if err != nil {
+		return errors.New("local NFLOG cleanup state could not be verified before firewall maintenance")
+	}
+	rules := append([]OwnedRule(nil), a.State.Rules...)
+	if a.probe != nil {
+		rules = append(rules, a.probe.OwnedRules()...)
+	}
+	if a.hitMonitor != nil {
+		for _, rule := range a.hitMonitor.state.Rules {
+			rules = append(rules, OwnedRule{Zone: rule.Zone, Rule: rule.Rule})
+		}
+	}
+	for _, rule := range sidecars.Rules {
+		rules = append(rules, OwnedRule{Zone: rule.Zone, Rule: rule.text()})
+	}
+	permanent := make(map[string][]string)
+	for _, rule := range rules {
+		if !inactiveKernelVerified {
+			return errors.New(captureMaintenanceBlocker)
+		}
+		if _, err := richTokens(rule.Rule); err != nil || !firewallName.MatchString(rule.Zone) || rule.Rule == "" {
+			return errors.New("recorded capture rule could not be identified before firewall maintenance")
+		}
+		// The inactive kernel proof excludes installed runtime instrumentation.
+		// Also rule out a matching persistent rule that startup would load.
+		list, seen := permanent[rule.Zone]
+		if !seen {
+			out, err := a.Commands.Run(ctx, "firewall-offline-cmd", "--zone="+rule.Zone, "--list-rich-rules")
+			if err != nil {
+				return errors.New("permanent capture rule absence could not be verified")
+			}
+			list = strings.Split(strings.TrimSpace(out), "\n")
+			for _, line := range list {
+				if _, err := richTokens(line); strings.TrimSpace(line) != "" && err != nil {
+					return errors.New("permanent capture rule absence could not be verified")
+				}
+			}
+			permanent[rule.Zone] = list
+		}
+		for _, line := range list {
+			if captureRuleEqual(line, rule.Rule) {
+				return errors.New("recorded capture rule is still present in permanent firewalld")
+			}
+		}
+	}
+	return nil
 }
 
 // processSourceBankPreparation is an explicit signed auxiliary assignment.
@@ -237,6 +298,9 @@ func (a *Agent) processSourceBankPreparation(ctx context.Context, p *Policy) (bo
 	}
 	if message := a.sourceBankActivityBlocker(a.currentTime()); message != "" {
 		return fail(errors.New(message))
+	}
+	if err := a.captureMaintenanceOwnership(ctx, false); err != nil {
+		return fail(err)
 	}
 	baseline, err := a.sourceBankBaseline(ctx)
 	if err != nil {

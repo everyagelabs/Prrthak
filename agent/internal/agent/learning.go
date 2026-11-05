@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const learningDrainGrace = 5 * time.Second
+
 // Pending discovery assignments carry no collection ports. A request is fulfilled
 // only by an actual discovery attempt after the assignment reached this endpoint.
 func (a *Agent) pendingLearningDiscovery(now time.Time) []Session {
@@ -118,7 +120,7 @@ func (a *Agent) rememberLearningTransition(next *Policy, now time.Time) {
 func (a *Agent) drainJournal(ctx context.Context, active []Session, now time.Time) error {
 	if a.Simulate {
 		for id, s := range a.State.PendingDrains {
-			if !now.Before(SessionCutoff(s).Add(5 * time.Second)) {
+			if !now.Before(SessionCutoff(s).Add(learningDrainGrace)) {
 				delete(a.State.PendingDrains, id)
 			}
 		}
@@ -149,7 +151,7 @@ func (a *Agent) drainJournal(ctx context.Context, active []Session, now time.Tim
 	// A brief final read window catches journal delivery slightly behind kernel logging.
 	// The original event timestamp is still strictly bounded by each session cutoff.
 	for id, s := range a.State.PendingDrains {
-		if !now.Before(SessionCutoff(s).Add(5 * time.Second)) {
+		if !now.Before(SessionCutoff(s).Add(learningDrainGrace)) {
 			delete(a.State.PendingDrains, id)
 		}
 	}

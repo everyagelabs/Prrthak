@@ -229,7 +229,7 @@ func (a *Agent) hostDefaultDenyContext(ctx context.Context, protection Protectio
 	// This proof also detects out-of-band kernel hooks/tables and verifies that
 	// loopback/stateful returns precede zone pre-rules in the running backend.
 	raw, err := a.Commands.Run(ctx, "nft", "-j", "list", "ruleset")
-	base, kernelError := hostDefaultDenyKernelContext(raw, protection.Zone)
+	base, kernelError := liveHostDefaultDenyKernelContext(ctx, a.Commands, raw, protection.Zone)
 	if err != nil || kernelError != nil {
 		add("verified nftables host-input ordering without unrecognized hooks or inbound NAT is required")
 	}
